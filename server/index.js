@@ -29,7 +29,8 @@ const BUILDINGS = {
   kura: { name: 'Treasury', costs: [100, 300, 700], bonus: ['Store mon', '4% a day', '12% a day'] },
   garden: { name: 'Herb garden', costs: [80, 220, 550], bonus: ['+1 bandage on rest', '+2 bandages', '+3 bandages, +1 sake'] },
   walls: { name: 'Walls & lanterns', costs: [80, 250, 650], bonus: ['Stakes', 'Fence, +1 honor on rest', 'Palissade, +2 honor'] },
-  stables: { name: 'Stables', costs: [200, 600, 1500], bonus: ['Hitching posts (2 horses)', 'Small shed (4 horses, +12% speed)', 'Full stable (6 horses, +28% speed)'] }
+  stables: { name: 'Stables', costs: [200, 600, 1500], bonus: ['Hitching posts (2 horses)', 'Small shed (4 horses, +12% speed)', 'Full stable (6 horses, +28% speed)'] },
+  hearth: { name: 'Campfire', costs: [60, 180, 420], bonus: ['A fire to sit around', 'Lanterns and bedrolls', 'A shelter over the fire'] }
 };
 
 function emptyBuildings() {
@@ -103,7 +104,7 @@ function makeGang(leaderId, name) {
 }
 function campPos(g) {
   const s = MP_SLOTS[g.slot] || MP_SLOTS[0];
-  return [s.x, s.y + 2];
+  return [s.x, s.y + 1];
 }
 function cleanName(raw, fallback) {
   const n = String(raw || '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24);

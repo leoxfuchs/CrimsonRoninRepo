@@ -116,11 +116,6 @@ body.talking .hud-bl,body.talking .hud-br,body.talking #prompt,body.talking #tou
 .clue div{font-size:13px;line-height:1.45;color:#d8ccb0;} .clue .who{color:var(--paper);font-weight:700;}
 .clue.unk b{background:#2a2228;color:#8a7e74;} .clue.unk div{color:#8a7e74;}
 .arrow{text-align:center;color:var(--gold);font-size:13px;line-height:1;}
-.evDoc{position:relative;background:#e8dcc0;color:#2a1e16;padding:16px 64px 14px 18px;border:1px solid #b8a47c;box-shadow:inset 0 0 24px #b89a6a66;font:15px/1.6 "Shippori Mincho B1",serif;margin:0 0 12px;}
-.evDoc small{display:block;font:12px "DotGothic16",monospace;color:#7a5a3a;margin-top:6px;}
-.evSeal{position:absolute;right:12px;top:12px;width:40px;height:40px;display:grid;place-items:center;background:#b8322a;color:#f8ece0;font:700 20px "Shippori Mincho B1",serif;border-radius:4px;transform:rotate(-6deg);opacity:.9;}
-.evMeans{border-left:3px solid var(--gold);padding:6px 12px;background:#ffd24a10;margin:0 0 10px;}
-.evMeans b{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);} .evMeans p{font-size:14px;line-height:1.55;color:var(--paper);margin:4px 0 0;}
 #tracker .tw{font-size:11px;line-height:1.45;color:#9fd0ff;}
 em.kw{font-style:normal;color:#ffd24a;}
 #qbKind{font-size:11px;letter-spacing:.4em;text-transform:uppercase;color:var(--gold);}
@@ -245,6 +240,7 @@ body.talking #mObj,body.talking #mSubs{display:none;}
 #mFade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .5s;z-index:7;}
 #mFade.on{opacity:1;} #mFade.slow{transition:opacity 1.6s;}
 #talk.narr #tkFace,#talk.narr #tkTag{display:none;} #talk.narr #tkText{font-style:italic;color:#e8dcc0;}
+#talk.letter #tkFace{display:none;} #talk.letter #tkText{font-style:normal;color:#fff;padding-left:0;text-indent:0;}
 </style>
 
 <div id="app">
@@ -1013,6 +1009,7 @@ const World = {
       for (const j of [x > 0 ? i - 1 : -1, x < HL - 1 ? i + 1 : -1, y > 0 ? i - HL : -1, y < HL - 1 ? i + HL : -1]) if (j >= 0 && hw[j] > d) { hw[j] = d; q[qn++] = j; }
     }
     this.genMs = Math.round(performance.now() - t0); this.pristine = true;
+    if (typeof MpCamp !== 'undefined') MpCamp.ready = false;
   },
   // ---- streaming: blocks of terrain, then the settlements on them, then the trees and rocks
   terrain(k) {
@@ -4521,7 +4518,7 @@ const G = {
     // a saved game picks up at the next mission's marker, and a mission that follows straight on starts by itself
     Missions.cur = null; Missions.failing = false; Missions.reloading = false; Missions.ambient = []; Missions.chainDef = null; Subs.clear();
     if (this.mp) {
-      try { MpCamp.ensure(); MpCamp.apply(Net.gang); } catch (e) { console.warn('MpCamp', e); }
+      try { MpCamp.ready = false; MpCamp.ensure(); MpCamp.apply(Net.gang); } catch (e) { console.warn('MpCamp', e); }
       if (typeof Net !== 'undefined' && Net.onStart) Net.onStart();
     }
     if (!this.mp && nextDef && (fresh || nextDef.chain || nextDef.kid)) setTimeout(() => { if (G.profile === profile && !Missions.cur) Missions.start(nextDef, { place: true }); }, 400);
@@ -5932,7 +5929,7 @@ const Creator = {
     prof.armors = [0]; prof.armor = 0; prof.gold = 240; prof.horse = { coat: 0, name: 'Scrag', spdMul: 0.55 };
     prof.hideout = { barracks: 0, forge: 0, shrine: 0, dojo: 0, garden: 0, kura: 0, walls: 0 };
     $('title').hidden = true; UI.showHUD(false);
-    Net.connect(prof, null, () => { G.start(prof, true); Systems.save(); }, err => { UI.toast(err || 'Could not reach the Gang world', 'shame'); $('title').hidden = false; });
+    Net.connect(prof, null, () => { G.start(prof, true); Systems.save(); }, err => { UI.toast(err || 'Could not reach the Gang world', 'shame'); if (G.state !== 'play') $('title').hidden = false; });
   },
   begin(skip) { $('intro').hidden = true; const prof = this.pending; G.start(prof, skip); Systems.save(); }
 };
@@ -6096,6 +6093,11 @@ const Talk = {
     bladeJoin({ actor, def }) {
       const room = G.profile.gang.filter(m => m.alive).length < G.gangCap();
       return { speaker: def.name, actor, sub: 'An oath', lines: ['You could have taken my head. Instead you gave it back to me.', 'Let me carry my blade under your banner.'], note: room ? '' : 'Your barracks are full. Rebuild them at the hideout, or dismiss someone.', buttons: [{ label: 'Accept their oath', fn: () => Systems.recruitBlade(actor, def), disabled: !room }, { label: 'Let them go', alt: true }] };
+    },
+    evidence({ id, done }) {
+      const E = EVIDENCE[id]; if (!E) return null;
+      const lines = String(E.doc).split(/(?<=[.!?])\s+/).filter(Boolean);
+      return { letter: true, speaker: E.title, actor: null, sub: E.from, lines: lines.length ? lines : [E.doc], buttons: [{ label: 'Continue', fn: () => { if (done) done(); } }] };
     }
   },
   open(d) {
@@ -6108,7 +6110,7 @@ const Talk = {
     const h = strHash(d.speaker); this.pitch = (a && (a.armor >= 2 || a.tag === 'kagemaru') ? 120 : 165) + (h % 190);
     $('tkName').textContent = d.speaker || ''; $('tkSub').textContent = d.sub || (d.title ? 'Quest · ' + d.title : '');
     $('tkNote').textContent = ''; $('tkOpts').innerHTML = ''; $('tkNext').hidden = true;
-    $('talk').hidden = false; $('talk').classList.toggle('narr', !d.speaker); document.body.classList.add('talking');
+    $('talk').hidden = false; $('talk').classList.toggle('letter', !!d.letter); $('talk').classList.toggle('narr', !d.speaker && !d.letter); document.body.classList.add('talking');
     this._m = this._b = null; this.face(); this.text(); Guide.meet(d.speaker);
     const box = $('talk'); if (!box._wired) { box._wired = true; box.addEventListener('click', e => { if (!Talk.d || e.target.closest('.tkOpt')) return; Talk.advance(); }); }
   },
@@ -6117,7 +6119,7 @@ const Talk = {
     const a = this.actor, g = $('tkFace').getContext('2d');
     Portrait.draw(g, a ? a.look : null, { mouth: this._m, blink: this._b, angry: this.angry, armor: a ? a.armor : 0, wpn: a ? a.wpn : null, child: childOf(a) });
   },
-  text() { $('tkText').innerHTML = '* ' + Guide.highlight(this.lines[this.li], this.shown); },
+  text() { $('tkText').innerHTML = (this.d && this.d.letter ? '' : '* ') + Guide.highlight(this.lines[this.li], this.shown); },
   last() { return this.li >= this.lines.length - 1; },
   choices() { const b = this.d.buttons || []; return b.length > 1 ? b : null; },
   finish() {
@@ -6334,31 +6336,30 @@ const Story = {
 // the open world (side quests, bounties, Blades, camps) opens once Ren has a dog, a horse and a stolen map
 const storyFree = () => !!(G.mp || (G.profile && G.profile.story && G.profile.story.n > 10));
 // ============================================================ STORY GUIDE: name cards, documents, the story so far
-// The story itself lives in the missions (24_missions.js and the act files). This keeps the player oriented: a name card
-// the first time someone important speaks, the documents Ren finds shown as the documents themselves with a plain
-// "what this means", gold names in dialogue, and the journal's account of every act and mission so far.
+// The story itself lives in the missions. This keeps the player oriented: a name card the first time someone important
+// speaks, papers Ren finds shown as the papers themselves in the talk box, gold names in dialogue, and the journal.
 const CHAPTERS = {};
 // the papers that tell the empire's story in its own words
 const EVIDENCE = {
-  map: { title: 'A stolen imperial map', seal: '図', doc: 'Three places marked in red ink: a training ground beyond Red Pine Ridge, a grain depot south of the Dark Wood, and a fortified provincial palace.', from: 'a satchel on an imperial tax wagon', means: 'Ren has survived by running away. Tomorrow he begins learning how to make the people chasing him afraid to follow.' },
-  schedule: { title: 'A supply schedule', seal: '輸', doc: 'Escort: two field guns, powder and fittings, to Black Reed Fort on the coast, for the new artillery battery. Route by the old stone bridge, then the coast road.', from: 'the pocket of a wounded conscript', means: 'The weapons will cross the flood-weakened bridge, where families are sheltering under the arches, on their way to a coastal fortress.' },
-  quotas: { title: 'A list of villages', seal: '税', doc: 'Villages of the northern road. Grain quotas for the year, raised again after the crop failures. Kiyohara: quota doubled.', from: 'stamped with the golden sun', means: 'The hunger in the countryside is not an accident. Someone in the empire is raising quotas on villages that cannot pay, to make them starve.' },
-  example: { title: 'Register of punitive raids', seal: '日', doc: 'Villages scheduled for punitive raids, circled in red. Beside Kiyohara: COLLECTIVE RESISTANCE — EXAMPLE AUTHORIZED.', from: 'the training ground\'s record room', means: 'Kiyohara was not destroyed in the confusion of war. Its destruction was ordered, to frighten every village that might resist Kahn.' },
-  prisoners: { title: 'Register of the missing', seal: '囚', doc: 'Prisoners moved through the Sazanami district. Executed. Labour camp. Military service. Toma Senda: transferred to a labour settlement in the eastern mountains. No execution mark.', from: 'the Sazanami convoy\'s records', means: 'Aiko\'s little brother may still be alive. The empire keeps careful books on the people it takes.' },
-  medicine: { title: 'The governor\'s confiscation records', seal: '薬', doc: 'Medicine and grain seized from the marsh villages "for the troops". Sold on, the same month, to merchants in Kurohama.', from: 'Governor Saeki\'s office', means: 'The medicine the villages were dying without was never sent to any soldier. The governor sold it.' },
-  cannon: { title: 'An order under Kahn\'s seal', seal: '砲', doc: 'The new field cannon is authorized for use against any settlement suspected of supporting the Lantern Route. Targets: Tatarabe, ...', from: 'the personal seal of Emperor Kahn', means: 'Kahn himself has ordered the cannon turned on villages. One of the targets is Daichi\'s home.' },
-  bombardment: { title: 'The bombardment orders', seal: '令', doc: 'Barrage authorized against the town of Shirakawa, defenders withdrawn, civilians present. Technical report: D. Mori. Final authorization: Col. Sakuma.', from: 'Colonel Sakuma\'s field records', means: 'Daichi kept every page, even the ones with his own name on them. The truth is only useful if it names everyone.' },
-  informants: { title: 'The informant ledger', seal: '密', doc: 'Payments to merchants, officials and elders for reports on the Lantern Route. Some of the names belong to people who have been dead for years.', from: 'a Kagetsuki informant\'s office', means: 'The governor rules by fear: he puts dead men\'s names on his payroll so anyone could seem to be an informer.' },
-  ledgers: { title: 'The secret customs ledgers', seal: '帳', doc: 'Shipments of grain, weapons and prisoners from Kagetsuki to the capital. False arrest reports. A sealed list of the Lantern Route\'s couriers.', from: 'the customs house, Kagetsuki', means: 'The governor has been reporting resistance cells destroyed that still exist, and the list would have handed every courier to the empire.' },
-  kuroda: { title: 'The order for Kiyohara', seal: '将', doc: 'Kiyohara: grain refused, refugees concealed. Make it an example. — Tetsuo Kuroda, commanding.', from: 'a provincial transport', means: 'The man who led the column into Kiyohara signed the order. He is now one of Kahn\'s most trusted generals.' },
-  unification: { title: 'The Unification Campaign', seal: '統', doc: 'Stage one: burn the grain depots and drive the villagers into the cities. Stage two: take the northern passes. Stage three: capture Ren Kisaragi alive.', from: 'General Kuroda\'s letter to Emperor Kahn', means: 'Kahn means to manufacture a refugee crisis to justify ruling the provinces by the sword forever, and he wants Ren alive, as a lesson.' },
-  crusade: { title: 'The orders for the Crusade of the White Sun', seal: '皇', doc: 'Kiyohara refuses the hidden refugees. Punish it. Jiro Kisaragi, household: Emi, Hana. — authorized under the Imperial Seal.', from: 'the royal archive, the capital', means: 'Kuroda carried it out. Kahn authorized it. The chain of responsibility for Kiyohara runs all the way to the throne.' },
-  tunnels: { title: 'Genjiro\'s old map', seal: '図', doc: 'The old roads into the capital. Abandoned waterways under the palace\'s outer district, marked with the grates that close them. And, in his hand: "Royal archive. The originals are kept here."', from: 'Genjiro Takeda\'s pack', means: 'A way under the capital, to the place where the orders for the Crusade are kept. If the map is still true.' },
-  arrests: { title: 'Transfer orders', seal: '捕', doc: 'Archive: remaining records to be burned. Proclamation to follow: the rebellion is defeated. Same night: arrest the provincial representatives at the addresses below.', from: 'the wagon yard, under Arata\'s seal', means: 'If the records burn, the empire can deny everything. If the representatives are taken, the provinces lose their one chance to govern together.' },
-  slips: { title: 'Paper slips from the tube', seal: '狐', doc: 'Seven slips, folded into foxes. Read in order: the copies are under the third floorboard of the wrong-floor storeroom. Under that: "Not finished."', from: 'the archive\'s message tube', means: 'Nao got the copies out. He did not get himself out.' },
-  handsome: { title: 'The last paper slip', seal: '狐', doc: 'TELL REN THE ORIGINALS ARE SAFE ENOUGH. TELL HIM I AM STILL VERY HANDSOME.', from: 'the archive\'s message tube', means: 'The originals are secured. The message does not say whether Nao has escaped.' },
-  calculations: { title: 'The firing calculations', seal: '算', doc: 'Elevations, charges, the weak points of every gun on the ridge, in Daichi\'s small, careful hand. Across the top: "Dismantle. Do not repurpose."', from: 'Daichi Mori', means: 'The guns must never be used again, by anyone.' },
-  names: { title: 'Three more names', seal: '灯', doc: 'Genjiro Takeda. Nao, the Paper Fox. Daichi Mori.', from: 'a new stone beside the memorial, Kiyohara', means: 'They were not perfect men. But they changed, and they gave their lives because they finally believed the future was worth protecting.' },
+  map: { title: 'A stolen imperial map', seal: '図', doc: 'Three places marked in red ink: a training ground beyond Red Pine Ridge, a grain depot south of the Dark Wood, and a fortified provincial palace.', from: 'a satchel on an imperial tax wagon' },
+  schedule: { title: 'A supply schedule', seal: '輸', doc: 'Escort: two field guns, powder and fittings, to Black Reed Fort on the coast, for the new artillery battery. Route by the old stone bridge, then the coast road.', from: 'the pocket of a wounded conscript' },
+  quotas: { title: 'A list of villages', seal: '税', doc: 'Villages of the northern road. Grain quotas for the year, raised again after the crop failures. Kiyohara: quota doubled.', from: 'stamped with the golden sun' },
+  example: { title: 'Register of punitive raids', seal: '日', doc: 'Villages scheduled for punitive raids, circled in red. Beside Kiyohara: COLLECTIVE RESISTANCE — EXAMPLE AUTHORIZED.', from: 'the training ground\'s record room' },
+  prisoners: { title: 'Register of the missing', seal: '囚', doc: 'Prisoners moved through the Sazanami district. Executed. Labour camp. Military service. Toma Senda: transferred to a labour settlement in the eastern mountains. No execution mark.', from: 'the Sazanami convoy\'s records' },
+  medicine: { title: 'The governor\'s confiscation records', seal: '薬', doc: 'Medicine and grain seized from the marsh villages "for the troops". Sold on, the same month, to merchants in Kurohama.', from: 'Governor Saeki\'s office' },
+  cannon: { title: 'An order under Kahn\'s seal', seal: '砲', doc: 'The new field cannon is authorized for use against any settlement suspected of supporting the Lantern Route. Targets: Tatarabe, ...', from: 'the personal seal of Emperor Kahn' },
+  bombardment: { title: 'The bombardment orders', seal: '令', doc: 'Barrage authorized against the town of Shirakawa, defenders withdrawn, civilians present. Technical report: D. Mori. Final authorization: Col. Sakuma.', from: 'Colonel Sakuma\'s field records' },
+  informants: { title: 'The informant ledger', seal: '密', doc: 'Payments to merchants, officials and elders for reports on the Lantern Route. Some of the names belong to people who have been dead for years.', from: 'a Kagetsuki informant\'s office' },
+  ledgers: { title: 'The secret customs ledgers', seal: '帳', doc: 'Shipments of grain, weapons and prisoners from Kagetsuki to the capital. False arrest reports. A sealed list of the Lantern Route\'s couriers.', from: 'the customs house, Kagetsuki' },
+  kuroda: { title: 'The order for Kiyohara', seal: '将', doc: 'Kiyohara: grain refused, refugees concealed. Make it an example. — Tetsuo Kuroda, commanding.', from: 'a provincial transport' },
+  unification: { title: 'The Unification Campaign', seal: '統', doc: 'Stage one: burn the grain depots and drive the villagers into the cities. Stage two: take the northern passes. Stage three: capture Ren Kisaragi alive.', from: 'General Kuroda\'s letter to Emperor Kahn' },
+  crusade: { title: 'The orders for the Crusade of the White Sun', seal: '皇', doc: 'Kiyohara refuses the hidden refugees. Punish it. Jiro Kisaragi, household: Emi, Hana. — authorized under the Imperial Seal.', from: 'the royal archive, the capital' },
+  tunnels: { title: 'Genjiro\'s old map', seal: '図', doc: 'The old roads into the capital. Abandoned waterways under the palace\'s outer district, marked with the grates that close them. And, in his hand: "Royal archive. The originals are kept here."', from: 'Genjiro Takeda\'s pack' },
+  arrests: { title: 'Transfer orders', seal: '捕', doc: 'Archive: remaining records to be burned. Proclamation to follow: the rebellion is defeated. Same night: arrest the provincial representatives at the addresses below.', from: 'the wagon yard, under Arata\'s seal' },
+  slips: { title: 'Paper slips from the tube', seal: '狐', doc: 'Seven slips, folded into foxes. Read in order: the copies are under the third floorboard of the wrong-floor storeroom. Under that: "Not finished."', from: 'the archive\'s message tube' },
+  handsome: { title: 'The last paper slip', seal: '狐', doc: 'TELL REN THE ORIGINALS ARE SAFE ENOUGH. TELL HIM I AM STILL VERY HANDSOME.', from: 'the archive\'s message tube' },
+  calculations: { title: 'The firing calculations', seal: '算', doc: 'Elevations, charges, the weak points of every gun on the ridge, in Daichi\'s small, careful hand. Across the top: "Dismantle. Do not repurpose."', from: 'Daichi Mori' },
+  names: { title: 'Three more names', seal: '灯', doc: 'Genjiro Takeda. Nao, the Paper Fox. Daichi Mori.', from: 'a new stone beside the memorial, Kiyohara' },
 };
 // names and things worth catching in a line of dialogue
 const KEY_TERMS = ['Kahn', 'Kuroda', 'Arata', 'Masanori', 'White Sun', 'Lantern Route', 'Last Lanterns', 'Kiyohara', 'Kumo', 'Miso', 'Aiko', 'Haru', 'Daichi', 'Nao', 'Genjiro', 'Toma', 'Jiro', 'Emi', 'Hana', 'Mizuhama', 'Sazanami', 'Kagetsuki', 'Kurohama', 'Red Pine Ridge', 'Quiet Rain', 'Black Reed Fort', 'Unification Campaign', 'Paper Fox', 'the capital', 'ledger', 'records', 'seal'];
@@ -6391,12 +6392,6 @@ const Guide = {
     return now + acts;
   }
 };
-Object.assign(Panels, {
-  evidence({ id, done }) {
-    const E = EVIDENCE[id]; if (!E) return null;
-    return { title: E.title, seal: '証', html: `<div class="evDoc"><div class="evSeal">${E.seal}</div><p>${esc(E.doc)}</p><small>${esc(E.from)}</small></div><div class="evMeans"><b>What this means</b><p>${esc(E.means)}</p></div><div class="btns"><button class="btn gold" data-act="ok">Understood</button></div>`, on() { UI.close(); if (done) setTimeout(done, 50); return false; } };
-  }
-});
 // ============================================================ HORSE: call, mount, gallop, trample
 const COATS = [
   { name: 'Chestnut', c: ['#7a4426', '#5a3018', '#9a5a34'], mane: '#2a1a12', sock: '#e8dcc8' },
@@ -10313,8 +10308,15 @@ class MCtx {
   near(p, r = 1.5) { return World.randomWalkable(p[0], p[1], 0, r, 40) || p; }
   // a named person of the story; they cannot be harmed unless the mission says so
   cast(id, w, over = {}) {
-    const key = over.key || id, old = this.get(key); if (old) return old;
+    const key = over.key || id, old = this.get(key);
     const p = this.at(w) || [G.player.x + 1.5, G.player.y], q = over.exact ? p : this.near(p, 1.2);
+    if (old) {
+      Object.assign(old, { essential: over.essential ?? true, canYield: false, coward: false, watch: false, mEnemy: !!over.mEnemy });
+      if (over.faction) old.faction = over.faction;
+      if (over.tag) old.tag = over.tag;
+      if (over.face !== undefined) { old.face = over.face; old.postFace = over.face; }
+      this.bring(old, q, over); return old;
+    }
     // someone still in sight (walking off, left standing after the last mission, waiting at the marker) comes back
     const back = key === id && Missions.reclaim(id);
     if (back) {
@@ -10330,17 +10332,28 @@ class MCtx {
   }
   // can the player see this spot right now (not behind a fade, not while a mission is being set up)
   vis(x, y) { return !this.fast && !this.cut && !Card.isBlack() && !GangRide.offscreen(x, y); }
+  // the camera may be looking elsewhere: a spot next to Ren will be on screen the moment it follows him
+  stageSee(x, y) { return this.vis(x, y) || dist(x, y, G.player.x, G.player.y) < 16; }
   // someone new, where the player would see them appear: they walk in from out of sight instead
   arrive(a, q, run = 1.1) {
-    if (!this.vis(q[0], q[1]) && !this.vis(a.x, a.y)) return;
-    const s = Missions.wings(q); if (!s) return;
-    a.x = s[0]; a.y = s[1]; this.walk(a, [q], { run }); a.mArrive = true;
+    if (this.fast || this.cut) return;
+    if (!this.stageSee(q[0], q[1]) && !this.vis(a.x, a.y)) return;
+    const P = G.player, s = Missions.wings(q) || GangRide.behind(32) || offscreenSpot(P, 22, 50);
+    if (s) { a.x = s[0]; a.y = s[1]; if (a.mount) { a.mount.x = a.x; a.mount.y = a.y; } }
+    else { const ang = Math.atan2(q[1] - P.y, q[0] - P.x) + PI; a.x = P.x + Math.cos(ang) * 28; a.y = P.y + Math.sin(ang) * 28; }
+    this.walk(a, [q], { run }); a.mArrive = true;
   }
   // someone already here goes somewhere new: on foot if it could be seen, otherwise they are simply there
   bring(a, q, over = {}) {
-    // a long way off and out of sight: they come on from just out of view, not across half the province
-    if (!this.vis(a.x, a.y) && this.vis(q[0], q[1]) && dist(a.x, a.y, q[0], q[1]) > 24) { const s = Missions.wings(q); if (s && dist(s[0], s[1], q[0], q[1]) < dist(a.x, a.y, q[0], q[1])) { a.x = s[0]; a.y = s[1]; a.nav = null; if (a.mount) { a.mount.x = a.x; a.mount.y = a.y; } } }
-    if (this.vis(a.x, a.y) || this.vis(q[0], q[1])) { if (dist(a.x, a.y, q[0], q[1]) > 1) { this.walk(a, [q], { run: over.run || 0.9 }); a.mArrive = true; } else { a.mPath = null; a.post = q.slice(); } }
+    const P = G.player, seeA = this.vis(a.x, a.y), seeQ = this.stageSee(q[0], q[1]);
+    const far = dist(a.x, a.y, q[0], q[1]) > 24, destNear = dist(q[0], q[1], P.x, P.y) < 18;
+    // a long way off: they come on from just out of view, not across the whole yard
+    if (far && destNear && !(seeA && dist(a.x, a.y, P.x, P.y) < 20)) {
+      const s = Missions.wings(q); if (s) { a.x = s[0]; a.y = s[1]; a.nav = null; if (a.mount) { a.mount.x = a.x; a.mount.y = a.y; } }
+    } else if (!seeA && seeQ && far) {
+      const s = Missions.wings(q); if (s && dist(s[0], s[1], q[0], q[1]) < dist(a.x, a.y, q[0], q[1])) { a.x = s[0]; a.y = s[1]; a.nav = null; if (a.mount) { a.mount.x = a.x; a.mount.y = a.y; } }
+    }
+    if (seeA || seeQ || destNear) { if (dist(a.x, a.y, q[0], q[1]) > 1) { this.walk(a, [q], { run: over.run || 0.9 }); a.mArrive = true; } else { a.mPath = null; a.post = q.slice(); } }
     else { a.x = q[0]; a.y = q[1]; a.post = q.slice(); a.mPath = null; if (a.mount) { a.mount.x = a.x; a.mount.y = a.y; } }
     if (over.face !== undefined) { a.face = over.face; a.postFace = over.face; }
   }
@@ -10374,9 +10387,15 @@ class MCtx {
       else { a.mEnemy = true; if (over.attack !== false) { a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; a.alertT = 0.8; } }
       if (over.name) a.name = a.label = over.name;
       this.add(a, over.key && n === 1 ? over.key : null); out.push(a);
-      if (!over.appear && this.vis(q[0], q[1])) {
-        if (a.mEnemy && over.attack !== false) { const s = Missions.wings(q); if (s) { a.x = s[0]; a.y = s[1]; } }
-        else this.arrive(a, q, over.run || 0.9);
+      if (!over.appear && this.stageSee(q[0], q[1])) {
+        if (a.mEnemy && over.attack !== false) {
+          const s = Missions.wings(q) || GangRide.behind(28); if (s) { a.x = s[0]; a.y = s[1]; }
+        } else if (over.watch && over.post === false && dist(q[0], q[1], G.player.x, G.player.y) < 6) {
+          const P = G.player, ang = Math.atan2(q[1] - P.y, q[0] - P.x) || rnd(TAU);
+          const hold = World.randomWalkable(P.x + Math.cos(ang) * 8, P.y + Math.sin(ang) * 8, 0, 2.2, 24)
+            || [P.x + Math.cos(ang) * 8, P.y + Math.sin(ang) * 8];
+          this.arrive(a, hold, over.run || 0.9);
+        } else this.arrive(a, q, over.run || 0.9);
       }
     }
     return out;
@@ -10602,15 +10621,39 @@ const STEPS = {
   },
   // stay crouched and still in a hiding place while they search
   hide: {
-    begin(m, s) { m.st.T = 0; },
+    begin(m, s) {
+      m.st.T = 0;
+      const p = m.at(s.at);
+      if (p) for (const a of m.group(s.watch || 'watch').filter(a => a.watch)) { a.faceTo(p[0], p[1]); Missions.keepSearch(m, a, p, 8); }
+      // anyone already at Ren's side gets down in the hide with him; people across the map stay where they are
+      const pals = G.gang.concat(m.actors.filter(a => a.castId && CAST[a.castId] && !a.mEnemy && !a.watch && !a.dead && !a.gone));
+      m.st.hidePals = [];
+      for (const a of pals) {
+        if (!a || a.dead || a.isP || m.st.hidePals.includes(a)) continue;
+        if (dist(a.x, a.y, G.player.x, G.player.y) > 10) continue;
+        a.crouch = true; a.mPath = null; a.nav = null;
+        if (a.ai) { a.ai.mode = 'idle'; a.ai.target = null; }
+        if (p) { const q = m.near([p[0] + rnd(-1, 1), p[1] + rnd(-1, 1)], 0.9); a.x = q[0]; a.y = q[1]; if (a.mount) { a.mount.x = a.x; a.mount.y = a.y; } }
+        m.st.hidePals.push(a);
+      }
+    },
     tick(m, s, dt) {
       const p = m.at(s.at), P = G.player, inside = p && dist(P.x, P.y, p[0], p[1]) < (s.r || 2.5);
       const still = inside && !P.moving && (P.crouch || P.mounted && (!G.horse || G.horse.spd < 0.3));
-      const who = Missions.detect(m.group(s.watch || 'watch').filter(a => a.watch), dt, s, still ? 0.2 : 1);
+      if (p) for (const a of m.group(s.watch || 'watch').filter(a => a.watch)) Missions.keepSearch(m, a, p, 7.5);
+      for (const a of m.st.hidePals || []) { if (!a || a.dead) continue; a.crouch = true; if (a.ai) a.ai.mode = 'idle'; }
+      const who = Missions.detect(m.group(s.watch || 'watch').filter(a => a.watch), dt, s, still ? 0.15 : 1);
       if (who) { Missions.fail(s.why || 'They found you.'); return false; }
       m.st.inside = still;
       if (m.st.inside) m.st.T += dt;
       return m.st.T >= (s.dur || 8);
+    },
+    end(m) {
+      for (const a of m.st.hidePals || []) {
+        if (!a || a.dead) continue;
+        a.crouch = false;
+        if (a.comp && a.ai) a.ai.mode = 'follow';
+      }
     }
   },
   escape: {
@@ -10870,7 +10913,7 @@ const Missions = {
   // somewhere out of sight to walk on from, toward q: a reachable spot if there is one, any hidden one if not
   wings(q) {
     const P = G.player, ang = Math.atan2(q[1] - P.y, q[0] - P.x);
-    return Nav.offstage(q[0], q[1], ang) || Nav.offstage(q[0], q[1], ang, { reach: false }) || offscreenSpot(P, 24, 40);
+    return Nav.offstage(q[0], q[1], ang) || Nav.offstage(q[0], q[1], ang, { reach: false }) || GangRide.behind(30) || offscreenSpot(P, 22, 48) || offscreenSpot(P, 16, 56);
   },
   // someone the mission is done with walks off out of sight; Missions.tidy removes them once nobody can see them
   sendOff(a) {
@@ -11005,13 +11048,32 @@ const Missions = {
     const P = G.player; if (P.dead || (window.BOT && BOT.blind)) return null;
     for (const a of list) {
       if (a.dead || a.yielded || a.sleeping || a.lying || a.state === 'kneel' || a.state === 'sleep' || a.state === 'sit') { a.aware = 0; continue; }
-      const d = dist(a.x, a.y, P.x, P.y); let R = (a.viewR || s.view || 8) * (G.night ? 0.75 : 1) * (P.crouch ? 0.55 : 1) * (P.mounted ? 1.4 : 1);
-      const ang = Math.atan2(P.y - a.y, P.x - a.x), inCone = Math.abs(angDiff(a.face, ang)) < 0.95, close = d < (P.crouch ? 1.1 : 2.2);
+      const d = dist(a.x, a.y, P.x, P.y);
+      // arm's reach: nobody "doesn't notice" a person they are standing on
+      if (d < 1.5 && Guns.los(a, P)) { a.aware = 1; a.faceTo(P.x, P.y); return a; }
+      let R = (a.viewR || s.view || 8) * (G.night ? 0.75 : 1) * (P.crouch ? 0.55 : 1) * (P.mounted ? 1.4 : 1);
+      const ang = Math.atan2(P.y - a.y, P.x - a.x), inCone = Math.abs(angDiff(a.face, ang)) < 0.95, close = d < (P.crouch ? 1.6 : 2.4);
       if (d > R || (!inCone && !close) || !Guns.los(a, P)) { a.aware = Math.max(0, (a.aware || 0) - dt * 0.35); continue; }
       a.aware = (a.aware || 0) + dt * ((1 - d / R) * 1.7 + 0.35) * mult;
       if (a.aware >= 1) { a.aware = 1; a.faceTo(P.x, P.y); return a; }
     }
     return null;
+  },
+  // searchers hunt the yard, not the hiding place itself
+  keepSearch(m, a, p, r = 8) {
+    if (!a || !p || a.dead || !a.watch) return;
+    const d = dist(a.x, a.y, p[0], p[1]);
+    const dest = a.mPath && !a.mDone ? a.mPath[a.mPath.length - 1] : null;
+    const destD = dest ? dist(dest[0], dest[1], p[0], p[1]) : 0;
+    // far from the hide: leave their route alone unless they are walking into it
+    if (d >= r + 2.5) { if (!dest || destD >= r) return; }
+    // already circling outside the hide
+    if (d >= r - 0.5 && dest && destD >= r - 1.2) return;
+    const ang = d > 0.4 ? Math.atan2(a.y - p[1], a.x - p[0]) : rnd(TAU);
+    const t = ang + rnd(-0.45, 0.45), q0 = [p[0] + Math.cos(t) * r, p[1] + Math.sin(t) * r];
+    const q = World.randomWalkable(q0[0], q0[1], 0, 2.5, 24) || q0;
+    const q2 = [q[0] + rnd(-2.2, 2.2), q[1] + rnd(-2.2, 2.2)];
+    m.walk(a, [q, q2], { loop: true, run: 0.32 });
   },
   // how far along a route a point (the player) is, and the point a distance along it
   progress(R, L) { const P = G.player; let best = 0, bd = 1e9; for (let i = 0; i < R.length - 1; i++) { const q = segClosest([P.x, P.y], R[i], R[i + 1]), d = dist(q[0], q[1], P.x, P.y); if (d < bd) { bd = d; best = L[i] + dist(R[i][0], R[i][1], q[0], q[1]); } } return best; },
@@ -11616,10 +11678,27 @@ M({
       ['ren', 'Watch the road while I go in.'],
       ['aiko', 'The south fence road is an obvious trap. They\'ve already noticed movement there.'],
       ['ren', 'Noted.'] ] },
-    { t: 'go', at: 'redpine.southFence', r: 2.5, text: 'Go in by the south fence anyway', hint: 'She is probably wrong. Probably.', on(m) { m.remove(m.get('aiko')); } },
-    { t: 'go', at: 'redpine.wagon', r: 1.6, text: 'Get across to the supply wagon', hint: 'Quickly.', done(m) { for (const w of [['redpine.wagon', 4, 3], ['redpine.wagon', -4, 3], ['redpine.wagon', 0, -5], ['redpine.wagon', 5, -3], ['redpine.wagon', -5, -2], ['redpine.wagon', 2, 6]]) { const [a] = m.spawn('imperial', m.at(...w), 1, { watch: true, tag: 'search', spread: 0.4, post: false, viewR: 6 }); if (a.mPath) a.mRun = 1.25; } } },
-    { t: 'hide', at: 'redpine.wagon', r: 1.9, dur: 10, watch: 'search', cp: true, each(m) { for (const a of m.group('search')) if ((!a.mPath || a.mDone) && !a.mLoop) { const p = [a.x, a.y]; m.walk(a, [p, [p[0] + rnd(-3, 3), p[1] + rnd(-3, 3)]], { loop: true, run: 0.35 }); } }, text: 'Hide beneath the wagon', hint: 'Crouch (C) and keep absolutely still. Six of them are searching the yard.', why: 'They pulled you out from under the wagon.', talk: [['Soldier', 'Someone came over the south fence. Search the yard!'], ['ren', '(Ten minutes. I lasted ten minutes.)']] },
-    { t: 'fn', run(m) { m.cast('aiko', m.at('redpine.wagon', -1.5, 1.2), { run: 1.2 }); if (!m.untie(0)) m.loose('redpine.mule', 1, 0); for (const a of m.group('search')) { a.watch = false; m.walk(a, [m.at('redpine.field', 10, 6), m.at('redpine.gate', 10, -2)], { run: 1.1 }); } if (!m.fast) Subs.add([['Soldier', 'The mule! Somebody cut the mule loose! CATCH IT!']]); } },
+    { t: 'go', at: 'redpine.southFence', r: 2.5, text: 'Go in by the south fence anyway', hint: 'She is probably wrong. Probably.', on(m) { m.place('aiko', 'redpine.kitchen', { run: 1.05 }); } },
+    { t: 'go', at: 'redpine.wagon', r: 1.6, text: 'Get across to the supply wagon', hint: 'Quickly.', done(m) {
+      const H = m.at('redpine.wagon');
+      for (const w of ['redpine.southFence', ['redpine.gate', 4, 0], 'redpine.kitchen', 'redpine.sheds', ['redpine.barracks', 2, 2], ['redpine.field', 8, 4]]) {
+        const o = m.at(...[].concat(w)); if (!o) continue;
+        const [a] = m.spawn('imperial', o, 1, { watch: true, tag: 'search', spread: 1.2, post: false, viewR: 8 });
+        if (!a) continue;
+        const ang = Math.atan2(o[1] - H[1], o[0] - H[0]) || rnd(TAU);
+        const hold = World.randomWalkable(H[0] + Math.cos(ang) * 9, H[1] + Math.sin(ang) * 9, 0, 2, 24) || [H[0] + Math.cos(ang) * 9, H[1] + Math.sin(ang) * 9];
+        m.walk(a, [hold], { run: 0.9 });
+      }
+    } },
+    { t: 'hide', at: 'redpine.wagon', r: 1.9, dur: 10, watch: 'search', cp: true, text: 'Hide beneath the wagon', hint: 'Crouch (C) and keep still. They are searching the yard, not looking under the axle.', why: 'They pulled you out from under the wagon.', talk: [['Soldier', 'Someone came over the south fence. Search the yard!'], ['ren', '(Ten minutes. I lasted ten minutes.)']] },
+    { t: 'fn', run(m) {
+      if (!m.untie(0)) m.loose('redpine.mule', 1, 0);
+      for (const a of m.group('search')) { a.watch = false; m.walk(a, [m.at('redpine.field', 10, 6), m.at('redpine.gate', 10, -2)], { run: 1.15 }); }
+      if (!m.get('aiko')) m.cast('aiko', 'redpine.kitchen', { run: 1.1 });
+      if (!m.fast) Subs.add([['Soldier', 'The mule! Somebody cut the mule loose! CATCH IT!']]);
+    } },
+    { t: 'wait', dur: 2.8, text: 'The yard empties after the mule', hint: 'Stay under the wagon until they have gone.', until: m => m.group('search').every(a => dist(a.x, a.y, G.player.x, G.player.y) > 8) },
+    { t: 'fn', run(m) { m.bring(m.get('aiko') || m.cast('aiko', 'redpine.kitchen'), m.at('redpine.wagon', -2.4, 3.2), { run: 1.05 }); } },
     { t: 'scene', parts: [['aiko', 'Working alone seems to involve a lot of waiting for other people to rescue you.']] },
     { t: 'follow', who: 'aiko', path: ['redpine.kitchen', 'redpine.southFence', 'redpine.approach'], text: 'Follow Aiko out through the kitchen smoke', hint: 'Keep up. Furiously.' },
     { t: 'scene', parts: [['ren', 'I had it handled.'], ['aiko', 'You had six soldiers and a wagon axle handled. Very impressive.']] },
@@ -11633,9 +11712,9 @@ M({
   steps: [
     { t: 'scene', done(m) { m.remove(m.get('aiko')); }, parts: [['aiko', 'They\'re moving the records to the regional headquarters at first light. Tonight is all we get.'], ['aiko', 'I go over the barracks roofs. You go through the ammunition yard on the east side. Try not to be recognised.'], ['ren', 'I am never recognised.'], ['aiko', 'You stole rice from a governor and an entire army chased you over three valleys.']] },
     { t: 'sneak', at: 'redpine.ammo', r: 2.2, cp: true, text: 'Slip into the ammunition yard', hint: 'The east fence has a gap. Crouch (C) and keep to the dark.', why: 'A sentry saw you.' },
-    { t: 'scene', on(m) { m.cast('commander', m.at('redpine.ammo', 3, -2), { faction: 'imperial', essential: false, mEnemy: true }); }, parts: [['commander', 'You. YOU. The rice thief from the ridge!', 'Sound the alarm!']] },
+    { t: 'scene', on(m) { m.cast('commander', m.at('redpine.ammo', 3, -2), { faction: 'imperial', essential: false, mEnemy: true, appear: true }); }, parts: [['commander', 'You. YOU. The rice thief from the ridge!', 'Sound the alarm!']] },
     { t: 'survive', dur: 18, at: 'redpine.sheds', max: 4, every: 5, cp: true, text: 'Hold out by the artillery sheds', hint: 'Back to the wall. One at a time is all they can manage.', on(m) { m.alarm('watch'); const c = m.get('commander'); if (c) { c.ai.mode = 'fight'; c.ai.target = G.player; } }, wave(m, i) { m.spawn(i % 2 ? 'rifleman' : 'imperial', m.at('redpine.sheds', rnd(-6, 6), 6), 2); } },
-    { t: 'fn', run(m) { if (!m.fast) { Snd.play('swing', 1); FX.text(G.player.x, G.player.y - 1, 'an arrow cuts the rope', '#9ad0a0'); } const P = G.player; for (const a of m.actors.slice()) if (a.mEnemy && !a.dead) { if (dist(a.x, a.y, P.x, P.y) < 9) { Object.assign(a, { mEnemy: false, watch: false, tag: 'canvas' }); m.doze(a); a.ai.mode = 'idle'; m.prop('canvas', [a.x, a.y + 0.2]); } else m.remove(a); } m.cast('aiko', m.at('@ren', 1.8, 1.2), { run: 1.3 }); } },
+    { t: 'fn', run(m) { if (!m.fast) { Snd.play('swing', 1); FX.text(G.player.x, G.player.y - 1, 'an arrow cuts the rope', '#9ad0a0'); } const P = G.player; for (const a of m.actors.slice()) if (a.mEnemy && !a.dead) { if (dist(a.x, a.y, P.x, P.y) < 9) { Object.assign(a, { mEnemy: false, watch: false, tag: 'canvas' }); m.doze(a); a.ai.mode = 'idle'; m.prop('canvas', [a.x, a.y + 0.2]); } else m.remove(a); } m.cast('aiko', m.at('redpine.sheds', -4, 2), { run: 1.25 }); m.bring(m.get('aiko'), m.at('@ren', 2.2, 1.6), { run: 1.2 }); } },
     { t: 'scene', parts: [['aiko', 'This way. Now.']] },
     { t: 'follow', who: 'aiko', path: ['redpine.barracks', 'redpine.records'], text: 'Follow Aiko under the barracks', hint: 'Stay close.' },
     { t: 'use', at: 'redpine.recordsIn', label: 'Search the records room', text: 'Search the records room' },
@@ -12917,7 +12996,7 @@ M({
     { t: 'sneak', at: 'prison.lever', r: 2.2, onSpot: 'fight', cp: true, text: 'Slip inside to the gate mechanism', hint: 'Crouch (C). One patrol still walks the yard.' },
     { t: 'use', at: 'prison.lever', label: 'Jam the mechanism', text: 'Disable the outer gate mechanism with Daichi', dur: 2, busy: 'Daichi wedges the gears…', each(m, dt) { alarmIfSeen(m, dt); } },
     { t: 'wait', dur: 2, text: '', talk: [['daichi', '(whispering) He\'s in. Records office.']], on(m) { m.remove(m.get('nao')); } },
-    { t: 'wait', dur: 5, text: 'Watch the yard', on(m) { m.cast('nao', ['prison.cell3', 1.2, 1]); }, talk: [['daichi', 'The patrol\'s turned back. That\'s early. That\'s very early.'], ['ren', '(under his breath) Nao. What did you do.']] },
+    { t: 'wait', dur: 5, text: 'Watch the yard', on(m) { m.cast('nao', ['prison.cell3', 1.2, 1], { appear: true }); }, talk: [['daichi', 'The patrol\'s turned back. That\'s early. That\'s very early.'], ['ren', '(under his breath) Nao. What did you do.']] },
     { t: 'go', at: 'prison.cell3', r: 3, text: 'Get to the lower corridor', each(m, dt) { alarmIfSeen(m, dt); } },
     { t: 'scene', parts: [['narr', 'Nao is at the last cell with the keys. Four children inside.'], ['ren', '(whispering) This was not the plan.'], ['nao', '(whispering) There was a list. Children, held as messengers. That one carried notes for the Lantern Route. He is still alive.'], ['ren', 'The mission cannot succeed if we abandon the plan.'], ['nao', 'The plan was supposed to save people.']] },
     { t: 'scene', on(m) { const g = m.get('Cell Guard'); if (g) { m.walk(g, [m.at('prison.cell3', 3, 3)], { run: 1.3 }); g.mArrive = true; } }, parts: [['Cell Guard', 'Who opened that cell? WHO OPENED THAT CELL?']] },
@@ -13009,7 +13088,7 @@ M({
   brief: 'Ren waits by the tube. Inside, Nao goes back for the originals.',
   recap: 'Nao went back through a maintenance corridor and found guards preparing to burn the originals. He put out the lights, seized the key ring and began moving the files into a fireproof chest, then fell back with what he could carry. Cornered on the service stair, he found the mechanism that seals the archive\'s fire doors, and understood that it would trap anyone left in the corridor. He sent one last message: TELL REN THE ORIGINALS ARE SAFE ENOUGH. TELL HIM I AM STILL VERY HANDSOME. Then he pulled the lever and ran deeper in, to draw the guards away from the exit.',
   setup(m) {
-    for (const k of [0, 1]) { const [p] = m.spawn('imperial', ['archive.yard', k ? 6 : -6, -3], 1, { watch: true, tag: 'watch', post: false, viewR: 6 }); m.walk(p, k ? [['archive.yard', 6, -3], ['archive.tube', -2, -5], ['archive.yard', 6, 4]] : [['archive.yard', -6, -3], ['archive.yard', 2, -4], ['archive.tube', -4, 0]], { loop: true, run: 0.3 }); }
+    for (const k of [0, 1]) { const [p] = m.spawn('imperial', ['archive.yard', k ? 6 : -6, -3], 1, { watch: true, tag: 'watch', post: false, viewR: 6 }); m.walk(p, k ? [['archive.yard', 6, -3], ['archive.yard', 5, -8], ['archive.yard', 6, 4]] : [['archive.yard', -6, -3], ['archive.yard', 2, -8], ['archive.yard', -7, 4]], { loop: true, run: 0.3 }); }
   },
   steps: [
     { t: 'scene', parts: [['aiko', 'The whole district is waking up. We cannot stand in the open.'], ['ren', 'If he gets out, it will be through that tube or that door. I wait here.'], ['daichi', 'Then wait like a crate. Crates do not get arrested.']] },
@@ -13126,7 +13205,7 @@ M({
     { t: 'hold', at: 'battery.main', r: 8, dur: 25, every: 7, max: 4, cp: true, text: 'Hold them off while Daichi prepares the shot', hint: 'Stay near the gun.', wave(m, i) { m.spawn(i % 3 === 1 ? 'rifleman' : 'imperial', m.at('battery.approach', rnd(-3, 3), rnd(-3, 3)), 2, { spread: 2 }); } },
     { t: 'scene', parts: [['daichi', '(to himself) Two degrees. Full charge. Wind from the east...'], ['daichi', 'The bell tower had a family in it.', 'Not this time.']] },
     { t: 'wait', dur: 4, text: 'The cannon roars across the ridge', on(m) { m.fire('battery.wall', { delay: 0.3, r: 3, dmg: 0, safe: true }); m.look('battery.wall', 3); if (!m.fast) G.shake = Math.max(G.shake, 8); for (const [dx, dy] of [[0, 0], [2, 1], [-1, 2], [1, -2]]) m.prop('rock', ['battery.wall', dx - 4, dy + 4], { solid: true }); } },
-    { t: 'scene', on(m) { m.cast('aiko', m.at('@ren', -1.5, 1), { run: 1.3 }); }, parts: [['aiko', 'The wall\'s down! The road\'s gone! Daichi, you did it!'], ['daichi', 'Yes. And the platform is...'], ['narr', 'Timber splits under the gun.']] },
+    { t: 'scene', on(m) { m.cast('aiko', 'battery.signal', { run: 1.35 }); m.bring(m.get('aiko'), m.at('@ren', -2, 1.4), { run: 1.3 }); }, parts: [['aiko', 'The wall\'s down! The road\'s gone! Daichi, you did it!'], ['daichi', 'Yes. And the platform is...'], ['narr', 'Timber splits under the gun.']] },
   ],
 });
 M({
@@ -13662,10 +13741,11 @@ const DevKit = {
 };
 
 // ============================================================ GANG / MULTIPLAYER
-// Legal camp slots on Kurenai-jima. Max fully-upgraded camp AABB is 26×21 tiles
-// around the slot centre: [cx-13, cy-10] → [cx+13, cy+11]. Trees (only) are stripped
-// in that footprint plus 5 tiles of padding on every side. Terrain, biomes, rivers,
-// roads and rocks are never edited. Kuroba-dera (63,132) is not an MP spawn.
+// Legal camp slots on Kurenai-jima. Buildings keep 5 tiles of open ground between
+// them, so a fully built camp is about 36×30 tiles around the slot centre
+// ([cx-19, cy-16] → [cx+17, cy+14]). Trees (only) are stripped in that footprint
+// plus padding on every side. Terrain, biomes, rivers, roads and rocks are never
+// edited. Kuroba-dera (63,132) is not an MP spawn.
 //   kusamura  108,128  near Kusamura Village (86,101)
 //   hanaori    56,162  near Hanaori Shrine (34,145)
 //   isonami   126,162  near Isonami Harbor (150,145)
@@ -13688,28 +13768,30 @@ const MpCamp = {
     kura: { name: 'Treasury', costs: [100, 300, 700], bonus: ['Store mon', '4% a day', '12% a day'] },
     garden: { name: 'Herb garden', costs: [80, 220, 550], bonus: ['+1 bandage on rest', '+2 bandages', '+3 bandages, +1 sake'] },
     walls: { name: 'Walls & lanterns', costs: [80, 250, 650], bonus: ['Stakes', 'Fence, +1 honor on rest', 'Palissade, +2 honor'] },
-    stables: { name: 'Stables', costs: [200, 600, 1500], bonus: ['Hitching posts (2 horses)', 'Small shed (4 horses, +12% speed)', 'Full stable (6 horses, +28% speed)'] }
+    stables: { name: 'Stables', costs: [200, 600, 1500], bonus: ['Hitching posts (2 horses)', 'Small shed (4 horses, +12% speed)', 'Full stable (6 horses, +28% speed)'] },
+    hearth: { name: 'Campfire', costs: [60, 180, 420], bonus: ['A fire to sit around', 'Lanterns and bedrolls', 'A shelter over the fire'] }
   },
   HORSES: [
     { id: 'nag', name: 'Nag', cost: 180, coat: 1, spdMul: 0.78, blurb: 'A tired brown nag. Faster than Scrag.' },
     { id: 'road', name: 'Road horse', cost: 420, coat: 2, spdMul: 1.0, blurb: 'A sound road horse.' },
     { id: 'fine', name: 'Fine mount', cost: 900, coat: 4, spdMul: 1.18, blurb: 'A fine grey. Costs a fortune.' }
   ],
-  TREEISH: null, plots: [], built: [], ready: false, slot: null,
-  pad(s) { return { x0: s.x - 18, y0: s.y - 15, x1: s.x + 18, y1: s.y + 16 }; },
+  TREEISH: null, plots: [], built: [], ready: false, slot: null, GAP: 5,
+  pad(s) { return { x0: s.x - 24, y0: s.y - 21, x1: s.x + 22, y1: s.y + 19 }; },
   layout(cx, cy) {
+    // 5 tiles of open ground between every footprint. The campfire yard sits in the middle.
     return {
-      quarters: { key: 'quarters', x: cx - 12, y: cy - 9, w: 10, h: 7, kind: 'quarters', name: 'Sleeping room' },
-      forge: { key: 'forge', x: cx + 2, y: cy - 9, w: 6, h: 5, kind: 'h_forge', door: 'E', name: 'Forge' },
-      shrine: { key: 'shrine', x: cx + 9, y: cy - 9, w: 1, h: 1, deco: 'h_shrine', name: 'Shrine' },
-      garden: { key: 'garden', x: cx + 9, y: cy - 5, w: 4, h: 4, deco: 'h_garden', name: 'Herb garden' },
-      dojo: { key: 'dojo', x: cx - 12, y: cy - 1, w: 8, h: 6, kind: 'h_dojo', door: 'E', name: 'Dojo' },
-      barracks: { key: 'barracks', x: cx - 3, y: cy - 1, w: 8, h: 5, kind: 'h_barracks', name: 'Barracks' },
-      kura: { key: 'kura', x: cx + 6, y: cy - 1, w: 5, h: 4, kind: 'h_kura', name: 'Treasury' },
-      stables: { key: 'stables', x: cx - 8, y: cy + 7, w: 14, h: 5, name: 'Stables' },
+      quarters: { key: 'quarters', x: cx - 19, y: cy - 16, w: 10, h: 7, kind: 'quarters', name: 'Sleeping room' },
+      forge: { key: 'forge', x: cx - 4, y: cy - 14, w: 6, h: 5, kind: 'h_forge', door: 'E', name: 'Forge' },
+      shrine: { key: 'shrine', x: cx + 7, y: cy - 12, w: 1, h: 1, deco: 'h_shrine', name: 'Shrine' },
+      garden: { key: 'garden', x: cx + 13, y: cy - 13, w: 4, h: 4, deco: 'h_garden', name: 'Herb garden' },
+      dojo: { key: 'dojo', x: cx - 17, y: cy - 3, w: 8, h: 6, kind: 'h_dojo', door: 'E', name: 'Dojo' },
+      hearth: { key: 'hearth', x: cx - 4, y: cy - 4, w: 8, h: 8, name: 'Campfire' },
+      kura: { key: 'kura', x: cx + 15, y: cy - 4, w: 5, h: 4, kind: 'h_kura', name: 'Treasury' },
+      barracks: { key: 'barracks', x: cx - 16, y: cy + 9, w: 8, h: 5, kind: 'h_barracks', name: 'Barracks' },
+      stables: { key: 'stables', x: cx - 3, y: cy + 9, w: 14, h: 5, name: 'Stables' },
       walls: { key: 'walls', ring: true, name: 'Walls & lanterns' },
-      // yard between the barracks row (ends cy+4) and the stables (starts cy+7) — never inside a building
-      ft: { x: cx, y: cy + 5 }, spawn: { x: cx, y: cy + 5 }
+      ft: { x: cx, y: cy + 5 }, spawn: { x: cx, y: cy + 1 }
     };
   },
   // tile just outside the south (or east) face, never on the footprint
@@ -13790,14 +13872,16 @@ const MpCamp = {
     World.spots.mpCamp = [L.spawn.x, L.spawn.y];
     World.spots.mpStable = [L.stables.x + 2, L.stables.y + 2.5];
     let pl = PLACES.find(p => p.id === 'mpCamp');
-    if (!pl) { pl = { id: 'mpCamp', name: 'Gang camp', jp: '陣', x: slot.x, y: slot.y, r: 16, b: B.PLAINS, kind: 'home', safe: true }; PLACES.push(pl); }
-    pl.x = slot.x; pl.y = slot.y; pl.name = (gang && gang.name) || slot.name;
+    if (!pl) { pl = { id: 'mpCamp', name: 'Gang camp', jp: '陣', x: slot.x, y: slot.y, r: 22, b: B.PLAINS, kind: 'home', safe: true }; PLACES.push(pl); }
+    pl.x = slot.x; pl.y = slot.y; pl.r = 22; pl.name = (gang && gang.name) || slot.name;
     const pendingMarks = [];
     for (const key of Object.keys(this.BUILD)) {
       const spec = L[key], n = lv[key] | 0, def = this.BUILD[key];
       if (!spec) continue;
+      if (key === 'hearth') this.stampHearth(spec, n);
       if (n <= 0) {
-        pendingMarks.push({ spec, interact: { kind: 'campBuy', key, label: 'Buy damaged ' + def.name + ' · ' + def.costs[0] + ' mon · ' + def.bonus[0] } });
+        const at = key === 'hearth' ? [spec.x + spec.w * 0.5, spec.y + spec.h * 0.5] : null;
+        pendingMarks.push({ spec, at, interact: { kind: 'campBuy', key, label: 'Buy damaged ' + def.name + ' · ' + def.costs[0] + ' mon · ' + def.bonus[0] } });
         continue;
       }
       if (spec.kind) {
@@ -13816,7 +13900,7 @@ const MpCamp = {
     World.spots.mpCamp = this.outdoorTile(L.spawn.x, L.spawn.y);
     for (const m of pendingMarks) {
       const door = m.spec._door;
-      const [sx, sy] = door ? [door[0], door[1]] : this.frontOf(m.spec, slot);
+      const [sx, sy] = m.at ? m.at : door ? [door[0], door[1]] : this.frontOf(m.spec, slot);
       this.mark(sx, sy, { interact: m.interact });
     }
     if ((lv.stables | 0) > 0) {
@@ -13824,6 +13908,28 @@ const MpCamp = {
       this.mark(hx + 1.4, hy, { interact: { kind: 'horseBuy', tier: 'nag', label: 'Buy a better horse (Nag 180 · Road 420 · Fine 900)' } });
     }
     G.applyStats();
+  },
+  stampHearth(spec, n) {
+    const x = spec.x, y = spec.y, w = spec.w || 8, h = spec.h || 8, cx = x + w / 2, cy = y + h / 2;
+    World.disc(cx, cy, Math.min(w, h) * 0.48, (i, j) => {
+      if (!World.in(i, j) || World.bAt(i, j)) return;
+      const t = World.tileAt(i, j); if (TINFO[t] && TINFO[t].water) return;
+      World.set(i, j, TILE.GRAVEL); World.setClear(i, j);
+      if (World.solidAt(i, j) === 1) World.setSolid(i, j, 0);
+    });
+    if (n <= 0) return;
+    this.addPlot('campfire', Math.round(cx - 0.5), Math.round(cy - 0.5), 1, 1, { solid: false, hk: 'hearth', light: { r: 56 + n * 10, c: '255,140,60' } });
+    this.addPlot('bedroll', Math.round(cx - 2.6), Math.round(cy + 1.3), 1, 1, { solid: false, interact: { kind: 'sleep', label: 'Lie down by the fire' } });
+    this.addPlot('bedroll', Math.round(cx + 1.6), Math.round(cy + 1.5), 1, 1, { solid: false, col: '#3e4a34', interact: { kind: 'sleep', label: 'Lie down by the fire' } });
+    if (n >= 2) {
+      this.addPlot('bedroll', Math.round(cx - 2.2), Math.round(cy - 2.3), 1, 1, { solid: false, col: '#4a4030', interact: { kind: 'sleep', label: 'Lie down by the fire' } });
+      this.place('stonelantern', cx - 3.3, cy - 2.6, 1, 1, { solid: false, light: { r: 34, c: '255,170,90' } });
+      this.place('stonelantern', cx + 2.7, cy - 2.3, 1, 1, { solid: false, light: { r: 34, c: '255,170,90' } });
+    }
+    if (n >= 3) {
+      this.place('tent', cx + 2.5, cy - 0.4, 1, 1, { solid: false });
+      this.place('lantern', cx - 0.2, cy - 3.3, 1, 1, { solid: false, light: { r: 42, c: '255,170,90' } });
+    }
   },
   stampStables(spec, n) {
     const x = spec.x, y = spec.y;
@@ -13833,7 +13939,7 @@ const MpCamp = {
     else if (n >= 2) { const b = Buildings.create('hut', x + 5, y, 6, 4, { name: 'Stable shed' }); this.built.push(b); }
   },
   stampWalls(slot, n) {
-    const r = 12 + n, kind = n >= 3 ? 'h_wall' : 'fence';
+    const r = 20 + n, kind = n >= 3 ? 'h_wall' : 'fence';
     World.ring(slot.x, slot.y, r, 40, (x, y) => {
       x = Math.round(x); y = Math.round(y);
       if (!World.in(x, y) || World.bAt(x, y) || this.wet(x, y)) return;
@@ -13878,6 +13984,7 @@ const Net = {
   },
   handle(m) {
     if (m.t === 'welcome') {
+      this.onErr = null;
       this.id = m.id; this.token = m.token; this.gang = m.gang; this.slot = (m.slots || MpCamp.SLOTS)[(m.gang && m.gang.slot) | 0];
       store('crimson_ronin_mp_token', m.token);
       const prof = G.profile || this.pendingProf;
@@ -13892,7 +13999,12 @@ const Net = {
       if (this.onOk) { const fn = this.onOk; this.onOk = null; fn(); }
       return;
     }
-    if (m.t === 'err') { UI.toast(m.msg, 'shame'); if (this.onErr) { this.onErr(m.msg); this.onErr = null; } return; }
+    if (m.t === 'err') {
+      UI.toast(m.msg, 'shame');
+      // connect-time only: a short purse during play must not uncover the title screen
+      if (this.onErr && G.state !== 'play') { this.onErr(m.msg); this.onErr = null; }
+      return;
+    }
     if (m.t === 'ok') { UI.toast(m.msg, 'good'); return; }
     if (m.t === 'players') { for (const p of m.list || []) this.upsert(p); return; }
     if (m.t === 'player') { this.upsert(m.p); return; }
@@ -14034,9 +14146,26 @@ const Net = {
   saveProfile() { if (G.profile) this.send({ t: 'save', profile: G.profile }); },
   invite(to) { this.send({ t: 'invite', to }); },
   accept(from) { this.send({ t: 'accept', from }); },
-  campBuy(key) { this.send({ t: 'campBuy', key }); },
-  campUp(key) { this.send({ t: 'campUp', key }); },
-  buyHorse(id) { this.send({ t: 'horseBuy', id: id || 'nag' }); },
+  canPay(cost) {
+    const p = G.profile; if (!p) return false;
+    if ((p.gold | 0) + (p.bank | 0) < cost) { UI.toast('Not enough mon (need ' + cost + ').', 'shame'); return false; }
+    return true;
+  },
+  campBuy(key) {
+    const def = MpCamp.BUILD[key], cur = (this.gang && this.gang.buildings && this.gang.buildings[key]) | 0;
+    if (!def || !this.canPay(def.costs[cur])) return;
+    this.send({ t: 'campBuy', key });
+  },
+  campUp(key) {
+    const def = MpCamp.BUILD[key], cur = (this.gang && this.gang.buildings && this.gang.buildings[key]) | 0;
+    if (!def || !this.canPay(def.costs[cur])) return;
+    this.send({ t: 'campUp', key });
+  },
+  buyHorse(id) {
+    const def = MpCamp.HORSES.find(h => h.id === (id || 'nag'));
+    if (def && !this.canPay(def.cost)) return;
+    this.send({ t: 'horseBuy', id: id || 'nag' });
+  },
   questStart(id) {
     const d = QDEFS[id], at = G.player ? [G.player.x, G.player.y] : World.spots.mpCamp;
     this.questRet = at;
@@ -14055,7 +14184,10 @@ function boot() {
   G.profile = null; G.tod = 0.76;
   const save = Systems.load();
   if (save) { $('btnContinue').hidden = false; $('btnContinue').textContent = 'Continue · ' + (save.story ? 'Mission ' + Math.min(100, save.story.n) : 'Mission 1') + ' · Day ' + save.day; }
-  $('btnContinue').onclick = () => { Snd.init(); $('title').hidden = true; G.start(Systems.load()); };
+  $('btnContinue').onclick = () => {
+    if (G.state === 'play') { $('title').hidden = true; return; }
+    Snd.init(); $('title').hidden = true; G.start(Systems.load());
+  };
   $('btnBegin').onclick = () => { Snd.init(); Creator.begin(false); };
   $('btnSkip').onclick = () => { Snd.init(); Creator.begin(true); };
   $('btnNew').onclick = () => { Snd.init(); Creator.gangMode = false; Creator.open(false); };
@@ -14063,10 +14195,14 @@ function boot() {
   const mpSave = store('crimson_ronin_mp'), mpTok = store('crimson_ronin_mp_token');
   if (mpSave && mpTok) { $('btnGangCont').hidden = false; $('btnGangCont').textContent = 'Continue the Gang · ' + (mpSave.name || 'Ren'); }
   $('btnGangCont').onclick = () => {
+    if (G.state === 'play' && G.mp) { $('title').hidden = true; return; }
     Snd.init(); $('title').hidden = true;
     const prof = store('crimson_ronin_mp'); if (!prof) return;
     prof.mp = true;
-    Net.connect(prof, mpTok, () => { G.start(prof, true); }, err => { UI.toast(err || 'Could not reach the Gang world', 'shame'); $('title').hidden = false; });
+    Net.connect(prof, mpTok, () => { G.start(prof, true); }, err => {
+      UI.toast(err || 'Could not reach the Gang world', 'shame');
+      if (G.state !== 'play') $('title').hidden = false;
+    });
   };
   $('btnQuick').onclick = () => { Snd.init(); $('title').hidden = true; const look = Sprites.randomLook(); look.hat = pick([0, 0, 1, 2]); look.coat = pick(COATC.slice(1)); G.start(G.newProfile(look), false); Systems.save(); };
   $('btnKeys').onclick = () => { $('keysBox').hidden = !$('keysBox').hidden; };
