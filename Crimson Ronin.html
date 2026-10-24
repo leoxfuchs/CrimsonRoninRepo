@@ -161,6 +161,15 @@ em.kw{font-style:normal;color:#ffd24a;}
 .btn.gold{background:#a87a26;}
 .btn:disabled{opacity:.4;cursor:not-allowed;filter:none;}
 .btns{display:flex;gap:8px;flex-wrap:wrap;}
+.badge-new{display:inline-block;margin-left:8px;padding:1px 6px;font-size:9px;letter-spacing:.16em;text-transform:uppercase;background:var(--gold);color:#1a1208;vertical-align:middle;}
+.row.playing{border-color:var(--gold);background:#d9a44114;}
+.nowplay{padding:12px 14px;border:1px solid var(--gold);background:#0005;display:grid;gap:3px;}
+.nowplay .jp{font-family:var(--f-display);font-weight:800;font-size:20px;letter-spacing:.08em;}
+.nowplay .en{color:var(--gold);font-size:11px;letter-spacing:.22em;text-transform:uppercase;}
+.nowplay .ds{color:var(--paper-dim);font-size:12px;line-height:1.45;}
+input[type=range]{width:100%;accent-color:var(--gold);height:18px;}
+.set-vol{display:grid;gap:4px;padding:8px 10px;background:#00000038;border:1px solid #00000080;}
+.set-vol label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--paper-dim);}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;}
 .tab{background:#0004;border:1px solid #000;padding:6px 10px;cursor:pointer;font-size:12px;}
 .tab.on{background:var(--paper);color:var(--ink);}
@@ -186,7 +195,7 @@ em.kw{font-style:normal;color:#ffd24a;}
 .title-sub{max-width:52ch;color:var(--paper-dim);line-height:1.7;margin:0;}
 .title-btns{display:grid;gap:10px;width:min(280px,100%);}
 .title-btns .btn{padding:11px;font-size:15px;}
-#devPick{background:radial-gradient(ellipse at 50% 100%,#3a0c10dd,transparent 60%),linear-gradient(#0f0b10f2,#0f0b10fa);align-content:start;}
+#devPick,#settings{background:radial-gradient(ellipse at 50% 100%,#3a0c10dd,transparent 60%),linear-gradient(#0f0b10f2,#0f0b10fa);align-content:start;}
 .dev-wrap{width:min(560px,100%);display:grid;gap:14px;justify-items:stretch;text-align:left;}
 .dev-wrap h2{font-family:var(--f-display);font-weight:800;font-size:clamp(26px,5vw,40px);margin:0;letter-spacing:.06em;}
 .dev-wrap .lede{margin:0;}
@@ -323,6 +332,7 @@ body.talking #mObj,body.talking #mSubs{display:none;}
         <button class="btn gold" id="btnGang">Gang / Multiplayer</button>
         <button class="btn alt" id="btnGangCont" hidden>Continue the Gang</button>
         <button class="btn alt" id="btnKeys">How to Fight</button>
+        <button class="btn alt" id="btnSettings">Settings</button>
         <button class="btn alt" id="btnControls">Controls: Turn and walk</button>
         <button class="btn gold" id="btnDev" hidden>Dev Kit · jump to a mission</button>
       </div>
@@ -340,6 +350,10 @@ body.talking #mObj,body.talking #mSubs{display:none;}
         <kbd>Tab · G · Esc</kbd><span>Character · gang orders · pause</span>
       </div>
     </div>
+  </div>
+
+  <div id="settings" class="screen" hidden>
+    <div class="dev-wrap" id="setBody"></div>
   </div>
 
   <div id="create" class="screen" hidden>
@@ -497,15 +511,32 @@ const Snd = {
       this.ctx = new C();
       this.master = this.ctx.createGain(); this.master.gain.value = 0.7; this.master.connect(this.ctx.destination);
       this.sfxBus = this.ctx.createGain(); this.sfxBus.gain.value = 0.9; this.sfxBus.connect(this.master);
-      this.music = this.ctx.createGain(); this.music.gain.value = 0.32;
-      // feedback delay for koto/shakuhachi space
-      const dl = this.ctx.createDelay(1.2), fb = this.ctx.createGain(), lp = this.ctx.createBiquadFilter();
-      dl.delayTime.value = 0.42; fb.gain.value = 0.38; lp.type = 'lowpass'; lp.frequency.value = 2400;
-      this.music.connect(this.master); this.music.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(this.master);
+      this.music = this.ctx.createGain(); this.music.gain.value = 0.0001;
+      const dry = this.ctx.createGain(); dry.gain.value = 0.62;
+      const wet = this.ctx.createGain(); wet.gain.value = 0.48;
+      const conv = this.ctx.createConvolver(); conv.buffer = this._ir();
+      const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6200;
+      this.music.connect(lp); lp.connect(dry); dry.connect(this.master);
+      lp.connect(conv); conv.connect(wet); wet.connect(this.master);
+      this.musDry = dry; this.musWet = wet;
       const len = this.ctx.sampleRate * 1.5; this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       this.startWind();
+      if (typeof Music !== 'undefined') Music.attach();
     } catch (e) { this.ctx = null; }
+  },
+  _ir() {
+    const sr = this.ctx.sampleRate, n = Math.floor(sr * 2.4);
+    const buf = this.ctx.createBuffer(2, n, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < n; i++) {
+        const t = i / sr, env = Math.exp(-t * 2.15) * (t < 0.018 ? t / 0.018 : 1);
+        const air = Math.sin(i * (c ? 0.013 : 0.011)) * 0.12;
+        d[i] = ((Math.random() * 2 - 1) * 0.88 + air) * env;
+      }
+    }
+    return buf;
   },
   env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); },
   noise(t, dur, type, freq, q, peak, dest, sweepTo) {
@@ -561,7 +592,7 @@ const Snd = {
       case 'drink': [0, 0.15, 0.3].forEach(d => this.noise(t + d, 0.1, 'bandpass', 500, 6, 0.2 * v)); break;
       case 'bow': this.noise(t, 0.3, 'lowpass', 600, 1, 0.12 * v); break;
       case 'hoof': this.tone(t, rnd(90, 120), 0.07, 'sine', 0.22 * v, null, 50); this.noise(t, 0.05, 'lowpass', 900, 1, 0.12 * v); this.tone(t + 0.09, rnd(80, 110), 0.06, 'sine', 0.16 * v, null, 45); break;
-      case 'whistle': this.tone(t, 1700, 0.18, 'sine', 0.12 * v, null, 2500); this.tone(t + 0.22, 2400, 0.28, 'sine', 0.12 * v, null, 1600); break;
+      case 'whistle': this.whistleChirp(t, 1860, 0.22, 0.1 * v); this.whistleChirp(t + 0.24, 2280, 0.28, 0.09 * v, 1680); break;
       case 'neigh': { const o = this.ctx.createOscillator(), g = this.ctx.createGain(), l = this.ctx.createOscillator(), lg = this.ctx.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(700, t); o.frequency.exponentialRampToValueAtTime(380, t + 0.7); l.frequency.value = 22; lg.gain.value = 60; l.connect(lg); lg.connect(o.frequency); this.env(g, t, 0.05, 0.05 * v, 0.7); const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 1.5; o.connect(f); f.connect(g); g.connect(this.sfxBus); o.start(t); l.start(t); o.stop(t + 0.9); l.stop(t + 0.9); break; }
       case 'sheathe': this.noise(t, 0.22, 'bandpass', 3200, 2, 0.12 * v, null, 1800); this.tone(t + 0.2, 900, 0.06, 'square', 0.05 * v); this.noise(t + 0.2, 0.05, 'lowpass', 1200, 1, 0.25 * v); break;
       case 'deer': this.tone(t, 1700, 0.32, 'sine', 0.05 * v, null, 2500, 0.05); this.tone(t + 0.3, 2400, 0.4, 'sine', 0.04 * v, null, 1400, 0.03); break;
@@ -583,35 +614,417 @@ const Snd = {
     const g = this.ctx.createGain(); g.gain.value = 0.035; s.connect(f); f.connect(g); g.connect(this.master); s.start();
     this.wind = { f, g };
   },
-  // Generative music: koto plucks in the miyako-bushi scale, shakuhachi breaths, taiko in danger.
-  scale: [146.83, 155.56, 196.0, 220.0, 233.08, 293.66, 311.13, 392.0, 440.0, 466.16, 587.33],
-  koto(t, f, v) { this.tone(t, f, 1.4, 'triangle', 0.09 * v, this.music); this.tone(t, f * 2.005, 0.5, 'sine', 0.03 * v, this.music); },
-  flute(t, f, d) {
-    const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f * 0.97, t); o.frequency.linearRampToValueAtTime(f, t + 0.25);
-    const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain(); lfo.frequency.value = 5; lg.gain.value = f * 0.012; lfo.connect(lg); lg.connect(o.frequency);
-    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05, t + 0.35); g.gain.linearRampToValueAtTime(0.0001, t + d);
-    o.connect(g); g.connect(this.music); o.start(t); lfo.start(t); o.stop(t + d + 0.1); lfo.stop(t + d + 0.1);
-    this.noise(t, 0.4, 'bandpass', f * 2, 2, 0.02, this.music);
+  whistleChirp(t, f, d, peak, fall) {
+    if (!this.ctx) return;
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f * 0.94, t); o.frequency.exponentialRampToValueAtTime(f, t + Math.min(0.07, d * 0.35));
+    if (fall) o.frequency.exponentialRampToValueAtTime(fall, t + d);
+    else o.frequency.exponentialRampToValueAtTime(f * 0.91, t + d);
+    const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain();
+    lfo.frequency.value = 5.6; lg.gain.value = 11; lfo.connect(lg); lg.connect(o.frequency);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 16;
+    bp.frequency.setValueAtTime(f, t); if (fall) bp.frequency.exponentialRampToValueAtTime(fall, t + d);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(bp); bp.connect(g); g.connect(this.sfxBus);
+    o.start(t); lfo.start(t); o.stop(t + d + 0.06); lfo.stop(t + d + 0.06);
+    this.noise(t, 0.05, 'bandpass', f, 9, peak * 0.35);
+  },
+  whistleHold(held) {
+    this.init(); if (!this.ctx || !this.on) return;
+    const t = this.ctx.currentTime;
+    if (held && !this._wh) this._whStart(t);
+    else if (this._wh) this._whTick(t, held);
+  },
+  _whStart(t) {
+    const ctx = this.ctx, f0 = 1760 + Math.random() * 90;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f0 * 0.9, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.09);
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 5.3;
+    const lg = ctx.createGain(); lg.gain.setValueAtTime(0.0001, t); lg.gain.linearRampToValueAtTime(13, t + 0.32);
+    lfo.connect(lg); lg.connect(o.frequency);
+    const o2 = ctx.createOscillator(); o2.type = 'sine';
+    o2.frequency.setValueAtTime(f0 * 1.8, t); o2.frequency.exponentialRampToValueAtTime(f0 * 2, t + 0.09);
+    const g2 = ctx.createGain(); g2.gain.value = 0.01;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 18; bp.frequency.setValueAtTime(f0, t);
+    const ns = ctx.createBufferSource(); ns.buffer = this.noiseBuf; ns.loop = true; ns.playbackRate.value = 1.05;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.028, t); ng.gain.linearRampToValueAtTime(0.01, t + 0.12);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.11, t + 0.06);
+    o.connect(bp); o2.connect(g2); g2.connect(bp); ns.connect(ng); ng.connect(bp); bp.connect(g); g.connect(this.sfxBus);
+    o.start(t); o2.start(t); lfo.start(t); ns.start(t);
+    this._wh = { o, o2, lfo, ns, g, ng, lg, bp, f0, t0: t, long: false };
+    if (typeof Music !== 'undefined') Music.duck(true);
+  },
+  _whTick(t, held) {
+    const w = this._wh; if (!w) return;
+    const dur = t - w.t0;
+    if (held) {
+      if (dur > 0.3 && !w.long) {
+        w.long = true;
+        w.g.gain.cancelScheduledValues(t); w.g.gain.setValueAtTime(Math.max(0.0002, w.g.gain.value), t);
+        w.g.gain.linearRampToValueAtTime(0.145, t + 0.22);
+        w.lg.gain.linearRampToValueAtTime(22, t + 0.45);
+        w.ng.gain.linearRampToValueAtTime(0.016, t + 0.18);
+        w.o.frequency.exponentialRampToValueAtTime(w.f0 * 1.045, t + 0.55);
+        w.bp.frequency.exponentialRampToValueAtTime(w.f0 * 1.045, t + 0.55);
+      }
+      if (dur > 7.2 && !w.spent) {
+        w.spent = true;
+        w.g.gain.cancelScheduledValues(t); w.g.gain.setValueAtTime(Math.max(0.0002, w.g.gain.value), t);
+        w.g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+        w.o.frequency.exponentialRampToValueAtTime(w.f0 * 0.84, t + 1.0);
+      }
+      return;
+    }
+    w.g.gain.cancelScheduledValues(t); w.g.gain.setValueAtTime(Math.max(0.0002, w.g.gain.value), t);
+    let stop = t + 0.28;
+    if (dur < 0.34 && !w.long) {
+      const t1 = Math.max(t, w.t0 + 0.18);
+      w.g.gain.setValueAtTime(0.1, t1);
+      w.g.gain.exponentialRampToValueAtTime(0.0001, t1 + 0.09);
+      w.o.frequency.exponentialRampToValueAtTime(w.f0 * 0.94, t1 + 0.08);
+      this.whistleChirp(t1 + 0.06, w.f0 * 1.22, 0.28, 0.1, w.f0 * 0.86);
+      stop = t1 + 0.22;
+    } else {
+      w.g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      w.o.frequency.exponentialRampToValueAtTime(w.f0 * 0.86, t + 0.22);
+      w.ng.gain.linearRampToValueAtTime(0.0001, t + 0.14);
+    }
+    try { w.o.stop(stop); w.o2.stop(stop); w.lfo.stop(stop); w.ns.stop(stop); } catch (e) {}
+    this._wh = null;
+    if (typeof Music !== 'undefined') Music.duck(false);
   },
   update(dt, mood, windAmt) {
     if (!this.ctx) return;
     this.mood = mood;
+    const menu = typeof UI !== 'undefined' && UI.isOpen && UI.isOpen();
+    this.whistleHold(Input.held('KeyH') && !menu && G.state === 'play');
     if (this.wind) { this.wind.g.gain.value = lerp(this.wind.g.gain.value, 0.02 + windAmt * 0.07, 0.02); this.wind.f.frequency.value = 300 + Math.sin(performance.now() / 3000) * 120 + windAmt * 200; }
-    this.musicT -= dt; if (this.musicT > 0) return;
-    const t = this.ctx.currentTime + 0.05, sc = this.scale;
-    const danger = mood === 'danger', duel = mood === 'duel';
-    const beat = duel ? 0.9 : danger ? 0.32 : 0.55;
-    this.musicT = beat; this.step++;
-    if (duel) { if (this.step % 2 === 0) this.play('taiko', 0.5); if (Math.random() < 0.25) this.koto(t, sc[rndi(0, 4)] / 2, 0.6); return; }
-    if (danger) {
-      if (this.step % 2 === 0) this.play('taiko', this.step % 8 === 0 ? 0.9 : 0.45);
-      if (Math.random() < 0.6) this.koto(t, sc[rndi(0, 6)], 0.9);
-      return;
+    if (typeof Music !== 'undefined') Music.tick(dt, mood);
+  }
+};
+// ============================================================ MUSIC: composed scores, Karplus-Strong strings, shakuhachi, hall
+const Music = {
+  vol: 0.88, ducked: false, auto: true, lock: null, cur: null, gen: false, origin: 0, i: 0, events: [], len: 0, since: 0, hold: 0, ks: {},
+  SC: {
+    miyako: [146.83, 155.56, 196.00, 220.00, 233.08],
+    iwato: [146.83, 155.56, 196.00, 207.65, 261.63],
+    ryo: [146.83, 164.81, 184.99, 220.00, 246.94]
+  },
+  VEL: { koto: 0.74, shami: 0.52, biwa: 0.6, flute: 0.84, drone: 0.5, harm: 0.42, kane: 0.72, taiko: 0.78, hyo: 0.48, tsu: 0.55 },
+  tracks: [
+    { id: 'white_sun', name: 'Shadows of the White Sun', jp: '白日の影', kind: 'Title', new: true, bpm: 56, scale: 'miyako', bars: 8,
+      desc: 'The telling opens. A koto finds the road; a shakuhachi answers from far off.',
+      parts: [
+        { inst: 'drone', notes: '0:16 0:16' },
+        { inst: 'biwa', notes: '0:4 2:4 0:4 4:4 0:4 2:4 0:4 .:4' },
+        { inst: 'koto', notes: '7:2 5:1 4:1 2:2 .:1 5:1 7:2 8:1 9:1 8:2 7:1 5:1 4:2 2:1 0:1 5:2 7:2 8:2 7:1 5:1 4:2 2:1 0:1' },
+        { inst: 'flute', notes: '.:8 7:4 8:2 9:2 8:2 7:2 6:2 5:2 4:4 2:2 0:2' },
+        { inst: 'kane', notes: '.:28 0:4' }
+      ] },
+    { id: 'old_road', name: 'The Old Road', jp: '旧道', kind: 'Feudal · plains', new: true, bpm: 76, scale: 'miyako', bars: 8,
+      desc: 'A walking piece. Shamisen keeps the step; the koto talks above it like a traveller.',
+      parts: [
+        { inst: 'shami', ost: '0:0.5 2:0.5 0:0.5 4:0.5' },
+        { inst: 'biwa', notes: '0:8 2:8 0:8 4:8' },
+        { inst: 'koto', notes: '5:1 7:1 8:1 7:1 5:1 4:1 2:2 5:1 7:1 9:1 8:1 7:2 5:2 4:1 5:1 7:1 5:1 4:1 2:1 0:2 2:1 4:1 5:2 4:2 2:1 0:1' },
+        { inst: 'flute', notes: '.:8 7:2 8:2 7:4 .:4 5:4 4:2 2:2 .:4' }
+      ] },
+    { id: 'court', name: 'Court of Lacquer', jp: '漆の間', kind: 'Feudal · castle', new: true, bpm: 64, scale: 'ryo', bars: 8,
+      desc: 'Ritsu court music: koto figures in fifths, a high flute, two wooden claps at the gate.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'hyo', notes: '0:1 .:15 0:1 .:15' },
+        { inst: 'koto', notes: '5:0.5 7:0.5 9:0.5 7:0.5 5:1 3:1 5:0.5 7:0.5 9:0.5 10:0.5 9:1 7:1 8:2 7:1 5:1 3:2 5:2 7:0.5 9:0.5 10:1 9:1 7:1 5:2 3:2 2:2 0:2 3:4' },
+        { inst: 'flute', notes: '.:8 9:4 8:2 7:2 5:4 7:4 8:4 5:4' }
+      ] },
+    { id: 'petals', name: 'Petals on Water', jp: '水面の花', kind: 'Feudal · sakura', new: true, bpm: 60, scale: 'miyako', bars: 8,
+      desc: 'High, unhurried. The flute carries; the koto falls like blossom.',
+      parts: [
+        { inst: 'drone', notes: '5:16 4:16' },
+        { inst: 'flute', notes: '9:4 8:2 7:2 8:4 5:4 7:2 8:2 9:4 8:2 7:2 5:4' },
+        { inst: 'koto', notes: '.:2 7:1 5:1 .:2 4:1 2:1 .:2 8:1 7:1 .:2 5:1 4:1 .:2 7:1 8:1 .:2 5:1 7:1 .:2 4:1 5:1 .:2 2:1 0:1' }
+      ] },
+    { id: 'night', name: 'Night Without Stars', jp: '星無き夜', kind: 'Eerie · night', new: true, bpm: 46, scale: 'iwato', bars: 16,
+      desc: 'Iwato scale, long breath, a temple bowl far away. The island after the lamps go out.',
+      parts: [
+        { inst: 'drone', notes: '0:32 0:32' },
+        { inst: 'flute', notes: '.:12 1:8 .:4 6:8 3:4 1:4 .:8 4:8 1:8' },
+        { inst: 'koto', notes: '.:8 6:2 .:6 1:2 .:14 3:1 .:7 6:2 .:8 0:2 .:12' },
+        { inst: 'kane', notes: '.:24 0:8 .:24 0:8' },
+        { inst: 'harm', notes: '.:20 10:8 .:20 9:8 .:8' }
+      ] },
+    { id: 'bamboo', name: 'The Bamboo Sea', jp: '竹海', kind: 'Eerie · grove', new: true, bpm: 52, scale: 'iwato', bars: 8,
+      desc: 'A four-note ostinato that never quite resolves. Wind in the culms.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'koto', ost: '1:1 2:1 3:1 2:1' },
+        { inst: 'biwa', notes: '0:8 1:8 0:8 3:8' },
+        { inst: 'flute', notes: '.:8 6:8 3:4 1:4 2:4 1:4' }
+      ] },
+    { id: 'ash', name: 'Ash and Cinder', jp: '灰と焔', kind: 'Eerie · ashlands', new: true, bpm: 44, scale: 'iwato', bars: 8,
+      desc: 'Hollow ground. A drone that will not leave, and koto like something still burning.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'koto', notes: '1:4 .:12 3:2 1:2 .:8 0:4' },
+        { inst: 'flute', notes: '.:16 1:12 .:4' },
+        { inst: 'harm', notes: '.:8 4:8 .:16' }
+      ] },
+    { id: 'snow', name: 'Snow Pass', jp: '雪の峠', kind: 'Eerie · mountains', new: true, bpm: 50, scale: 'ryo', bars: 8,
+      desc: 'Cold harmonics and a thin koto. Breath you can see.',
+      parts: [
+        { inst: 'harm', notes: '10:16 9:16' },
+        { inst: 'koto', notes: '.:4 9:1 8:1 7:2 .:4 8:1 7:1 5:2 .:4 7:2 5:2 3:4 0:4' },
+        { inst: 'flute', notes: '.:8 8:8 7:8 5:8' }
+      ] },
+    { id: 'temple', name: 'Temple at Dusk', jp: '黄昏の社', kind: 'Feudal · shrine', new: true, bpm: 48, scale: 'miyako', bars: 8,
+      desc: 'Clap, bow, the bowl sings. Prayer music for the hour when the mountain turns gold.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'kane', notes: '0:8 .:8 0:8 .:8' },
+        { inst: 'koto', notes: '5:2 7:2 5:2 4:2 2:4 0:4 5:2 4:2 2:2 0:2 2:4 0:4' },
+        { inst: 'flute', notes: '.:8 7:8 5:8 4:8' }
+      ] },
+    { id: 'fire', name: 'By the Fire', jp: '焚火', kind: 'Feudal · camp', new: true, bpm: 66, scale: 'miyako', bars: 8,
+      desc: 'Close and low. Biwa and koto as if someone were playing across the coals.',
+      parts: [
+        { inst: 'biwa', notes: '0:4 2:4 4:4 2:4 0:4 2:4 0:4 4:4' },
+        { inst: 'koto', notes: '5:1 4:1 2:2 5:2 7:2 8:1 7:1 5:2 4:2 2:2 0:2 2:2 4:2 5:2 7:2 5:2 4:1 2:1 0:2' },
+        { inst: 'flute', notes: '.:16 7:4 5:4 4:8' }
+      ] },
+    { id: 'blood', name: 'Blood on the Road', jp: '路上の血', kind: 'Battle', new: true, bpm: 108, scale: 'iwato', bars: 8,
+      desc: 'Taiko under the feet, koto in a hurry. Not a fanfare — a chase.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'taiko', ost: '0:1 1:0.5 0:0.5' },
+        { inst: 'koto', notes: '7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:1 4:1 3:1 1:1 7:1 4:1 3:1 1:1 7:1 4:1 3:1 1:1 7:1 4:1 3:1 1:1' },
+        { inst: 'flute', notes: '.:8 8:2 6:2 4:4 3:4 1:4 4:8' }
+      ] },
+    { id: 'duel', name: 'Before the Cut', jp: '斬の前', kind: 'Duel', new: true, bpm: 48, scale: 'iwato', bars: 8,
+      desc: 'A heartbeat on the drum, one flute that will not finish its phrase. The standoff.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'taiko', ost: '0:2 .:2' },
+        { inst: 'flute', notes: '.:8 6:16 .:8' },
+        { inst: 'koto', notes: '.:12 3:2 1:2 .:8 0:4 .:4' }
+      ] },
+    { id: 'wanderer', name: 'Koto and Wind', jp: '琴と風', kind: 'The first score', new: false, gen: true, bpm: 72, scale: 'miyako', bars: 8,
+      desc: 'The original wandering score: live koto and shakuhachi, never the same twice.' }
+  ],
+  attach() {
+    const v = store('crimson_ronin_mvol'); this.vol = clamp(v == null ? 0.88 : +v, 0, 1);
+    this.ducked = false; this.fadeTo(this.level(), 1.1);
+    if (typeof G !== 'undefined' && G.state !== 'play') this.want('white_sun', true);
+  },
+  level() { return (this.ducked ? 0.12 : 0.36) * this.vol; },
+  duck(on) { this.ducked = !!on; this.fadeTo(this.level(), 0.12); },
+  setVol(v) { this.vol = clamp(v, 0, 1); store('crimson_ronin_mvol', this.vol); this.fadeTo(this.level(), 0.05); },
+  fadeTo(v, dur) {
+    if (!Snd.music || !Snd.ctx) return;
+    const t = Snd.ctx.currentTime;
+    Snd.music.gain.cancelScheduledValues(t);
+    Snd.music.gain.setValueAtTime(Math.max(0.0001, Snd.music.gain.value), t);
+    Snd.music.gain.linearRampToValueAtTime(Math.max(0.0001, v), t + Math.max(0.02, dur));
+  },
+  track(id) { return this.tracks.find(t => t.id === id); },
+  hz(scale, deg) {
+    const sc = this.SC[scale] || this.SC.miyako, n = sc.length, oct = Math.floor(deg / n), i = ((deg % n) + n) % n;
+    return sc[i] * Math.pow(2, oct);
+  },
+  parse(str) {
+    const out = [];
+    for (const tok of String(str || '').trim().split(/\s+/)) {
+      if (!tok) continue;
+      if (tok[0] === '.') { out.push([null, parseFloat(String(tok).replace(/^\.:?/, '') || '1') || 1]); continue; }
+      const p = tok.split(':'); out.push([+p[0], +(p[1] || 1), p[2] != null ? +p[2] : undefined]);
     }
-    if (!this._idx) this._idx = 4;
-    if (Math.random() < 0.55) { this._idx = clamp(this._idx + rndi(-2, 2), 0, sc.length - 1); this.koto(t, sc[this._idx], 0.8); if (Math.random() < 0.2) this.koto(t + beat / 2, sc[clamp(this._idx - 2, 0, 10)], 0.5); }
-    if (this.step % 16 === 0 && Math.random() < 0.6) this.flute(t, sc[rndi(5, 9)], rnd(2, 3.5));
-    if (this.step % 32 === 0) this.koto(t, sc[0] / 2, 1);
+    return out;
+  },
+  compile(tr) {
+    if (tr._ev) return tr._ev;
+    if (tr.gen) { tr._ev = []; tr._len = 32 * (60 / (tr.bpm || 72)); return tr._ev; }
+    const beat = 60 / tr.bpm, total = tr.bars * 4, ev = [];
+    for (const part of tr.parts || []) {
+      let notes = this.parse(part.ost || part.notes), t = 0;
+      if (part.ost) {
+        const unit = notes.reduce((s, n) => s + n[1], 0) || 1, filled = [];
+        while (t < total - 0.001) {
+          for (const n of notes) { filled.push(n); t += n[1]; if (t >= total - 0.001) break; }
+        }
+        notes = filled; t = 0;
+      }
+      for (const n of notes) {
+        if (n[0] != null) ev.push({ at: t * beat, inst: part.inst, deg: n[0], dur: n[1] * beat, vel: n[2] != null ? n[2] : (this.VEL[part.inst] || 0.6), scale: tr.scale });
+        t += n[1];
+      }
+    }
+    ev.sort((a, b) => a.at - b.at);
+    tr._ev = ev; tr._len = total * beat;
+    return ev;
+  },
+  want(id, now) {
+    if (!id) return;
+    if (this.lock && !now) id = this.lock;
+    if (id === this.cur) return;
+    if (!this.cur) { this.start(id); return; }
+    const urgent = now || id === 'blood' || id === 'duel' || this.cur === 'blood' || this.cur === 'duel';
+    if (!urgent && this.hold > 0) return;
+    this.cross(id);
+  },
+  play(id) { this.lock = id; this.want(id, true); this.cur = id; },
+  unpin() { this.lock = null; this.hold = 0; },
+  cross(id) {
+    const tr = this.track(id); if (!tr || !Snd.ctx) return;
+    const t = Snd.ctx.currentTime;
+    this.fadeTo(0.0001, 0.55);
+    this.cur = id; this._swap = id; this._swapAt = t + 0.58;
+  },
+  start(id) {
+    const tr = this.track(id); if (!tr || !Snd.ctx) return;
+    this.compile(tr);
+    this.cur = id; this.gen = !!tr.gen; this.events = tr._ev || []; this.len = tr._len || 24;
+    this.origin = Snd.ctx.currentTime + 0.06; this.i = 0; this.since = 0; this.hold = (id === 'blood' || id === 'duel') ? 8 : 22;
+    this.fadeTo(this.level(), 0.7);
+    this._swap = null;
+  },
+  pick(mood) {
+    if (this.lock) return this.lock;
+    if (mood === 'title' || (typeof G !== 'undefined' && G.state === 'title')) return 'white_sun';
+    if (mood === 'duel') return 'duel';
+    if (mood === 'danger') return 'blood';
+    const night = !!(typeof G !== 'undefined' && G.night);
+    const wanted = (typeof G !== 'undefined' && G.wanted) || 0;
+    const p = typeof G !== 'undefined' && G.player;
+    const biome = (p && World.biomeAt) ? World.biomeAt(p.x, p.y) : 0;
+    const pl = (p && World.placeAt) ? World.placeAt(p.x, p.y) : null;
+    if (pl && (pl.kind === 'shrine' || /shrine|tera|ji$|sha/i.test(pl.id || '') || /shrine|temple/i.test(pl.name || ''))) return 'temple';
+    if (biome === B.ASH) return 'ash';
+    if (biome === B.SNOW) return 'snow';
+    if (biome === B.BAMBOO || biome === B.FOREST) return 'bamboo';
+    if (biome === B.HIDEOUT) return 'fire';
+    if (biome === B.CASTLE) return 'court';
+    if (biome === B.SAKURA) return night ? 'night' : 'petals';
+    if (biome === B.MARSH || night || wanted >= 3) return 'night';
+    return 'old_road';
+  },
+  tick(dt, mood) {
+    if (!Snd.ctx || !Snd.on) return;
+    this.since += dt; this.hold = Math.max(0, this.hold - dt);
+    if (this._swap && Snd.ctx.currentTime >= this._swapAt) this.start(this._swap);
+    const id = this.pick(mood);
+    if (!this.cur && !this._swap) this.start(id);
+    else if (!this._swap && id !== this.cur) this.want(id);
+    if (this.gen) { this.genTick(dt, mood); return; }
+    if (!this.events.length) return;
+    const ctxT = Snd.ctx.currentTime;
+    let n = 0;
+    while (n++ < 48) {
+      if (this.i >= this.events.length) {
+        if (ctxT + 0.45 > this.origin + this.len) { this.origin += this.len; this.i = 0; continue; }
+        break;
+      }
+      const ev = this.events[this.i], when = this.origin + ev.at;
+      if (when > ctxT + 0.42) break;
+      if (when >= ctxT - 0.04) this.sound(when, ev);
+      this.i++;
+    }
+  },
+  sound(t, ev) {
+    const f = this.hz(ev.scale, ev.deg), v = ev.vel, d = ev.dur, dest = Snd.music;
+    if (ev.inst === 'koto') this.pluck(t, f, Math.max(1.1, d * 1.6), v, 'koto');
+    else if (ev.inst === 'shami') this.pluck(t, f, Math.max(0.28, d * 0.85), v, 'shami');
+    else if (ev.inst === 'biwa') this.pluck(t, f * 0.5, Math.max(1.4, d * 1.3), v, 'biwa');
+    else if (ev.inst === 'flute') this.shaku(t, f, Math.max(0.8, d * 1.05), v);
+    else if (ev.inst === 'drone') this.drone(t, f, d, v, ev.scale === 'iwato');
+    else if (ev.inst === 'harm') this.harm(t, f, v);
+    else if (ev.inst === 'kane') this.bowl(t, v);
+    else if (ev.inst === 'taiko') this.don(t, v, ev.deg > 0);
+    else if (ev.inst === 'hyo') this.hyo(t, v);
+    else if (ev.inst === 'tsu') this.don(t, v * 0.7, true);
+  },
+  ksBuf(freq, seconds, decay, bright) {
+    const key = (freq | 0) + ':' + (seconds * 10 | 0) + ':' + (decay * 1000 | 0) + ':' + (bright * 10 | 0);
+    if (this.ks[key]) return this.ks[key];
+    const sr = Snd.ctx.sampleRate, n = Math.max(2, Math.round(sr / freq)), len = Math.ceil(sr * seconds);
+    const buf = Snd.ctx.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * bright * (0.7 + 0.3 * Math.sin(Math.PI * i / n));
+    for (let i = n; i < len; i++) d[i] = 0.5 * (d[i - n] + d[i - n + 1 < len ? i - n + 1 : i - n]) * decay;
+    if (Object.keys(this.ks).length > 64) this.ks = {};
+    this.ks[key] = buf; return buf;
+  },
+  pluck(t, freq, dur, vel, kind) {
+    const bright = kind === 'shami' ? 0.95 : kind === 'biwa' ? 0.42 : 0.68;
+    const decay = kind === 'shami' ? 0.986 : kind === 'biwa' ? 0.9965 : 0.993;
+    const buf = this.ksBuf(freq, Math.min(dur + 0.8, kind === 'shami' ? 1.1 : 2.8), decay, bright);
+    const src = Snd.ctx.createBufferSource(); src.buffer = buf;
+    const f = Snd.ctx.createBiquadFilter();
+    if (kind === 'shami') { f.type = 'highpass'; f.frequency.value = 220; }
+    else { f.type = 'lowpass'; f.frequency.value = kind === 'biwa' ? 1200 : 2600; }
+    const g = Snd.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vel * (kind === 'shami' ? 0.2 : 0.24)), t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(Snd.music);
+    src.start(t); src.stop(t + dur + 0.04);
+    Snd.noise(t, kind === 'shami' ? 0.018 : 0.022, 'highpass', kind === 'shami' ? 1600 : 4200, 0.9, vel * 0.035, Snd.music);
+    Snd.tone(t, freq, Math.min(0.45, dur * 0.4), 'sine', vel * 0.035, Snd.music, null, 0.003);
+  },
+  shaku(t, f, d, vel) {
+    const o = Snd.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f * 0.955, t); o.frequency.linearRampToValueAtTime(f, t + Math.min(0.38, d * 0.25));
+    if (d > 1.2) o.frequency.linearRampToValueAtTime(f * 0.978, t + d - 0.3);
+    const o2 = Snd.ctx.createOscillator(); o2.type = 'sine'; o2.frequency.setValueAtTime(f * 1.997, t);
+    const g2 = Snd.ctx.createGain(); g2.gain.value = 0.11 * vel;
+    const lfo = Snd.ctx.createOscillator(), lg = Snd.ctx.createGain();
+    lfo.frequency.value = 4.7; lg.gain.setValueAtTime(0.0001, t); lg.gain.linearRampToValueAtTime(f * 0.013, t + 0.55);
+    lfo.connect(lg); lg.connect(o.frequency);
+    const body = Snd.ctx.createGain();
+    body.gain.setValueAtTime(0.0001, t); body.gain.linearRampToValueAtTime(0.046 * vel, t + 0.38);
+    body.gain.setValueAtTime(0.04 * vel, t + d * 0.7); body.gain.linearRampToValueAtTime(0.0001, t + d);
+    const bp = Snd.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 9;
+    o.connect(bp); o2.connect(g2); g2.connect(bp); bp.connect(body); body.connect(Snd.music);
+    o.start(t); o2.start(t); lfo.start(t); o.stop(t + d + 0.1); o2.stop(t + d + 0.1); lfo.stop(t + d + 0.1);
+    const ns = Snd.ctx.createBufferSource(); ns.buffer = Snd.noiseBuf; ns.loop = true;
+    const nbp = Snd.ctx.createBiquadFilter(); nbp.type = 'bandpass'; nbp.frequency.value = f * 1.7; nbp.Q.value = 1.3;
+    const ng = Snd.ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t); ng.gain.linearRampToValueAtTime(0.018 * vel, t + 0.12); ng.gain.linearRampToValueAtTime(0.0001, t + d);
+    ns.connect(nbp); nbp.connect(ng); ng.connect(Snd.music); ns.start(t); ns.stop(t + d + 0.05);
+  },
+  drone(t, f, d, vel, dark) {
+    Snd.tone(t, f, d, 'sine', 0.034 * vel, Snd.music, null, 0.5);
+    Snd.tone(t, f * (dark ? 1.498 : 1.5), d * 0.95, 'sine', 0.018 * vel, Snd.music, null, 0.6);
+    if (dark) Snd.tone(t, f * 1.414, d * 0.72, 'sine', 0.01 * vel, Snd.music, null, 0.8);
+  },
+  harm(t, f, vel) {
+    Snd.tone(t, f, 3.2, 'sine', 0.024 * vel, Snd.music, f * 1.006, 0.2);
+    Snd.tone(t, f * 1.5, 2.0, 'sine', 0.01 * vel, Snd.music, null, 0.25);
+  },
+  bowl(t, vel) {
+    const f = 392;
+    [1, 2.76, 5.41, 8.93].forEach((m, i) => Snd.tone(t, f * m, 3.4 - i * 0.45, 'sine', vel * [0.055, 0.032, 0.016, 0.009][i], Snd.music, null, 0.002));
+    Snd.noise(t, 0.07, 'highpass', 4800, 1, vel * 0.04, Snd.music);
+  },
+  don(t, vel, high) {
+    Snd.tone(t, high ? 190 : 68, high ? 0.16 : 0.58, 'sine', (high ? 0.2 : 0.42) * vel, Snd.music, high ? 88 : 36);
+    Snd.noise(t, high ? 0.045 : 0.12, 'lowpass', high ? 800 : 260, 1, (high ? 0.18 : 0.32) * vel, Snd.music);
+  },
+  hyo(t, vel) {
+    Snd.noise(t, 0.035, 'highpass', 3000, 1, 0.1 * vel, Snd.music);
+    Snd.tone(t, 1480, 0.045, 'triangle', 0.02 * vel, Snd.music);
+    Snd.noise(t + 0.11, 0.03, 'highpass', 2500, 1, 0.08 * vel, Snd.music);
+  },
+  genTick(dt) {
+    this._gt = (this._gt || 0) - dt; if (this._gt > 0) return;
+    this._gt = 0.55; this._gs = (this._gs || 0) + 1;
+    const t = Snd.ctx.currentTime + 0.05, sc = 'miyako';
+    if (!this._gi) this._gi = 4;
+    if (Math.random() < 0.55) {
+      this._gi = clamp(this._gi + rndi(-2, 2), 0, 10);
+      this.pluck(t, this.hz(sc, this._gi), 1.5, 0.7, 'koto');
+      if (Math.random() < 0.22) this.pluck(t + 0.28, this.hz(sc, clamp(this._gi - 2, 0, 10)), 1.1, 0.5, 'koto');
+    }
+    if (this._gs % 16 === 0 && Math.random() < 0.6) this.shaku(t, this.hz(sc, rndi(5, 9)), rnd(2.2, 3.4), 0.8);
+    if (this._gs % 32 === 0) this.pluck(t, this.hz(sc, 0) * 0.5, 2.2, 0.85, 'biwa');
   }
 };
 // ============================================================ GROUND: tile types + per-pixel terrain painter (cached in chunks)
@@ -4295,6 +4708,7 @@ function moveActor(a, vx, vy, dt) {
 function resolveSwing(a) {
   const W = a.W, heavy = a.atk.heavy, spin = a.atk.spin;
   const reach = W.reach * (heavy ? 1.12 : 1), arc = spin ? TAU : W.arc * (heavy ? 1.15 : 1);
+  const chopping = a === G.player && Bamboo.aimed(a, reach, arc);
   let any = false;
   for (const b of G.actors) {
     if (b === a || b.dead) continue;
@@ -4306,13 +4720,15 @@ function resolveSwing(a) {
     if (d > reach + b.r) continue;
     const ang = Math.atan2(b.y - a.y, b.x - a.x);
     if (Math.abs(angDiff(a.face, ang)) > arc / 2 && d > 0.4) continue;
+    // chopping the grove: skip children, farmers, and anyone else who is not trying to kill you
+    if (chopping && !b.hostileToP() && !b.dummy && !b.tame) continue;
     applyHit(a, b, { heavy, ang });
     any = true;
     if (W.thrust && !heavy) break;
   }
   if (a === G.player) Wildlife.swing(a, reach, arc, heavy);
-  // a charged stroke with an edge goes clean through bamboo
-  if (a === G.player && heavy) Bamboo.swing(a, reach, arc);
+  // an edge through bamboo: the grove, not the farmer standing in it
+  if (a === G.player) Bamboo.swing(a, reach, arc);
   if (a.sparring && heavy && !any && G.time - (G.player.lastRoll ?? -9) < 1.2) { Missions.event('sparRoll'); FX.text(G.player.x, G.player.y, 'Well dodged', '#f2df9a'); }
   // cut through bushes / reeds for feel
   if (!any && a === G.player) { const fx = a.x + Math.cos(a.face) * 0.9, fy = a.y + Math.sin(a.face) * 0.9; const t = World.tileAtF(fx, fy); if (t === TILE.GRASS && Math.random() < 0.3) FX.dust(fx, fy, 2, 'rgba(110,150,70,'); }
@@ -4881,6 +5297,7 @@ const G = {
   },
   start(profile, skipTutorial = false) {
     this.profile = profile; this.mp = !!profile.mp; this.tod = profile.tod || 0.32;
+    if (typeof Music !== 'undefined' && !Music.lock) Music.hold = 0;
     // the realm generated behind the title screen is reused for the first journey
     if (!World.pristine) { World.gen(20240917); Ground.cache.clear(); UI.miniImg = null; }
     World.pristine = false; Buildings.refreshHideout(); UI.fogDirty = true; Realm.reset();
@@ -5064,7 +5481,7 @@ const G = {
     if (Input.hit('KeyQ')) Systems.bandage();
     if (Input.hit('KeyR')) Systems.drinkSake();
     if (this.sakeHeal > 0) { const r = Math.min(this.sakeHeal, dt * (this.hasPerk('medic') ? 20 : 10)); this.sakeHeal -= r; p.hp = Math.min(p.maxHp, p.hp + r); }
-    if (Input.hit('KeyH')) Horse.whistle();
+    if (Input.hit('KeyH')) { Snd.init(); Horse.whistle(); }
     if (Input.hit('KeyG') && this.gang.length) { this.gangHold = !this.gangHold; for (const m of this.gang) m.holdPos = [m.x, m.y]; UI.toast(this.gangHold ? 'Gang: hold position' : 'Gang: follow me', 'good'); }
     if (Input.hit('KeyE')) Systems.doInteract();
     if (Input.hit('KeyM')) UI.open('map');
@@ -6033,12 +6450,90 @@ const UI = {
     const fn = Panels[this.panel]; if (!fn) return this.close();
     const r = fn(this.data); if (!r) return this.close();
     $('panelSeal').textContent = r.seal || '印'; $('panelTitle').textContent = r.title; $('panelBody').innerHTML = r.html;
-    $('panelBody').querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); Snd.play('ui'); const res = r.on && r.on(b.dataset.act, b.dataset.arg, b); if (res !== false && this.panel) this.render(); }));
+    $('panelBody').querySelectorAll('button[data-act]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); Snd.play('ui'); const res = r.on && r.on(b.dataset.act, b.dataset.arg, b); if (res !== false && this.panel) this.render(); }));
+    $('panelBody').querySelectorAll('input[data-act]').forEach(b => b.addEventListener('input', e => { e.stopPropagation(); const res = r.on && r.on(b.dataset.act, b.value, b); if (res !== false && this.panel) this.render(); }));
   },
 };
 const priceMult = () => { const h = G.profile.honor; return h >= 50 ? 0.85 : h < -20 ? 1 + (-h - 20) / 100 : 1; };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const Settings = {
+  page: 'main', from: 'title',
+  openTitle() {
+    this.from = 'title'; this.page = 'main';
+    Snd.init(); Snd.play('ui');
+    $('title').hidden = true; $('settings').hidden = false;
+    this.paint();
+  },
+  closeTitle() {
+    $('settings').hidden = true; $('title').hidden = false;
+    this.page = 'main';
+    if (!Music.lock) Music.want('white_sun', true);
+  },
+  html() { return this.page === 'music' ? this.musicHtml() : this.mainHtml(); },
+  mainHtml() {
+    const vol = Math.round(Music.vol * 100);
+    return `<div class="speaker">${this.from === 'title' ? 'Title' : 'Paused'}</div>
+      <h2 style="margin:0">Settings</h2>
+      <p class="lede">Sound, the score, and how Ren walks.</p>
+      <div class="btns">
+        <button class="btn alt" data-act="sound">Sound: ${Snd.on ? 'on' : 'off'}</button>
+        <button class="btn alt" data-act="controls">Controls: ${G.controls === 'classic' ? 'Classic' : 'Turn and walk'}</button>
+        <button class="btn gold" data-act="music">Music</button>
+      </div>
+      <div class="set-vol"><label>Music · ${vol}</label><input type="range" min="0" max="100" value="${vol}" data-act="vol"></div>
+      <div class="btns"><button class="btn alt" data-act="back">${this.from === 'title' ? 'Back to title' : 'Back'}</button></div>`;
+  },
+  musicHtml() {
+    const cur = Music.cur, tr = Music.track(cur);
+    const now = tr
+      ? `<div class="nowplay"><span class="en">${esc(tr.kind)}${tr.new ? ' · this telling' : ' · the first score'}</span><span class="jp">${esc(tr.jp)}</span><span>${esc(tr.name)}</span><span class="ds">${esc(tr.desc)}</span></div>`
+      : '<p class="lede">Nothing is playing yet. Choose a piece.</p>';
+    const groups = [['This telling', Music.tracks.filter(t => t.new)], ['The first score', Music.tracks.filter(t => !t.new)]];
+    let rows = '';
+    for (const [g, list] of groups) {
+      rows += `<div class="speaker">${g}</div>`;
+      rows += list.map(t => `<div class="row ${t.id === cur ? 'playing' : ''}"><div class="grow"><span class="nm">${esc(t.name)}${t.new ? '<span class="badge-new">New</span>' : ''}</span><span class="ds">${esc(t.jp)} · ${esc(t.kind)}</span></div><button class="btn ${t.id === cur ? 'gold' : 'alt'}" data-act="play" data-arg="${t.id}">${t.id === cur ? 'Playing' : 'Listen'}</button></div>`).join('');
+    }
+    return `<h2 style="margin:0">Music</h2>${now}<p class="lede">Twelve new composed pieces sit beside the original wandering score. Listen here. Pin one to keep it on the road, or let the island choose by place and hour.</p>
+      <div class="btns"><button class="btn ${Music.lock ? 'alt' : 'gold'}" data-act="auto">${Music.lock ? 'Let the island choose' : 'The island is choosing'}</button></div>
+      ${rows}
+      <div class="btns"><button class="btn alt" data-act="back">Back</button></div>`;
+  },
+  paint() {
+    if (this.from !== 'title' || !$('settings') || $('settings').hidden) return;
+    $('setBody').innerHTML = this.html();
+    this.bind($('setBody'));
+  },
+  bind(root) {
+    root.querySelectorAll('button[data-act]').forEach(b => b.addEventListener('click', e => {
+      e.preventDefault(); Snd.play('ui'); const keep = this.on(b.dataset.act, b.dataset.arg);
+      if (keep !== false && this.from === 'title') this.paint();
+    }));
+    root.querySelectorAll('input[data-act]').forEach(b => b.addEventListener('input', () => this.on(b.dataset.act, b.value)));
+  },
+  on(act, arg) {
+    if (act === 'sound') { Snd.on = !Snd.on; if (Snd.master) Snd.master.gain.value = Snd.on ? 0.7 : 0; }
+    if (act === 'controls') G.setControls(G.controls === 'classic' ? 'turn' : 'classic');
+    if (act === 'vol') {
+      Music.setVol((+arg) / 100);
+      const lab = document.querySelector('#panelBody .set-vol label, #setBody .set-vol label');
+      if (lab) lab.textContent = 'Music · ' + Math.round(Music.vol * 100);
+      return false;
+    }
+    if (act === 'music') this.page = 'music';
+    if (act === 'play') { Snd.init(); Music.play(arg); }
+    if (act === 'auto') { Music.unpin(); Music.want(this.from === 'title' ? 'white_sun' : Music.pick(Snd.mood || 'calm'), true); }
+    if (act === 'back') {
+      if (this.page === 'music') this.page = 'main';
+      else if (this.from === 'title') { this.closeTitle(); return false; }
+      else UI.panel = 'pause';
+    }
+  }
+};
 const Panels = {
+  settings() {
+    return { title: Settings.page === 'music' ? 'Music' : 'Settings', seal: Settings.page === 'music' ? '楽' : '設', html: Settings.html(), on(act, arg) { return Settings.on(act, arg); } };
+  },
   dialog(d) {
     const btns = (d.buttons || [{ label: 'Continue' }]).map((b, i) => `<button class="btn ${b.alt ? 'alt' : 'gold'}" data-act="b" data-arg="${i}">${esc(b.label)}</button>`).join('');
     return { title: d.title || d.speaker, seal: '話', html: `${d.title ? `<div class="speaker">${esc(d.speaker)}</div>` : ''}${d.lines.map(l => `<p class="speech">${esc(l)}</p>`).join('')}<div class="btns">${btns}</div>`, on(act, arg) { const b = (d.buttons || [])[+arg]; UI.close(); if (b && b.fn) b.fn(); return false; } };
@@ -6260,7 +6755,7 @@ const Panels = {
       <div class="row"><input id="invName" placeholder="Invite by name or id" style="flex:1;min-width:120px"><button class="btn" data-act="invite">Invite</button></div>
       <p class="lede">${(Net.gang && Net.gang.members || []).map(id => esc(id) + (id === (Net.gang && Net.gang.leader) ? ' ★' : '')).join(' · ') || 'You ride alone until a friend accepts.'}</p>
       ${(Net.invites || []).map(i => `<div class="row"><div class="grow"><span class="nm">${esc(i.name)}</span><span class="ds">wants you in ${esc(i.gang)}</span></div><button class="btn" data-act="accept" data-arg="${i.from}">Join their camp</button></div>`).join('')}` : '';
-    return { title: G.mp ? 'Gang · Paused' : 'Paused', seal: '休', html: `${gang}<div class="keys">${$('keysBox').innerHTML}</div><div class="btns"><button class="btn gold" data-act="resume">Resume</button><button class="btn alt" data-act="sound">Sound: ${Snd.on ? 'on' : 'off'}</button><button class="btn alt" data-act="controls">Controls: ${G.controls === 'classic' ? 'Classic' : 'Turn and walk'}</button><button class="btn alt" data-act="quit">Save and return to title</button></div>`, on(act, arg) { if (act === 'resume') { UI.close(); return false; } if (act === 'sound') { Snd.on = !Snd.on; if (Snd.master) Snd.master.gain.value = Snd.on ? 0.7 : 0; }
+    return { title: G.mp ? 'Gang · Paused' : 'Paused', seal: '休', html: `${gang}<div class="keys">${$('keysBox').innerHTML}</div><div class="btns"><button class="btn gold" data-act="resume">Resume</button><button class="btn alt" data-act="settings">Settings</button><button class="btn alt" data-act="sound">Sound: ${Snd.on ? 'on' : 'off'}</button><button class="btn alt" data-act="controls">Controls: ${G.controls === 'classic' ? 'Classic' : 'Turn and walk'}</button><button class="btn alt" data-act="quit">Save and return to title</button></div>`, on(act, arg) { if (act === 'resume') { UI.close(); return false; } if (act === 'settings') { Settings.from = 'pause'; Settings.page = 'main'; UI.panel = 'settings'; return; } if (act === 'sound') { Snd.on = !Snd.on; if (Snd.master) Snd.master.gain.value = Snd.on ? 0.7 : 0; }
       if (act === 'rename') { G.setName(($('meName') && $('meName').value) || ''); UI.close(); UI.open('pause'); return false; }
       if (act === 'invite') { const n = ($('invName') && $('invName').value || '').trim(); if (n) Net.invite(n); UI.close(); UI.open('pause'); return false; }
       if (act === 'accept') { Net.accept(arg); UI.close(); return false; }
@@ -6834,7 +7329,7 @@ const Horse = {
   whistle() {
     const p = G.player, h = G.horse;
     if (!h) { UI.toast('You have no horse yet', 'shame'); return; }
-    Snd.play('whistle'); Quests.emit('whistle');
+    Quests.emit('whistle');
     if (p.mounted) return;
     const d = dist(h.x, h.y, p.x, p.y);
     // far off (or wedged somewhere): he comes galloping in from out of sight, never out of thin air
@@ -9214,7 +9709,24 @@ const Bamboo = {
     const K = Props.SCALE.bamboo, R = RNG(1000 + Math.floor(o.v * 6) * 77 + o.t.length * 13 + (o.dir || 0));
     return o._culms = this.stalks(R).map((s, i) => { const sx = (Math.round(s.bx) + 1) * K, sy = Math.round(s.by) * K; return Object.assign(s, { i, wx: o.cx + (sx / HTW + sy / HTH) / 2, wy: o.cy + (sy / HTH - sx / HTW) / 2 }); });
   },
-  // a heavy stroke with an edge: everything inside the arc is cut
+  aimed(a, reach, arc) {
+    const W = a.W; if (!W || !(W.sever >= 0.1) || W.crush || W.thrust) return false;
+    const near = reach + 1.15, R0 = Math.ceil(near + 0.5);
+    for (let j = Math.floor(a.y) - R0; j <= Math.floor(a.y) + R0; j++) for (let i = Math.floor(a.x) - R0; i <= Math.floor(a.x) + R0; i++)
+      for (const o of World.at(i, j)) {
+        if (o.t !== 'bamboo') continue;
+        for (const s of this.of(o)) {
+          if ((o.cutMask || 0) & (1 << s.i)) continue;
+          const d = dist(a.x, a.y, s.wx, s.wy);
+          if (d <= near) return true;
+          if (d > reach + 0.7) continue;
+          if (Math.abs(angDiff(a.face, Math.atan2(s.wy - a.y, s.wx - a.x))) > arc / 2 + 0.55 && d > 0.65) continue;
+          return true;
+        }
+      }
+    return false;
+  },
+  // an edge through the grove: everything inside the arc is cut
   swing(a, reach, arc) {
     const W = a.W; if (!(W.sever >= 0.1) || W.crush || W.thrust) return;
     const R0 = Math.ceil(reach + 1.5), turn = Math.random() < 0.5 ? 1 : -1; let n = 0, fx = 0, fy = 0;
@@ -14256,6 +14768,10 @@ function frame(now) {
     const k = (titleT * 0.02) % (path.length - 1), i = Math.floor(k), f = k - i;
     const px_ = lerp(path[i][0], path[i + 1][0], f), py_ = lerp(path[i][1], path[i + 1][1], f);
     if (G.state === 'title') { G.tod = 0.76; G.night = false; }
+    if (G.state === 'title' && Snd.ctx) Snd.update(dt, 'title', 0.5);
+    if (G.state === 'title' && $('settings') && !$('settings').hidden && Input.hit('Escape')) {
+      Snd.play('ui'); const keep = Settings.on('back'); if (keep !== false) Settings.paint();
+    }
     Camera.update(dt, px_, py_);
     FX.weather(dt, px_, py_, B.SAKURA, G.night, false, 0.5);
     if (Math.random() < dt * 3) FX.addPart({ t: 'leaf', x: px_ + rnd(-12, 12), y: py_ + rnd(-12, 12), z: rnd(20, 60), fall: rnd(8, 14), ph: rnd(TAU), life: 8, col: pick(['#c4402a', '#df6a2d']) });
@@ -14349,6 +14865,21 @@ const DevKit = {
     G.start(this.profile(n), n >= 6);
     Missions.debugStart(n);
     UI.toast('Dev kit · Mission ' + n + ' · maxed', 'good');
+  }
+};
+const HonorCode = {
+  seq: '',
+  want: 'sfc',
+  onKey(e) {
+    if (G.state !== 'play' || UI.panel !== 'pause') { this.seq = ''; return; }
+    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if (!e.code.startsWith('Key')) { this.seq = ''; return; }
+    const ch = e.code.slice(3).toLowerCase();
+    const next = this.seq + ch;
+    if (this.want.startsWith(next)) this.seq = next;
+    else this.seq = this.want[0] === ch ? ch : '';
+    if (this.seq === this.want) { this.seq = ''; G.addHonor(30); }
   }
 };
 
@@ -14860,7 +15391,7 @@ const Net = {
 function boot() {
   FX.init(); Input.init(cv);
   // paint the title first, then raise the realm behind it
-  const tb = [...document.querySelectorAll('.title-btns .btn')]; tb.forEach(b => b.disabled = true);
+  const tb = [...document.querySelectorAll('.title-btns .btn')]; tb.forEach(b => { if (b.id !== 'btnSettings' && b.id !== 'btnKeys' && b.id !== 'btnControls') b.disabled = true; });
   const note = document.createElement('p'); note.className = 'title-sub'; note.id = 'genNote'; note.textContent = 'Raising the realm…'; $('title').querySelector('.title-btns').before(note);
   setTimeout(() => { World.gen(20240917); World.streamAll(88, 100); note.textContent = 'Drawing the map…'; setTimeout(() => { UI.buildMiniImg(); tb.forEach(b => b.disabled = false); note.remove(); }, 30); }, 60);
   G.profile = null; G.tod = 0.76;
@@ -14888,10 +15419,12 @@ function boot() {
   };
   $('btnQuick').onclick = () => { Snd.init(); $('title').hidden = true; const look = Sprites.randomLook(); look.hat = pick([0, 0, 1, 2]); look.coat = pick(COATC.slice(1)); G.start(G.newProfile(look), false); Systems.save(); };
   $('btnKeys').onclick = () => { $('keysBox').hidden = !$('keysBox').hidden; };
+  $('btnSettings').onclick = () => Settings.openTitle();
+  $('title').addEventListener('pointerdown', () => Snd.init());
   $('btnControls').onclick = () => { G.setControls(G.controls === 'classic' ? 'turn' : 'classic'); $('keysBox').hidden = false; };
   $('btnDev').onclick = () => { Snd.init(); DevKit.open(); };
   $('btnDevBack').onclick = () => { Snd.play('ui'); DevKit.close(); };
-  addEventListener('keydown', e => DevKit.onKey(e));
+  addEventListener('keydown', e => { DevKit.onKey(e); HonorCode.onKey(e); });
   DevKit.restore();
   UI.controlsHelp();
   $('rotL').onclick = () => { Creator.dir = (Creator.dir + 7) % 8; Snd.play('ui'); };
