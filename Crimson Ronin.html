@@ -353,8 +353,9 @@ body.talking #mObj,body.talking #mSubs{display:none;}
         <div class="btns"><button class="btn alt" id="rotL" aria-label="Rotate left">◀ Turn</button><button class="btn alt" id="rotWalk">Walk</button><button class="btn alt" id="rotR" aria-label="Rotate right">Turn ▶</button></div>
       </div>
       <div class="opts">
-        <div class="speaker">Ren Kisaragi · 如月 蓮</div>
-        <p class="lede" style="margin:2px 0 6px">The look you choose is Ren as a man of twenty-three. In the first missions he is still a boy of eight.</p>
+        <div class="speaker" id="createSpeaker">Ren Kisaragi · 如月 蓮</div>
+        <p class="lede" id="createLede" style="margin:2px 0 6px">The look you choose is Ren as a man of twenty-three. In the first missions he is still a boy of eight.</p>
+        <div id="createNameRow" class="namebox" hidden><input id="createName" maxlength="24" placeholder="Your name" autocomplete="nickname" spellcheck="false"></div>
         <div id="optList" class="opts"></div>
         <div class="btns" style="margin-top:6px"><button class="btn alt" id="lookRnd">Randomize Look</button><button class="btn gold" id="btnStart">Continue</button></div>
       </div>
@@ -4397,12 +4398,24 @@ const G = {
     while (p.xp >= this.xpNeed()) { p.xp -= this.xpNeed(); p.level++; p.pendingPerks++; Snd.play('level'); UI.toast('Level ' + p.level + ' · press P to learn a technique', 'good'); if (this.player) FX.text(this.player.x, this.player.y, 'LEVEL ' + p.level, '#f2df9a', true); }
   },
   xpNeed() { return 50 + this.profile.level * 40; },
+  setName(raw) {
+    const n = String(raw || '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24);
+    if (!n) { UI.toast('Give yourself a name', 'shame'); return false; }
+    this.profile.name = n;
+    if (this.player) this.player.name = n;
+    if ($('hName')) $('hName').textContent = n;
+    if (this.mp && typeof Net !== 'undefined') { Net.send({ t: 'rename', name: n }); Net.saveProfile(); }
+    Systems.save();
+    UI.toast('You are ' + n, 'good');
+    return true;
+  },
   applyStats() {
     const p = this.profile, a = this.player; if (!a) return;
+    if (p && !p.hideout) p.hideout = { barracks: 0, forge: 0, shrine: 0, dojo: 0, garden: 0, kura: 0, walls: 0 };
     const camp = (this.mp && Net && Net.gang && Net.gang.buildings) || {};
-    const shrine = (this.mp ? (camp.shrine || 0) : p.hideout.shrine);
-    const dojo = (this.mp ? (camp.dojo || 0) : p.hideout.dojo);
-    const forge = (this.mp ? (camp.forge || 0) : p.hideout.forge);
+    const shrine = (this.mp ? (camp.shrine || 0) : (p.hideout.shrine || 0));
+    const dojo = (this.mp ? (camp.dojo || 0) : (p.hideout.dojo || 0));
+    const forge = (this.mp ? (camp.forge || 0) : (p.hideout.forge || 0));
     a.maxHp = 100 + this.perkN('iron') * 25 + shrine * 15 + (p.bonusHp || 0);
     a.maxSt = 70 + this.perkN('endure') * 30 + dojo * 15;
     a.dmgMult = (1 + this.perkN('edge') * 0.15) * (1 + forge * 0.1);
@@ -4455,7 +4468,12 @@ const G = {
     if (Input.hit('KeyX')) this.setWeapon(pr.wpn === 'fists' ? (pr.weapons.includes(pr.lastBlade) ? pr.lastBlade : list[1] || 'fists') : 'fists');
     if (Input.hit('WheelUp', 'WheelDown')) { const n = list.length, i = list.indexOf(pr.wpn); this.setWeapon(list[(i + (Input.hit('WheelDown') ? 1 : -1) + n) % n]); }
   },
-  gangCap() { return [1, 2, 3, 5][this.profile.hideout.barracks]; },
+  gangCap() {
+    const n = (this.mp && Net && Net.gang && Net.gang.buildings)
+      ? (Net.gang.buildings.barracks | 0)
+      : ((this.profile && this.profile.hideout && this.profile.hideout.barracks) | 0);
+    return [1, 2, 3, 5][n] || 1;
+  },
   // everyone plays Ren Kisaragi: a sword and a short blade, a little coin
   newProfile(look) {
     return {
@@ -4467,7 +4485,7 @@ const G = {
     };
   },
   start(profile, skipTutorial = false) {
-    this.profile = profile; this.tod = profile.tod || 0.32;
+    this.profile = profile; this.mp = !!profile.mp; this.tod = profile.tod || 0.32;
     // the realm generated behind the title screen is reused for the first journey
     if (!World.pristine) { World.gen(20240917); Ground.cache.clear(); UI.miniImg = null; }
     World.pristine = false; Buildings.refreshHideout(); UI.fogDirty = true; Realm.reset();
@@ -4493,7 +4511,7 @@ const G = {
     }
     this.actors.push(this.player);
     this.applyStats(); this.player.hp = this.player.maxHp; this.player.st = this.player.maxSt;
-    for (const m of profile.gang) if (m.alive) { const q = World.randomWalkable(this.player.x, this.player.y, 1, 2.5) || [this.player.x, this.player.y]; this.spawnGangMember(m, q[0], q[1]); }
+    for (const m of (profile.gang || [])) if (m.alive) { const q = World.randomWalkable(this.player.x, this.player.y, 1, 2.5) || [this.player.x, this.player.y]; this.spawnGangMember(m, q[0], q[1]); }
     if (profile.horse) { const q = World.randomWalkable(this.player.x, this.player.y, 1.5, 3) || [this.player.x + 1, this.player.y]; this.horse = Horse.make(q[0], q[1], profile.horse.coat, profile.horse); }
     World.streamAll(this.player.x, this.player.y);
     Systems.populate(); Wildlife.reset(); Bamboo.reset();
@@ -4502,7 +4520,10 @@ const G = {
     // the story: a new game begins on the last beautiful morning in Kiyohara (or fifteen years later, on Hawk Ridge);
     // a saved game picks up at the next mission's marker, and a mission that follows straight on starts by itself
     Missions.cur = null; Missions.failing = false; Missions.reloading = false; Missions.ambient = []; Missions.chainDef = null; Subs.clear();
-    if (this.mp) { MpCamp.ensure(); MpCamp.apply(Net.gang); if (typeof Net !== 'undefined' && Net.onStart) Net.onStart(); }
+    if (this.mp) {
+      try { MpCamp.ensure(); MpCamp.apply(Net.gang); } catch (e) { console.warn('MpCamp', e); }
+      if (typeof Net !== 'undefined' && Net.onStart) Net.onStart();
+    }
     if (!this.mp && nextDef && (fresh || nextDef.chain || nextDef.kid)) setTimeout(() => { if (G.profile === profile && !Missions.cur) Missions.start(nextDef, { place: true }); }, 400);
     if (storyFree()) for (const id of ['blades', 'towers', 'camps']) if (!Quests.st(id)) Quests.start(id, true);
     this.curPlace = (World.placeAt(this.player.x, this.player.y) || {}).id || null;
@@ -5822,14 +5843,21 @@ const Panels = {
     const a = G.player;
     const stats = [['Title', G.honorTitle()], ['Honor', p.honor], ['Level', p.level + ' (' + p.xp + ' / ' + G.xpNeed() + ' xp)'], ['Health', Math.round(a.hp) + ' / ' + a.maxHp], ['Stamina', a.maxSt], ['Damage', '×' + a.dmgMult.toFixed(2)], ['Kills', p.kills], ['Assassinations', p.assassinations || 0], ['Severings', p.severs], ['Blades defeated', p.duelsWon + ' / 10'], ['Watchtowers', Object.keys(p.towers).length + ' / ' + World.towers.length], ['Camps freed', Object.keys(p.camps).length + ' / ' + PLACES.filter(q => q.kind === 'camp').length], ['Chests', Object.keys(p.chests).length + ' / ' + World.chests.length], ['Deaths', p.deaths]].map(([k, v]) => `<div class="stat"><span>${k}</span><span>${v}</span></div>`).join('');
     const perks = Object.entries(p.perks).map(([id, n]) => { const k = PERKS.find(x => x.id === id); return `<div class="row"><span class="seal">${k.k}</span><div class="grow"><span class="nm">${k.name}${n > 1 ? ' ' + n : ''}</span><span class="ds">${k.desc}</span></div></div>`; }).join('') || '<p class="lede">No techniques yet. Level up by fighting and finishing quests.</p>';
-    return { title: p.name, seal: '侍', html: `<div class="grid2"><div>${stats}</div><div style="display:grid;gap:6px;align-content:start">${p.pendingPerks ? '<button class="btn gold" data-act="perks">Learn a technique (' + p.pendingPerks + ')</button>' : ''}${perks}</div></div>${gear}`, on };
+    const nameRow = G.mp ? `<div class="row"><input id="meName" maxlength="24" value="${esc(p.name)}" placeholder="Your name"><button class="btn alt" data-act="rename">Call me this</button></div>` : '';
+    const onName = (act, arg) => {
+      if (act === 'rename') { const n = ($('meName') && $('meName').value) || ''; G.setName(n); }
+      on(act, arg);
+    };
+    return { title: p.name, seal: '侍', html: `${nameRow}<div class="grid2"><div>${stats}</div><div style="display:grid;gap:6px;align-content:start">${p.pendingPerks ? '<button class="btn gold" data-act="perks">Learn a technique (' + p.pendingPerks + ')</button>' : ''}${perks}</div></div>${gear}`, on: onName };
   },
   pause() {
-    const gang = G.mp ? `<p class="lede">Gang · ${esc((Net.gang && Net.gang.name) || 'Nameless')} · you are ${Net.id || '?'}${(Net.gang && Net.gang.leader === Net.id) ? ' · leader' : ''}</p>
+    const gang = G.mp ? `<p class="lede">Gang · ${esc((Net.gang && Net.gang.name) || 'Nameless')} · you are ${esc(G.profile.name)}${(Net.gang && Net.gang.leader === Net.id) ? ' · leader' : ''}</p>
+      <div class="row"><input id="meName" maxlength="24" value="${esc(G.profile.name)}" placeholder="Your name"><button class="btn alt" data-act="rename">Call me this</button></div>
       <div class="row"><input id="invName" placeholder="Invite by name or id" style="flex:1;min-width:120px"><button class="btn" data-act="invite">Invite</button></div>
       <p class="lede">${(Net.gang && Net.gang.members || []).map(id => esc(id) + (id === (Net.gang && Net.gang.leader) ? ' ★' : '')).join(' · ') || 'You ride alone until a friend accepts.'}</p>
       ${(Net.invites || []).map(i => `<div class="row"><div class="grow"><span class="nm">${esc(i.name)}</span><span class="ds">wants you in ${esc(i.gang)}</span></div><button class="btn" data-act="accept" data-arg="${i.from}">Join their camp</button></div>`).join('')}` : '';
     return { title: G.mp ? 'Gang · Paused' : 'Paused', seal: '休', html: `${gang}<div class="keys">${$('keysBox').innerHTML}</div><div class="btns"><button class="btn gold" data-act="resume">Resume</button><button class="btn alt" data-act="sound">Sound: ${Snd.on ? 'on' : 'off'}</button><button class="btn alt" data-act="controls">Controls: ${G.controls === 'classic' ? 'Classic' : 'Turn and walk'}</button><button class="btn alt" data-act="quit">Save and return to title</button></div>`, on(act, arg) { if (act === 'resume') { UI.close(); return false; } if (act === 'sound') { Snd.on = !Snd.on; if (Snd.master) Snd.master.gain.value = Snd.on ? 0.7 : 0; }
+      if (act === 'rename') { G.setName(($('meName') && $('meName').value) || ''); UI.close(); UI.open('pause'); return false; }
       if (act === 'invite') { const n = ($('invName') && $('invName').value || '').trim(); if (n) Net.invite(n); UI.close(); UI.open('pause'); return false; }
       if (act === 'accept') { Net.accept(arg); UI.close(); return false; }
       if (act === 'controls') { G.setControls(G.controls === 'classic' ? 'turn' : 'classic'); UI.toast(G.controls === 'classic' ? 'Classic controls: WASD moves Ren across the screen, he faces the mouse' : 'Turn and walk: W walks the way Ren faces, S steps back, A and D turn him', 'good'); UI.close(); UI.open('pause'); return false; } if (act === 'quit') { Systems.save(); location.reload(); } } };
@@ -5845,9 +5873,25 @@ const Creator = {
   open(edit = false) {
     this.edit = edit; this.look = edit ? fixLook(Object.assign({}, G.profile.look)) : { skin: 1, hair: 1, hairCol: 0, hat: 0, top: 2, pattern: 0, bottom: 7, sash: 6, face: 3, scar: 1, coat: '#6e6a60' };
     $('create').hidden = false; $('title').hidden = true; UI.showHUD(false);
-    $('btnStart').textContent = edit ? 'Pay 25 mon and keep this look' : 'Continue';
+    const named = !!(this.gangMode || (edit && G.mp));
+    const nameRow = $('createNameRow'); if (nameRow) nameRow.hidden = !named;
+    $('createSpeaker').textContent = named ? 'Who rides' : 'Ren Kisaragi · 如月 蓮';
+    $('createLede').textContent = named
+      ? (edit ? 'Change the name friends see, and the look you wear.' : 'Shape your look and give yourself a name. You spawn at your gang camp on the shared island of Kurenai-jima. No story — side quests, camp, and friends.')
+      : 'The look you choose is Ren as a man of twenty-three. In the first missions he is still a boy of eight.';
+    if (named) {
+      const el = $('createName');
+      el.value = (edit && G.profile ? G.profile.name : '') || '';
+      el.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); Creator.confirm(); } };
+    }
+    $('btnStart').textContent = edit ? (named ? 'Keep this look' : 'Pay 25 mon and keep this look') : 'Continue';
     this.renderOpts();
     if (edit) G.state = 'barber';
+    if (named) setTimeout(() => { const el = $('createName'); if (el) el.focus(); }, 0);
+  },
+  readName() {
+    const el = $('createName');
+    return String((el && el.value) || '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24);
   },
   idx(o) { const [, key, , vals] = o, v = this.look[key]; return vals ? Math.max(0, vals.indexOf(v)) : (v | 0); },
   renderOpts() {
@@ -5868,14 +5912,19 @@ const Creator = {
   },
   confirm() {
     if (this.edit) {
-      if (this.mpFree || G.mp) { G.profile.look = Object.assign({}, this.look); G.applyStats(); this.mpFree = false; UI.toast('A fresh look', 'good'); }
+      if (this.mpFree || G.mp) {
+        G.profile.look = Object.assign({}, this.look); G.applyStats(); this.mpFree = false;
+        const n = this.readName();
+        if (n && n !== G.profile.name) G.setName(n);
+        else UI.toast('A fresh look', 'good');
+      }
       else if (!Systems.pay(25)) UI.toast('The barber wants 25 mon', 'shame');
       else { G.profile.look = Object.assign({}, this.look); G.applyStats(); Snd.play('buy'); }
       $('create').hidden = true; G.state = 'play'; UI.showHUD(true); return;
     }
     $('create').hidden = true;
     this.pending = G.newProfile(Object.assign({}, this.look));
-    if (this.gangMode) { this.beginGang(this.pending); return; }
+    if (this.gangMode) { this.pending.name = this.readName() || 'Ronin'; this.beginGang(this.pending); return; }
     $('intro').hidden = false;
   },
   beginGang(prof) {
@@ -6643,12 +6692,15 @@ const Buildings = {
   create(kind, x, y, w, h, opt = {}) {
     const st = Object.assign({}, BSTYLE[kind], opt.style || {});
     const b = { id: this.list.length, kind, x, y, w, h, st, side: opt.door || 'S', items: [], spots: {}, open: 0, behind: 0, hk: opt.hk || null, name: opt.name || '', snow: !!opt.snow, lvl: 0, opt, shop: opt.shop };
-    if (b.hk && G.profile) b.lvl = b.hk === 'hall' ? hallLevel() : G.profile.hideout[b.hk];
+    if (b.hk) {
+      if (G.mp && Net && Net.gang && Net.gang.buildings) b.lvl = Net.gang.buildings[b.hk] || 0;
+      else if (G.profile && G.profile.hideout) b.lvl = b.hk === 'hall' ? hallLevel() : (G.profile.hideout[b.hk] || 0);
+    }
     const U = b.side === 'S' ? w : h, dw = Math.min(st.doorW || 2, U - 1);
     b.U = U; b.V = b.side === 'S' ? h : w; b.dw = dw; b.du = opt.at !== undefined ? opt.at : Math.round((U - dw) / 2);
     this.list.push(b);
     for (let j = y - 1; j < y + h + 1; j++) for (let i = x - 1; i < x + w + 1; i++) World.setClear(i, j);
-    for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (World.in(i, j)) { World.bmap.set(World.key(i, j), b.id + 1); World.setSolid(i, j, 1); if (!TINFO[World.tileAt(i, j)].water) World.set(i, j, TILE.FLOOR); }
+    for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (World.in(i, j)) { World.bmap.set(World.key(i, j), b.id + 1); World.setSolid(i, j, 1); const tt = World.tileAt(i, j); if (TINFO[tt] && !TINFO[tt].water) World.set(i, j, TILE.FLOOR); }
     // door geometry
     if (b.side === 'S') { const cx = x + b.du + dw / 2; b.doorPt = { x: cx, y: y + h, inner: [cx, y + h - 0.9], outer: [cx, y + h + 0.8] }; }
     else { const cy = y + b.du + dw / 2; b.doorPt = { x: x + w, y: cy, inner: [x + w - 0.9, cy], outer: [x + w + 0.8, cy] }; }
@@ -6784,12 +6836,12 @@ Object.assign(World, {
   buildingAt(x, y) { return Buildings.at(x, y); },
 });
 
-function hallLevel() { return G.profile ? Math.min(3, Math.floor(Object.values(G.profile.hideout).reduce((s, v) => s + v, 0) / 5)) : 0; }
+function hallLevel() { return G.profile && G.profile.hideout ? Math.min(3, Math.floor(Object.values(G.profile.hideout).reduce((s, v) => s + v, 0) / 5)) : 0; }
 // re-dress the hideout after an upgrade
 Buildings.refreshHideout = function () {
   const mp = G.mp && Net && Net.gang && Net.gang.buildings;
   for (const b of this.list) if (b.hk) {
-    const L = mp ? (mp[b.hk] || 0) : (b.hk === 'hall' ? hallLevel() : (G.profile.hideout[b.hk] || 0));
+    const L = mp ? (mp[b.hk] || 0) : (b.hk === 'hall' ? hallLevel() : ((G.profile && G.profile.hideout && G.profile.hideout[b.hk]) || 0));
     if (L !== b.lvl) { b.lvl = L; this.furnish(b); }
   }
 };
@@ -7681,7 +7733,7 @@ const Interiors = {
     const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl;
     b.zone = () => L === 0 ? 'ruin' : L === 1 ? 'straw' : 'tatami'; b.decor = L >= 2 ? [{ wall: 'N', t: 0.5, w: 0.25, kind: 'rack' }] : [];
     if (L === 0) { P('rubble', 1, 1.6, 1.4, 1.0); return; }
-    const n = [0, 2, 3, 5][L]; for (let k = 0; k < n; k++) P('futon', 0.5 + k * 1.6, V - 2.3, 1.0, 2.0, { solid: false });
+    const n = [0, 2, 3, 5][L] || 0; for (let k = 0; k < n; k++) P('futon', 0.5 + k * 1.6, V - 2.3, 1.0, 2.0, { solid: false });
     if (L >= 2) P('armor', U - 1.2, 0.6, 0.8, 0.8);
   },
   h_forge(b, U, V) {
@@ -13654,10 +13706,52 @@ const MpCamp = {
       dojo: { key: 'dojo', x: cx - 12, y: cy - 1, w: 8, h: 6, kind: 'h_dojo', door: 'E', name: 'Dojo' },
       barracks: { key: 'barracks', x: cx - 3, y: cy - 1, w: 8, h: 5, kind: 'h_barracks', name: 'Barracks' },
       kura: { key: 'kura', x: cx + 6, y: cy - 1, w: 5, h: 4, kind: 'h_kura', name: 'Treasury' },
-      stables: { key: 'stables', x: cx - 8, y: cy + 6, w: 14, h: 5, name: 'Stables' },
+      stables: { key: 'stables', x: cx - 8, y: cy + 7, w: 14, h: 5, name: 'Stables' },
       walls: { key: 'walls', ring: true, name: 'Walls & lanterns' },
-      ft: { x: cx, y: cy + 3 }, spawn: { x: cx, y: cy + 2 }
+      // yard between the barracks row (ends cy+4) and the stables (starts cy+7) — never inside a building
+      ft: { x: cx, y: cy + 5 }, spawn: { x: cx, y: cy + 5 }
     };
+  },
+  // tile just outside the south (or east) face, never on the footprint
+  frontOf(spec, slot) {
+    if (!spec || spec.ring) return [slot.x, slot.y + 13];
+    const w = spec.w || 1, h = spec.h || 1;
+    if (spec.door === 'E') return [spec.x + w + 0.6, spec.y + h * 0.5];
+    return [spec.x + w * 0.5, spec.y + h + 0.6];
+  },
+  wet(tx, ty) { const t = World.tileAt(tx, ty); return !TINFO[t] || !!TINFO[t].water; },
+  outdoorTile(x, y) {
+    const tryAt = (tx, ty) => {
+      tx = Math.round(tx); ty = Math.round(ty);
+      if (!World.in(tx, ty)) return null;
+      if (Buildings.at(tx, ty) || World.bAt(tx, ty)) return null;
+      if (this.wet(tx, ty)) return null;
+      return [tx, ty];
+    };
+    const hit = tryAt(x, y); if (hit) return hit;
+    for (let r = 1; r <= 10; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const q = tryAt(x + dx, y - r) || tryAt(x + dx, y + r); if (q) return q;
+      }
+      for (let dy = -r + 1; dy <= r - 1; dy++) {
+        const q = tryAt(x - r, y + dy) || tryAt(x + r, y + dy); if (q) return q;
+      }
+    }
+    return [Math.round(x), Math.round(y)];
+  },
+  addPlot(t, x, y, w, h, extra) {
+    x = Math.round(x); y = Math.round(y);
+    if (!World.in(x, y)) return null;
+    const o = World.addObj(t, x, y, w || 1, h || 1, Object.assign({ mpKeep: true }, extra));
+    this.plots.push(o);
+    return o;
+  },
+  place(t, x, y, w, h, extra) {
+    const [px, py] = this.outdoorTile(x, y);
+    return this.addPlot(t, px, py, w, h, extra);
+  },
+  mark(x, y, extra) {
+    return this.place('sign', x, y, 1, 1, Object.assign({ solid: false }, extra));
   },
   ensure() {
     if (this.ready) return;
@@ -13679,10 +13773,14 @@ const MpCamp = {
     this.ready = true;
   },
   apply(gang) {
-    for (const o of this.plots) World.removeObj(o);
+    for (const o of this.plots) if (o) World.removeObj(o);
     this.plots = [];
     for (const b of this.built) {
-      for (const it of b.items || []) World.removeObj(it);
+      for (const it of b.items || []) if (it) World.removeObj(it);
+      for (let j = b.y; j < b.y + b.h; j++) for (let i = b.x; i < b.x + b.w; i++) {
+        World.bmap.delete(World.key(i, j));
+        if (World.solidAt(i, j) === 1) World.setSolid(i, j, 0);
+      }
       Buildings.list = Buildings.list.filter(x => x !== b);
     }
     this.built = [];
@@ -13694,52 +13792,62 @@ const MpCamp = {
     let pl = PLACES.find(p => p.id === 'mpCamp');
     if (!pl) { pl = { id: 'mpCamp', name: 'Gang camp', jp: '陣', x: slot.x, y: slot.y, r: 16, b: B.PLAINS, kind: 'home', safe: true }; PLACES.push(pl); }
     pl.x = slot.x; pl.y = slot.y; pl.name = (gang && gang.name) || slot.name;
-    const ft = World.deco('sign', L.ft.x, L.ft.y, 1, 1, { mpKeep: true, interact: { kind: 'map', label: 'Fast travel post · Gang camp' } });
-    this.plots.push(ft);
-    World.lamp(L.ft.x + 1, L.ft.y, 'stonelantern');
+    const pendingMarks = [];
     for (const key of Object.keys(this.BUILD)) {
       const spec = L[key], n = lv[key] | 0, def = this.BUILD[key];
       if (!spec) continue;
       if (n <= 0) {
-        const x = spec.x, y = spec.y;
-        const mark = World.deco('sign', (spec.ring ? slot.x + 4 : x), (spec.ring ? slot.y + 4 : y), 1, 1, { mpKeep: true, interact: { kind: 'campBuy', key, label: 'Buy damaged ' + def.name + ' · ' + def.costs[0] + ' mon · ' + def.bonus[0] } });
-        this.plots.push(mark);
+        pendingMarks.push({ spec, interact: { kind: 'campBuy', key, label: 'Buy damaged ' + def.name + ' · ' + def.costs[0] + ' mon · ' + def.bonus[0] } });
         continue;
       }
       if (spec.kind) {
         const b = Buildings.create(spec.kind, spec.x, spec.y, spec.w, spec.h, { hk: key, name: spec.name, door: spec.door });
         b.lvl = n; Buildings.furnish(b); this.built.push(b);
+        spec._door = b.doorPt && b.doorPt.outer;
       } else if (spec.deco) {
-        this.plots.push(World.deco(spec.deco, spec.x, spec.y, spec.w || 1, spec.h || 1, { hk: key, mpKeep: true, solid: spec.deco !== 'h_garden' }));
+        this.place(spec.deco, spec.x, spec.y, spec.w || 1, spec.h || 1, { hk: key, solid: spec.deco !== 'h_garden' });
       } else if (key === 'stables') this.stampStables(spec, n);
       else if (key === 'walls') this.stampWalls(slot, n);
-      if (n > 0 && n < 3 && spec.kind) {
-        const up = World.deco('sign', spec.x, spec.y + spec.h, 1, 1, { mpKeep: true, interact: { kind: 'campUp', key, label: 'Upgrade ' + def.name + ' · ' + def.costs[n] + ' mon · ' + def.bonus[n] } });
-        this.plots.push(up);
-      }
+      if (n > 0 && n < 3) pendingMarks.push({ spec, interact: { kind: 'campUp', key, label: 'Upgrade ' + def.name + ' · ' + def.costs[n] + ' mon · ' + def.bonus[n] } });
+    }
+    const [ftx, fty] = this.outdoorTile(L.ft.x, L.ft.y);
+    this.mark(ftx, fty, { interact: { kind: 'map', label: 'Fast travel post · Gang camp' } });
+    this.place('stonelantern', ftx + 1, fty, 1, 1, { solid: false, light: { r: 34, c: '255,170,90' } });
+    World.spots.mpCamp = this.outdoorTile(L.spawn.x, L.spawn.y);
+    for (const m of pendingMarks) {
+      const door = m.spec._door;
+      const [sx, sy] = door ? [door[0], door[1]] : this.frontOf(m.spec, slot);
+      this.mark(sx, sy, { interact: m.interact });
     }
     if ((lv.stables | 0) > 0) {
-      const shop = World.deco('sign', L.stables.x + 6, L.stables.y + 5, 1, 1, { mpKeep: true, interact: { kind: 'horseBuy', tier: 'nag', label: 'Buy a better horse (Nag 180 · Road 420 · Fine 900)' } });
-      this.plots.push(shop);
+      const [hx, hy] = this.frontOf(L.stables, slot);
+      this.mark(hx + 1.4, hy, { interact: { kind: 'horseBuy', tier: 'nag', label: 'Buy a better horse (Nag 180 · Road 420 · Fine 900)' } });
     }
     G.applyStats();
   },
   stampStables(spec, n) {
     const x = spec.x, y = spec.y;
-    this.plots.push(World.deco('fence', x, y, 1, 1, { mpKeep: true, solid: true, dir: 0 }));
-    this.plots.push(World.deco('fence', x + 3, y, 1, 1, { mpKeep: true, solid: true, dir: 0 }));
-    if (n >= 2) { const b = Buildings.create('hut', x + 5, y, 6, 4, { name: 'Stable shed' }); this.built.push(b); }
+    this.addPlot('fence', x, y, 1, 1, { solid: true, dir: 0 });
+    this.addPlot('fence', x + 3, y, 1, 1, { solid: true, dir: 0 });
     if (n >= 3) { const b = Buildings.create('h_barracks', x + 5, y, 8, 5, { name: 'Full stable' }); this.built.push(b); }
+    else if (n >= 2) { const b = Buildings.create('hut', x + 5, y, 6, 4, { name: 'Stable shed' }); this.built.push(b); }
   },
   stampWalls(slot, n) {
-    const r = 12 + n;
-    World.ring(slot.x, slot.y, r, 40, (x, y) => { if (!World.bAt(x, y)) this.plots.push(World.deco(n >= 3 ? 'h_wall' : 'fence', x, y, 1, 1, { hk: 'walls', mpKeep: true, solid: false })); });
-    if (n >= 2) { this.plots.push(World.deco('h_lamp', slot.x - 4, slot.y + 4, 1, 1, { hk: 'walls', mpKeep: true, solid: false })); this.plots.push(World.deco('h_lamp', slot.x + 4, slot.y + 4, 1, 1, { hk: 'walls', mpKeep: true, solid: false })); }
+    const r = 12 + n, kind = n >= 3 ? 'h_wall' : 'fence';
+    World.ring(slot.x, slot.y, r, 40, (x, y) => {
+      x = Math.round(x); y = Math.round(y);
+      if (!World.in(x, y) || World.bAt(x, y) || this.wet(x, y)) return;
+      this.addPlot(kind, x, y, 1, 1, { hk: 'walls', solid: false });
+    });
+    if (n >= 2) {
+      this.place('h_lamp', slot.x - 4, slot.y + 4, 1, 1, { hk: 'walls', solid: false });
+      this.place('h_lamp', slot.x + 4, slot.y + 4, 1, 1, { hk: 'walls', solid: false });
+    }
   },
   near(x, y) {
     let best = null, bd = 1.4;
     for (const o of this.plots) {
-      if (!o.interact) continue;
+      if (!o || !o.interact) continue;
       const d = dist(x, y, o.cx, o.cy);
       if (d < bd) { bd = d; best = { d, it: Object.assign({ obj: o }, o.interact) }; }
     }
@@ -13792,13 +13900,13 @@ const Net = {
     if (m.t === 'state') { this.ghost(m); return; }
     if (m.t === 'invite') { this.invites.push(m); UI.toast(m.name + ' invites you to ' + m.gang + ' (Esc to join)', 'good'); return; }
     if (m.t === 'joined') {
-      this.gang = m.gang; MpCamp.apply(m.gang);
+      this.gang = m.gang; try { MpCamp.apply(m.gang); } catch (e) { console.warn('MpCamp', e); }
       if (G.player) { G.player.x = m.x; G.player.y = m.y; Camera.snap = true; World.streamAll(m.x, m.y); }
       UI.toast('You joined ' + m.gang.name + '. Same camp, same fire.', 'good');
       return;
     }
     if (m.t === 'gang' || m.t === 'camp') {
-      this.gang = m.gang; MpCamp.apply(m.gang);
+      this.gang = m.gang; try { MpCamp.apply(m.gang); } catch (e) { console.warn('MpCamp', e); }
       if (m.gold !== undefined && G.profile && m.who === this.id) { G.profile.gold = m.gold; G.profile.bank = m.bank; }
       if (m.key) UI.toast((MpCamp.BUILD[m.key] || {}).name + ' now stands.', 'good');
       return;
@@ -13895,9 +14003,9 @@ const Net = {
     return out;
   },
   onStart() {
-    if (this.gang) MpCamp.apply(this.gang);
     if (G.player && this.slot) {
-      if (!G.profile.pos) { G.player.x = this.slot.x; G.player.y = this.slot.y + 2; }
+      const spawn = World.spots.mpCamp || [this.slot.x, this.slot.y + 5];
+      if (!G.profile.pos) { G.player.x = spawn[0]; G.player.y = spawn[1]; }
     }
   },
   tick(dt) {
@@ -13951,7 +14059,7 @@ function boot() {
   $('btnBegin').onclick = () => { Snd.init(); Creator.begin(false); };
   $('btnSkip').onclick = () => { Snd.init(); Creator.begin(true); };
   $('btnNew').onclick = () => { Snd.init(); Creator.gangMode = false; Creator.open(false); };
-  $('btnGang').onclick = () => { Snd.init(); Creator.gangMode = true; Creator.open(false); $('create').querySelector('.lede').textContent = 'Shape your look. You spawn at your gang camp on the shared island of Kurenai-jima. No story — side quests, camp, and friends.'; };
+  $('btnGang').onclick = () => { Snd.init(); Creator.gangMode = true; Creator.open(false); };
   const mpSave = store('crimson_ronin_mp'), mpTok = store('crimson_ronin_mp_token');
   if (mpSave && mpTok) { $('btnGangCont').hidden = false; $('btnGangCont').textContent = 'Continue the Gang · ' + (mpSave.name || 'Ren'); }
   $('btnGangCont').onclick = () => {

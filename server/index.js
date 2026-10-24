@@ -105,13 +105,25 @@ function campPos(g) {
   const s = MP_SLOTS[g.slot] || MP_SLOTS[0];
   return [s.x, s.y + 2];
 }
+function cleanName(raw, fallback) {
+  const n = String(raw || '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24);
+  return n || fallback || 'Ronin';
+}
+function setName(p, raw) {
+  const old = p.name;
+  p.name = cleanName(raw, old);
+  const g = gangOf(p.id);
+  if (g && g.leader === p.id && (g.name === old + '\'s gang' || g.name === 'Nameless gang')) g.name = p.name + '\'s gang';
+  touch();
+  return p.name;
+}
 
 function hello(ws, m) {
   let p = m.token && Object.values(db.players).find(x => x.token === m.token);
   if (!p) {
     const id = 'p_' + nid(4);
     p = {
-      id, token: nid(12), name: (m.name || 'Ren').slice(0, 24), look: m.look || {},
+      id, token: nid(12), name: cleanName(m.name, 'Ronin'), look: m.look || {},
       gold: 240, bank: 0, honor: 0, xp: 0, level: 1, perks: {},
       weapons: ['katana'], stash: [], wpn: 'katana', lastBlade: 'katana',
       armors: [0], armor: 0, bandages: 3, sake: 0,
@@ -119,13 +131,17 @@ function hello(ws, m) {
       x: 108, y: 130, face: 0, hp: 100, maxHp: 100, pose: 'idle',
       mounted: false, seat: 0, mountOf: null, gangId: null, day: 1, tod: 0.32
     };
-    const g = makeGang(id, (p.name || 'Ren') + '\'s gang');
+    const g = makeGang(id, p.name + '\'s gang');
     p.gangId = g.id;
     const [x, y] = campPos(g); p.x = x; p.y = y;
     db.players[id] = p; touch();
-  } else if (m.look) { p.look = m.look; p.name = (m.name || p.name).slice(0, 24); touch(); }
+  } else {
+    if (m.look) p.look = m.look;
+    if (m.name) setName(p, m.name);
+    else touch();
+  }
   if (!p.gangId || !db.gangs[p.gangId]) {
-    const g = makeGang(p.id, (p.name || 'Ren') + '\'s gang');
+    const g = makeGang(p.id, p.name + '\'s gang');
     p.gangId = g.id; touch();
   }
   clients.set(ws, { id: p.id, token: p.token });
@@ -222,6 +238,12 @@ function onMsg(ws, raw) {
     case 'questEnd': {
       const g = gangOf(p.id);
       toGang(g, { t: 'questEnd', id: m.id, ret: m.ret }, null);
+      break;
+    }
+    case 'rename': {
+      setName(p, m.name);
+      broadcast({ t: 'player', p: publicPlayer(p, true) });
+      const g = gangOf(p.id); if (g) toGang(g, { t: 'gang', gang: g });
       break;
     }
     case 'mount': {
