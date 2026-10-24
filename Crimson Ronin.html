@@ -710,9 +710,11 @@ const Music = {
   SC: {
     miyako: [146.83, 155.56, 196.00, 220.00, 233.08],
     iwato: [146.83, 155.56, 196.00, 207.65, 261.63],
-    ryo: [146.83, 164.81, 184.99, 220.00, 246.94]
+    ryo: [146.83, 164.81, 184.99, 220.00, 246.94],
+    kumo: [130.81, 138.59, 174.61, 196.00, 207.65]
   },
-  VEL: { koto: 0.74, shami: 0.52, biwa: 0.6, flute: 0.84, drone: 0.5, harm: 0.42, kane: 0.72, taiko: 0.78, hyo: 0.48, tsu: 0.55 },
+  VEL: { koto: 0.74, shami: 0.52, biwa: 0.6, flute: 0.84, drone: 0.5, harm: 0.42, kane: 0.72, taiko: 0.78, hyo: 0.48, tsu: 0.55, wind: 0.7, ghost: 0.62, pulse: 0.8 },
+  URGENT: new Set(['blood', 'duel', 'dread', 'throne', 'hollow', 'omen', 'ending_ash', 'ending_rain', 'ending_hope']),
   tracks: [
     { id: 'white_sun', name: 'Shadows of the White Sun', jp: '白日の影', kind: 'Title', new: true, bpm: 56, scale: 'miyako', bars: 8,
       desc: 'The telling opens. A koto finds the road; a shakuhachi answers from far off.',
@@ -809,6 +811,81 @@ const Music = {
         { inst: 'flute', notes: '.:8 6:16 .:8' },
         { inst: 'koto', notes: '.:12 3:2 1:2 .:8 0:4 .:4' }
       ] },
+    { id: 'omen', name: 'Something Watching', jp: '見られている', kind: 'Eerie · omen', new: true, bpm: 40, scale: 'kumo', bars: 8,
+      desc: 'Wind in an empty pass. A koto that waits too long. You are not alone on the road.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'wind', notes: '0:16 0:16' },
+        { inst: 'pulse', notes: '0:8 .:8 0:8 .:8' },
+        { inst: 'flute', notes: '.:10 6:8 .:6 1:8' },
+        { inst: 'koto', notes: '.:6 3:1 .:9 1:1 .:7 6:1 .:7' },
+        { inst: 'ghost', notes: '.:18 10:6 .:8' },
+        { inst: 'kane', notes: '.:24 0:8' }
+      ] },
+    { id: 'hollow', name: 'The Hollow Bell', jp: '虚鐘', kind: 'Eerie · funeral', new: true, bpm: 36, scale: 'kumo', bars: 16,
+      desc: 'A temple bowl with nobody left to strike it. The phrase never comes back.',
+      parts: [
+        { inst: 'drone', notes: '0:32 3:32' },
+        { inst: 'wind', notes: '0:16 .:16 0:32' },
+        { inst: 'pulse', ost: '0:4 .:4' },
+        { inst: 'kane', notes: '0:8 .:24 0:8 .:24' },
+        { inst: 'flute', notes: '.:8 1:12 .:12 6:10 .:22' },
+        { inst: 'koto', notes: '.:12 6:2 .:18 3:1 .:15 1:2 .:14' },
+        { inst: 'ghost', notes: '.:20 11:8 .:20 10:8 .:8' }
+      ] },
+    { id: 'dread', name: 'The Ground Remembers', jp: '土は覚えている', kind: 'Eerie · battle', new: true, bpm: 66, scale: 'iwato', bars: 8,
+      desc: 'Not a chase. Irregular taiko, a koto that will not resolve, the air gone thin.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'pulse', ost: '0:2 .:2' },
+        { inst: 'taiko', ost: '0:1 .:1 1:0.5 .:1.5' },
+        { inst: 'koto', ost: '6:0.5 3:0.5 1:0.5 0:0.5' },
+        { inst: 'biwa', notes: '0:8 1:8 0:8 3:8' },
+        { inst: 'flute', notes: '.:8 8:2 6:2 3:4 .:4 6:4 1:8' }
+      ] },
+    { id: 'throne', name: 'Beside the Throne', jp: '玉座の傍', kind: 'Eerie · climax', new: true, bpm: 42, scale: 'iwato', bars: 8,
+      desc: 'Court music that has gone wrong. Gold leaf, a cold hall, one man who will not kneel.',
+      parts: [
+        { inst: 'drone', notes: '0:32' },
+        { inst: 'biwa', notes: '0:8 1:8 0:8 3:8' },
+        { inst: 'kane', notes: '0:16 .:16' },
+        { inst: 'hyo', notes: '0:1 .:15 0:1 .:15' },
+        { inst: 'flute', notes: '.:4 6:12 .:4 3:8 .:4' },
+        { inst: 'koto', notes: '.:8 3:2 1:2 .:8 6:2 3:2 .:8' },
+        { inst: 'harm', notes: '.:12 10:8 .:12' },
+        { inst: 'ghost', notes: '.:22 11:6 .:4' }
+      ] },
+    { id: 'ending_ash', name: 'What You Built', jp: 'お前が残したもの', kind: 'Ending · ash', new: true, bpm: 32, scale: 'kumo', bars: 16,
+      desc: 'No flute. Wind, a hollow pulse, a koto that has nothing left to say.',
+      parts: [
+        { inst: 'drone', notes: '0:32 3:32' },
+        { inst: 'wind', notes: '0:32 0:32' },
+        { inst: 'pulse', ost: '0:4 .:4' },
+        { inst: 'koto', notes: '.:16 1:2 .:14 0:2 .:14 3:1 .:15' },
+        { inst: 'ghost', notes: '.:24 11:8 .:24 10:8' },
+        { inst: 'kane', notes: '0:8 .:56' }
+      ] },
+    { id: 'ending_rain', name: 'The Cedar in Rain', jp: '雨の杉', kind: 'Ending · rain', new: true, bpm: 38, scale: 'kumo', bars: 16,
+      desc: 'A funeral piece that almost becomes a song, then does not.',
+      parts: [
+        { inst: 'drone', notes: '0:32 0:32' },
+        { inst: 'wind', notes: '0:16 .:16 0:32' },
+        { inst: 'pulse', notes: '0:8 .:8 0:8 .:8 0:8 .:8 0:8 .:8' },
+        { inst: 'flute', notes: '.:12 1:12 .:8 6:10 .:22' },
+        { inst: 'koto', notes: '.:10 6:2 .:14 3:1 .:13 1:2 .:22' },
+        { inst: 'kane', notes: '.:24 0:8 .:24 0:8' },
+        { inst: 'ghost', notes: '.:28 10:8 .:28' }
+      ] },
+    { id: 'ending_hope', name: 'A Lantern Left Burning', jp: '残した灯', kind: 'Ending · hope', new: true, bpm: 44, scale: 'miyako', bars: 16,
+      desc: 'Sad, and then a little less. One flute that almost finishes its phrase.',
+      parts: [
+        { inst: 'drone', notes: '0:32 2:32' },
+        { inst: 'koto', notes: '.:8 7:2 5:2 4:4 2:4 0:4 5:2 4:2 2:4 0:8 7:2 5:2 4:2 2:2 0:16' },
+        { inst: 'flute', notes: '.:16 7:8 5:8 4:8 2:8 0:16' },
+        { inst: 'biwa', notes: '0:16 2:16 0:16 4:16' },
+        { inst: 'kane', notes: '.:48 0:16' },
+        { inst: 'harm', notes: '.:20 9:12 .:32' }
+      ] },
     { id: 'wanderer', name: 'Koto and Wind', jp: '琴と風', kind: 'The first score', new: false, gen: true, bpm: 72, scale: 'miyako', bars: 8,
       desc: 'The original wandering score: live koto and shakuhachi, never the same twice.' }
   ],
@@ -868,7 +945,7 @@ const Music = {
     if (this.lock && !now) id = this.lock;
     if (id === this.cur) return;
     if (!this.cur) { this.start(id); return; }
-    const urgent = now || id === 'blood' || id === 'duel' || this.cur === 'blood' || this.cur === 'duel';
+    const urgent = now || this.URGENT.has(id) || this.URGENT.has(this.cur);
     if (!urgent && this.hold > 0) return;
     this.cross(id);
   },
@@ -884,14 +961,33 @@ const Music = {
     const tr = this.track(id); if (!tr || !Snd.ctx) return;
     this.compile(tr);
     this.cur = id; this.gen = !!tr.gen; this.events = tr._ev || []; this.len = tr._len || 24;
-    this.origin = Snd.ctx.currentTime + 0.06; this.i = 0; this.since = 0; this.hold = (id === 'blood' || id === 'duel') ? 8 : 22;
+    this.origin = Snd.ctx.currentTime + 0.06; this.i = 0; this.since = 0; this.hold = (id === 'blood' || id === 'duel' || id === 'dread' || id === 'throne') ? 8 : (id === 'omen' || id === 'hollow') ? 14 : 22;
     this.fadeTo(this.level(), 0.7);
     this._swap = null;
+  },
+  missionPick(mood) {
+    const m = typeof Missions !== 'undefined' && Missions.cur;
+    if (!m || !m.def) return null;
+    const n = m.def.n, s = m.step;
+    if (n === 100 || (typeof UI !== 'undefined' && UI.panel === 'ending')) return Endings.music();
+    const climax = n === 97 || n === 98 || n === 99;
+    const funeral = n === 4 || n === 5 || n === 74 || n === 75 || n === 88 || n === 94 || n === 95 || n === 100;
+    const tough = climax || funeral || n >= 90 || n === 3
+      || [25, 36, 40, 42, 47, 49, 67, 82, 83, 87].includes(n)
+      || (s && (s.t === 'defeat' || s.t === 'survive' || s.t === 'hold' || s.t === 'pursuit'));
+    if (!tough) return null;
+    if (mood === 'danger') return climax ? 'throne' : 'dread';
+    if (climax) return 'throne';
+    if (funeral) return 'hollow';
+    return 'omen';
   },
   pick(mood) {
     if (this.lock) return this.lock;
     if (mood === 'title' || (typeof G !== 'undefined' && G.state === 'title')) return 'white_sun';
     if (mood === 'duel') return 'duel';
+    if (typeof UI !== 'undefined' && UI.panel === 'ending') return Endings.music();
+    const story = this.missionPick(mood);
+    if (story) return story;
     if (mood === 'danger') return 'blood';
     const night = !!(typeof G !== 'undefined' && G.night);
     const wanted = (typeof G !== 'undefined' && G.wanted) || 0;
@@ -936,12 +1032,15 @@ const Music = {
     else if (ev.inst === 'shami') this.pluck(t, f, Math.max(0.28, d * 0.85), v, 'shami');
     else if (ev.inst === 'biwa') this.pluck(t, f * 0.5, Math.max(1.4, d * 1.3), v, 'biwa');
     else if (ev.inst === 'flute') this.shaku(t, f, Math.max(0.8, d * 1.05), v);
-    else if (ev.inst === 'drone') this.drone(t, f, d, v, ev.scale === 'iwato');
+    else if (ev.inst === 'drone') this.drone(t, f, d, v, ev.scale === 'iwato' || ev.scale === 'kumo');
     else if (ev.inst === 'harm') this.harm(t, f, v);
     else if (ev.inst === 'kane') this.bowl(t, v);
     else if (ev.inst === 'taiko') this.don(t, v, ev.deg > 0);
     else if (ev.inst === 'hyo') this.hyo(t, v);
     else if (ev.inst === 'tsu') this.don(t, v * 0.7, true);
+    else if (ev.inst === 'wind') this.gust(t, Math.max(1.6, d), v);
+    else if (ev.inst === 'ghost') this.ghost(t, f, Math.max(1.8, d * 1.15), v);
+    else if (ev.inst === 'pulse') this.pulse(t, v);
   },
   ksBuf(freq, seconds, decay, bright) {
     const key = (freq | 0) + ':' + (seconds * 10 | 0) + ':' + (decay * 1000 | 0) + ':' + (bright * 10 | 0);
@@ -994,6 +1093,31 @@ const Music = {
     Snd.tone(t, f, d, 'sine', 0.034 * vel, Snd.music, null, 0.5);
     Snd.tone(t, f * (dark ? 1.498 : 1.5), d * 0.95, 'sine', 0.018 * vel, Snd.music, null, 0.6);
     if (dark) Snd.tone(t, f * 1.414, d * 0.72, 'sine', 0.01 * vel, Snd.music, null, 0.8);
+  },
+  gust(t, d, vel) {
+    if (!Snd.ctx || !Snd.noiseBuf) return;
+    const ns = Snd.ctx.createBufferSource(); ns.buffer = Snd.noiseBuf; ns.loop = true;
+    const bp = Snd.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 320; bp.Q.value = 0.55;
+    bp.frequency.linearRampToValueAtTime(520, t + d * 0.45); bp.frequency.linearRampToValueAtTime(260, t + d);
+    const g = Snd.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05 * vel, t + Math.min(1.6, d * 0.32));
+    g.gain.setValueAtTime(0.032 * vel, t + d * 0.65); g.gain.linearRampToValueAtTime(0.0001, t + d);
+    ns.connect(bp); bp.connect(g); g.connect(Snd.music); ns.start(t); ns.stop(t + d + 0.06);
+  },
+  ghost(t, f, d, vel) {
+    const o = Snd.ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f * 1.997, t);
+    const o2 = Snd.ctx.createOscillator(); o2.type = 'sine'; o2.frequency.setValueAtTime(f * 2.021, t);
+    const lfo = Snd.ctx.createOscillator(), lg = Snd.ctx.createGain();
+    lfo.frequency.value = 0.37; lg.gain.value = f * 0.018; lfo.connect(lg); lg.connect(o.frequency);
+    const g = Snd.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.026 * vel, t + Math.min(0.9, d * 0.28));
+    g.gain.setValueAtTime(0.018 * vel, t + d * 0.7); g.gain.linearRampToValueAtTime(0.0001, t + d);
+    o.connect(g); o2.connect(g); g.connect(Snd.music);
+    o.start(t); o2.start(t); lfo.start(t); o.stop(t + d + 0.1); o2.stop(t + d + 0.1); lfo.stop(t + d + 0.1);
+  },
+  pulse(t, vel) {
+    Snd.tone(t, 36, 0.82, 'sine', 0.3 * vel, Snd.music, 18);
+    Snd.noise(t, 0.09, 'lowpass', 80, 1, 0.14 * vel, Snd.music);
   },
   harm(t, f, vel) {
     Snd.tone(t, f, 3.2, 'sine', 0.024 * vel, Snd.music, f * 1.006, 0.2);
@@ -6494,7 +6618,7 @@ const Settings = {
       rows += `<div class="speaker">${g}</div>`;
       rows += list.map(t => `<div class="row ${t.id === cur ? 'playing' : ''}"><div class="grow"><span class="nm">${esc(t.name)}${t.new ? '<span class="badge-new">New</span>' : ''}</span><span class="ds">${esc(t.jp)} · ${esc(t.kind)}</span></div><button class="btn ${t.id === cur ? 'gold' : 'alt'}" data-act="play" data-arg="${t.id}">${t.id === cur ? 'Playing' : 'Listen'}</button></div>`).join('');
     }
-    return `<h2 style="margin:0">Music</h2>${now}<p class="lede">Twelve new composed pieces sit beside the original wandering score. Listen here. Pin one to keep it on the road, or let the island choose by place and hour.</p>
+    return `<h2 style="margin:0">Music</h2>${now}<p class="lede">${Music.tracks.filter(t => t.new).length} composed pieces sit beside the original wandering score. The hard missions take the darker ones. Listen here. Pin one to keep it on the road, or let the island choose by place, hour, and the story.</p>
       <div class="btns"><button class="btn ${Music.lock ? 'alt' : 'gold'}" data-act="auto">${Music.lock ? 'Let the island choose' : 'The island is choosing'}</button></div>
       ${rows}
       <div class="btns"><button class="btn alt" data-act="back">Back</button></div>`;
@@ -6560,7 +6684,10 @@ const Panels = {
   },
   ending() {
     G.profile.flags.endSeen = true;
-    return { title: 'Shadows of the White Sun', seal: '終', html: `<p class="speech">Some empires are conquered by armies. Others fall when enough people refuse to be afraid.</p><p class="lede">The end of the main story. Ren Kisaragi, Aiko Senda and Haru ride on, and the island is still full of unfinished work: blades to challenge, camps and towers, people with troubles of their own. Your journal (J) holds the rest, and the Story tab keeps every mission to look back on.</p><div class="btns"><button class="btn gold" data-act="ok">Somewhere quiet</button></div>`, on() { UI.close(); return false; } };
+    Endings.pin();
+    const E = Endings.panel(), k = Endings.kind();
+    const btn = k === 'ash' ? 'The road is empty' : k === 'rain' ? 'The rain does not stop' : 'Somewhere quiet';
+    return { title: 'Shadows of the White Sun', seal: '終', html: E.html + `<div class="btns"><button class="btn gold" data-act="ok">${btn}</button></div>`, on() { Music.unpin(); UI.close(); return false; } };
   },
   shop({ shop }) {
     const S = SHOPS[shop], p = G.profile, m = priceMult();
@@ -11535,6 +11662,7 @@ class MCtx {
   usePoint(w, label, k, step) { const p = this.at(w); if (!p) return null; const o = World.addObj('mpt', p[0] - 0.8, p[1] - 0.8, 1.6, 1.6, { solid: false, mUse: { m: this, k, step }, interact: { kind: 'mission', label } }); this.objs.push(o); return o; }
   // a scene that is somehow lost (closed by something else, opened while Ren lay dying) is reopened by Missions.update
   say(parts, done) {
+    if (typeof parts === 'function') parts = parts(this);
     let fired = false; const rec = { parts, t: 0 }; rec.done = () => { if (fired) return; fired = true; if (this._say === rec) this._say = null; if (done) done(); };
     this._say = rec;
     this.approach(parts);
@@ -11694,7 +11822,7 @@ function mSafe(m, what, f) { try { return f(); } catch (e) { console.error('Miss
 const STEPS = {
   scene: { begin(m, s) { m.say(s.parts, () => m.st.ok = true); }, tick: m => m.st.ok },
   narr: { begin(m, s) { m.say([['narr', ...s.lines]], () => m.st.ok = true); }, tick: m => m.st.ok },
-  card: { begin(m, s) { m.st.T = s.dur || 3.5; if (s.black) Card.black(true, true); Card.show(s.kicker || '', s.title || '', s.sub || '', m.st.T, s.black ? 'time' : ''); }, tick(m, s, dt) { if ((m.st.T -= dt) > 0) return false; if (s.black && !s.stayBlack) Card.black(false); return true; } },
+  card: { begin(m, s) { m.st.T = s.dur || 3.5; if (s.black) Card.black(true, true); const k = typeof s.kicker === 'function' ? s.kicker(m) : s.kicker, t = typeof s.title === 'function' ? s.title(m) : s.title, u = typeof s.sub === 'function' ? s.sub(m) : s.sub; Card.show(k || '', t || '', u || '', m.st.T, s.black ? 'time' : ''); }, tick(m, s, dt) { if ((m.st.T -= dt) > 0) return false; if (s.black && !s.stayBlack) Card.black(false); return true; } },
   wait: { begin(m, s) { m.st.T = s.dur || 3; }, tick(m, s, dt) { m.st.T -= dt; return s.until ? (m.st.T <= 0 && mSafe(m, 'until', () => s.until(m))) || m.st.T < -(s.max || 15) : m.st.T <= 0; } },
   fn: { begin(m, s) { s.run(m); }, tick: () => true },
   go: { tick(m, s) { const p = m.at(s.at), P = G.player; if (!p) return false; if (s.mounted && !P.mounted) return false; if (s.foot && P.mounted) return false; return dist(P.x, P.y, p[0], p[1]) < (s.r || 3); } },
@@ -11811,7 +11939,7 @@ const STEPS = {
   choice: {
     begin(m, s) {
       const [who, ...lines] = s.ask, a = who === 'ren' ? G.player : m.get(who);
-      UI.open('dialog', { speaker: castName(who), actor: a || null, lines, buttons: s.options.map(([label, key, reply]) => ({ label, fn: () => { m.flags[s.key || 'choice'] = key; if (reply) m.say(reply, () => m.st.ok = true); else m.st.ok = true; } })) });
+      UI.open('dialog', { speaker: castName(who), actor: a || null, lines, buttons: s.options.map(([label, key, reply]) => ({ label, fn: () => { const k = s.key || 'choice'; m.flags[k] = key; if (s.key && G.profile) G.profile.flags[s.key] = key; if (reply) m.say(reply, () => m.st.ok = true); else m.st.ok = true; } })) });
     },
     tick: m => m.st.ok
   },
@@ -11826,6 +11954,126 @@ const STEPS = {
       return m.st.T >= s.dur && (!s.clear || !m.alive(s.tag || 'foe').length);
     }
   },
+};
+const Endings = {
+  kind() {
+    const p = G.profile, f = (p && p.flags) || {}, h = (p && p.honor) || 0;
+    const wrong = f.whyFight === 'revenge' || f.surrender === 'silent' || f.kahnEnd === 'cut' || f.masanori === 'how' || f.daichiTrust === 'threat';
+    const cruel = h < -19 || (h < 0 && (f.surrender === 'silent' || f.elderFood === 'take') && (f.whyFight === 'revenge' || f.kahnEnd === 'cut' || f.depotLoot === 'all' || f.daichiTrust === 'threat'));
+    if (cruel) return 'ash';
+    const right = h >= 20 && f.whyFight !== 'revenge' && f.surrender !== 'silent' && f.kahnEnd !== 'cut';
+    if (right) return 'lantern';
+    return 'rain';
+  },
+  music() { return { ash: 'ending_ash', rain: 'ending_rain', lantern: 'ending_hope' }[this.kind()] || 'ending_rain'; },
+  pin() { if (typeof Music === 'undefined') return; Music.play(this.music()); },
+  open() {
+    const k = this.kind();
+    if (k === 'ash') return [
+      ['aiko', 'I rode this far so you would not arrive alone.'],
+      ['aiko', 'I will not ride the rest. The villages are already telling a story about you, and it is not the one Genjiro hoped for.'],
+      ['haru', 'I have clinics. I cannot follow a man people cross the street to avoid.'],
+      ['ren', '...'],
+      ['aiko', 'Go to the cedar if you must. Then go somewhere we will not have to watch.']
+    ];
+    if (k === 'rain') return [
+      ['aiko', 'The council still writes. The clinics still open. None of that feels like winning.'],
+      ['haru', 'We did what we came to do. It cost more than the banners.'],
+      ['ren', '...'],
+      ['aiko', 'You chose the shorter road, once. I have not forgotten. I am still here. That is not the same as forgiveness.']
+    ];
+    return [
+      ['aiko', 'The council wants me to sleep in the official lodgings. With a roof.'],
+      ['ren', 'And?'],
+      ['aiko', 'I slept on it. Outside.'],
+      ['haru', 'Eleven clinics now. Kenzo\'s granddaughter runs the one in the marsh.'],
+      ['aiko', 'And the assembly in Kagetsuki threw a chair at the governor\'s nephew yesterday.'],
+      ['ren', 'Good. Nobody got arrested for it.'],
+      ['aiko', 'Your plans are still too complicated, by the way.'],
+      ['haru', '...Three of us are missing from this road.']
+    ];
+  },
+  welcome() {
+    const k = this.kind();
+    if (k === 'ash') return [['Villager', '...You. They said you might come back. Keep to the memorial. Nobody here wants a speech.']];
+    if (k === 'rain') return [['Villager', 'You\'re expected at the cedar. The square is quiet these days.']];
+    return [['Villager', 'Welcome to Kiyohara. The new bridge is up. The old ford is still too deep.']];
+  },
+  names() {
+    const k = this.kind();
+    if (k === 'ash') return [
+      ['ren', 'Genjiro Takeda. Nao. Daichi Mori.'],
+      ['ren', 'I do not know if I still have the right to cut their names.']
+    ];
+    if (k === 'rain') return [
+      ['haru', 'Genjiro would have complained about the lettering.'],
+      ['aiko', 'Nao would have stolen the chisel anyway.'],
+      ['ren', 'Daichi would have measured the stone first.'],
+      ['haru', 'And asked whether we were sure.']
+    ];
+    return [
+      ['haru', 'Genjiro would have complained about the lettering.'],
+      ['aiko', 'Nao would have stolen the chisel.'],
+      ['ren', 'Daichi would have measured the stone first.'],
+      ['haru', 'Twice.'],
+      ['aiko', '...It is still too few names.']
+    ];
+  },
+  river() {
+    const k = this.kind();
+    if (k === 'ash') return [['narr', 'The bank is empty. Rain on the stones where children used to shout.'], ['ren', '...']];
+    if (k === 'rain') return [['Child', '...Mama said not to talk to the man with the sword.'], ['narr', 'She stands in the rain until someone calls her in.']];
+    return [['Child', 'Last one in the river is a rotten radish!'], ['Child', 'No fair. You started early.'], ['ren', '...'], ['aiko', 'You can hear them. That is allowed.']];
+  },
+  leave() {
+    const k = this.kind();
+    if (k === 'ash') return [
+      ['ren', 'Somewhere quiet.'],
+      ['narr', 'Nobody answers. Kumo\'s hooves on the wet road are the only sound that follows him out.']
+    ];
+    if (k === 'rain') return [
+      ['aiko', 'Where will you go?'],
+      ['ren', 'I don\'t know. Away from the cedar. Not far enough that I forget it.'],
+      ['haru', 'Then we ride until the rain stops. It will not stop.']
+    ];
+    return [
+      ['aiko', 'Where will you go?'],
+      ['ren', 'Somewhere quiet.'],
+      ['haru', 'There is no such place. There is only the next village that still needs a clinic.'],
+      ['aiko', 'And a bridge at Takamine that is down again.'],
+      ['ren', '...Somewhere quiet after Takamine.']
+    ];
+  },
+  rideTalk() {
+    const k = this.kind();
+    if (k === 'ash') return [['narr', 'The gate is behind him. The cedar is a dark shape in the rain. No one waves.']];
+    if (k === 'rain') return [['aiko', 'Do not look back until the roof is gone.'], ['ren', 'I know.']];
+    return [['aiko', 'Somewhere quiet. You know the bridge at Takamine is down again.'], ['ren', '...Somewhere quiet after Takamine.']];
+  },
+  cardTitle() {
+    const k = this.kind();
+    if (k === 'ash') return 'He got what he came for.';
+    if (k === 'rain') return 'The banners fell.';
+    return 'Some empires are conquered by armies.';
+  },
+  cardSub() {
+    const k = this.kind();
+    if (k === 'ash') return 'The island remembers the cost.';
+    if (k === 'rain') return 'What was built in their place is quieter than anyone hoped.';
+    return 'The people who remain still have to live here.';
+  },
+  panel() {
+    const k = this.kind();
+    if (k === 'ash') return {
+      html: `<p class="speech">You took the island the way an army takes a hill. The banners are down. The names on the cedar are still dead. The people who saw you coming learned a new kind of fear, and they will not unlearn it.</p><p class="lede">There is no one on the road behind you. The story is over. What you built was a silence, and you have to sit in it.</p>`
+    };
+    if (k === 'rain') return {
+      html: `<p class="speech">You kept your honor in the small things and spent it on the large ones. Kahn is gone. So are the people who would have told you that was not enough.</p><p class="lede">Aiko and Haru still ride with you, a little farther off than they used to. The cedar stands. The lantern is lit. It does not warm much. The island is yours to wander, and it will not give the years back.</p>`
+    };
+    return {
+      html: `<p class="speech">You did the right thing, as far as a sword can. The dead are still dead. The children in the river do not know the names you carved, and that is the closest thing this island has to mercy.</p><p class="lede">Aiko and Haru ride with you. The lantern under the cedar burns in the rain. There is work left, and no one is coming back. The journal (J) keeps the rest of it.</p>`
+    };
+  }
 };
 const Missions = {
   cur: null, failing: false, ambient: [], chainT: 0, chainDef: null, started: 0, pending: null, restT: 0,
@@ -11899,6 +12147,7 @@ const Missions = {
     for (const id of def.sites || []) StoryMap.ensure(id);
     if (def.tod !== undefined) G.tod = def.tod;
     if (def.rain !== undefined) { G.rain = def.rain; G.rainT = 400; }
+    if (def.n === 100) Endings.pin();
     if (UI.panel) UI.close();
     const act = actOf(def.n);
     if (!o.quiet) {
@@ -11924,7 +12173,7 @@ const Missions = {
     if (s.cp && !m.fast) { m.cp = i; m.cpPos = [G.player.x, G.player.y, G.player.mounted]; m.cpTod = G.tod; }
     if (s.on) mSafe(m, 'on', () => s.on(m));
     if (this.cur !== m) return;
-    if (s.talk) m.talk(s.talk);
+    if (s.talk) m.talk(typeof s.talk === 'function' ? s.talk(m) : s.talk);
     const go = () => { if (this.cur !== m || m.step !== s) return; const T = STEPS[s.t]; if (!T) { console.warn('no step type', s.t); m.st.live = true; m.st.ok = true; return; } if (T.begin) mSafe(m, 'begin', () => T.begin(m, s)); m.st.live = true; this.objective(); };
     if (s.say) m.say(s.say, go); else go();
     this.objective();
@@ -11948,7 +12197,7 @@ const Missions = {
     Card.show('Mission complete', def.title, (mon ? mon + ' mon · ' : '') + fmtTime(m.t), 4, 'done'); Snd.play('level', 0.7);
     Systems.save();
     const nx = this.def(def.n + 1);
-    if (!nx) { setTimeout(() => UI.open('ending'), 4200); return; }
+    if (!nx) { Endings.pin(); setTimeout(() => UI.open('ending'), 4200); return; }
     if (nx.chain) { this.chainDef = nx; this.chainT = 4.2; }
     else setTimeout(() => { if (!this.cur && G.profile.story.n === nx.n) UI.toast('Next: Mission ' + nx.n + ' · ' + nx.title + ' · the gold marker on your map (M)', 'good'); }, 4300);
     if (def.n === 10) { for (const id of ['blades', 'towers', 'camps']) if (!Quests.st(id)) Quests.start(id, true); setTimeout(() => UI.toast('The island is open: side quests, the Ten Blades, bounties, camps and towers are in your journal (J)', 'good'), 9000); }
@@ -12662,7 +12911,7 @@ M({
     { t: 'use', ats: [['depot.storeIn', -1, 0], ['depot.storeIn', 1, 0], ['depot.storeIn', 0, -1], ['depot.storeIn', 0, 1]], label: 'Fill your bags', thing: 'ricesacks', take: true, text: 'Fill your bags: rice, dried fish, beans, salt', onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, pick(['rice', 'dried fish', 'beans', 'salt']), '#efe3c8'); } },
     { t: 'sneak', at: 'depot.room', r: 1.8, text: 'Look into the officer\'s locked stores', why: 'A guard saw you in the yard.' },
     { t: 'use', at: 'depot.room', label: 'Pick the lock', text: 'Pick the officer\'s lock', dur: 2, busy: 'Working the lock…' },
-    { t: 'choice', ask: ['ren', 'Uji tea. Dried persimmons. Good sake.', 'And enough rice to feed a refugee camp.'], options: [['Take the rice. Leave the fine things.', 'rice'], ['Take the tea and the sake as well', 'all', [['ren', '...No. Rice. I came for rice.']]]] },
+    { t: 'choice', key: 'depotLoot', ask: ['ren', 'Uji tea. Dried persimmons. Good sake.', 'And enough rice to feed a refugee camp.'], options: [['Take the rice. Leave the fine things.', 'rice'], ['Take the tea and the sake as well', 'all', [['ren', '...No. Rice. I came for rice.']]]] },
     { t: 'use', at: 'depot.desk', label: 'Search the officer\'s desk', text: 'Search the officer\'s desk', hint: 'In the yard, by the storehouses.' },
     { t: 'doc', id: 'quotas', text: 'Read the list' },
     { t: 'scene', parts: [['ren', '...Kiyohara. Doubled.'], ['ren', 'The year the river took half the harvest.']] },
@@ -13032,7 +13281,7 @@ M({
     { t: 'talk', who: 'elder', text: 'The village elder wants a word, by the well', parts: [['elder', 'You have saved these people.', 'Who will save us when the army returns?'], ['ren', '...'], ['aiko', 'Then give us food and horses, and we will take them farther west.'], ['elder', 'Half our harvest went to the imperial quota. We have nothing to spare.']] },
     { t: 'go', at: 'mtnvil.storehouse', r: 2.6, text: 'Look around the village', hint: 'There is a storehouse behind the temple that nobody has mentioned.' },
     { t: 'scene', on(m) { m.place('elder', ['mtnvil.storehouse', 1.5, 1], { run: 1 }); }, parts: [['ren', 'Rice. Pickles. Medicine. For a village with nothing to spare.'], ['elder', '...The officers take whatever they can find. So we make sure they can\'t find it.']] },
-    { t: 'choice', ask: ['elder', 'Well? Take it, then. Everyone else does.'], options: [['Take what you need', 'take', [['aiko', 'Ren.'], ['ren', '...']]], ['Make him an offer', 'deal']], after: [['ren', 'Your channels are clogged and your bridge is in the river. The people we freed can work.', 'They fix both. You give us enough to get everyone west.'], ['elder', '...Agreed.']] },
+    { t: 'choice', key: 'elderFood', ask: ['elder', 'Well? Take it, then. Everyone else does.'], options: [['Take what you need', 'take', [['aiko', 'Ren.'], ['ren', '...']]], ['Make him an offer', 'deal']], after: [['ren', 'Your channels are clogged and your bridge is in the river. The people we freed can work.', 'They fix both. You give us enough to get everyone west.'], ['elder', '...Agreed.']] },
     { t: 'use', ats: ['mtnvil.channel1', 'mtnvil.channel2', 'mtnvil.channel3'], label: 'Clear the channel', thing: 'debris', take: true, text: 'Clear the irrigation channels with the freed prisoners', dur: 1, busy: 'Digging…', on(m) { let k = 0; for (const a of m.group('freed')) m.walk(a, [['mtnvil.channel' + (1 + k++ % 3), rnd(-1, 1), 1]], { run: 0.8 }); } },
     { t: 'use', ats: ['mtnvil.bridge1', 'mtnvil.bridge2'], label: 'Haul a beam into place', thing: 'lumber', take: true, text: 'Rebuild the collapsed bridge', dur: 1.2, busy: 'Hauling…' },
     { t: 'scene', parts: [['aiko', 'You might actually be useful to someone other than yourself.'], ['ren', 'Don\'t tell anyone. I have a reputation.']] },
@@ -13263,7 +13512,7 @@ M({
       ['haru', 'Would killing Kahn bring back your family?'], ['ren', 'No.'],
       ['haru', 'Would destroying the empire give you back the years?'], ['ren', 'No.'],
       ['haru', 'Then what do you want your life to look like, after the war?', 'Not the country. Not what you want your enemies to suffer. Your own life.'] ] },
-    { t: 'choice', ask: ['ren', '...'], options: [['"I don\'t know."', 'unknown'], ['"Quiet."', 'quiet'], ['Say nothing', 'none']], after: [['haru', 'Hm. Ask yourself again in a year.']] },
+    { t: 'choice', key: 'whatAfter', ask: ['ren', '...'], options: [['"I don\'t know."', 'unknown'], ['"Quiet."', 'quiet'], ['Say nothing', 'none']], after: [['haru', 'Hm. Ask yourself again in a year.']] },
     { t: 'rest', title: 'Morning', tod: 0.3, then(m) { const h = m.get('haru'); if (h) { G.gang = G.gang.filter(b => b !== h); h.comp = false; h.faction = 'civ'; h.post = m.at('clinic.door', 1, 0); } m.spawn('prisoner', ['clinic.door', 2, 1.5], 1, { calm: true, tag: 'waiting', name: 'Elderly Patient' }); } },
     { t: 'scene', parts: [['Elderly Patient', 'Is the healer open? My chest is bad again.'], ['haru', 'Come in, grandfather. Ren, the well.']] },
     { t: 'use', at: 'clinic.well', label: 'Draw water', text: 'Pick up a bucket and draw water' },
@@ -13363,7 +13612,7 @@ M({
     { t: 'follow', who: 'daichi', path: ['foundry.workshop', ['foundry.cannon', -1, 2]], text: 'Follow Daichi to the cannon', hint: 'The mercenaries think you are surveyors. Try to look bored.' },
     { t: 'use', at: ['foundry.cannon', -1, 1.5], label: 'Look at the cannon', text: 'Examine the cannon with Daichi' },
     { t: 'scene', parts: [['daichi', 'It is scheduled for a demonstration before the governor in three days.', 'Bronze-lined barrel, a new elevating screw, a powder charge we calculated for the far ridge. From there it can reach a whole valley of villages that refused the grain collectors.'], ['daichi', 'I know exactly how this weapon works.', 'And I know how to stop it.']] },
-    { t: 'choice', ask: ['ren', '...'], options: [['"Then we do it your way."', 'trust', [['daichi', 'Good. My way has fewer explosions.']]], ['"One wrong move, engineer, and you are the first thing it fires."', 'threat', [['daichi', 'If I make a wrong move with that powder, ronin, we will all be the first thing it fires.']]]] },
+    { t: 'choice', key: 'daichiTrust', ask: ['ren', '...'], options: [['"Then we do it your way."', 'trust', [['daichi', 'Good. My way has fewer explosions.']]], ['"One wrong move, engineer, and you are the first thing it fires."', 'threat', [['daichi', 'If I make a wrong move with that powder, ronin, we will all be the first thing it fires.']]]] },
   ],
 });
 M({
@@ -13715,7 +13964,11 @@ M({
       ['genjiro', 'Now the monastery is surrounded, and its defenders are running out of food.'],
       ['ren', 'Then let us help break the siege.'],
       ['genjiro', 'What will you build when the fighting ends?'] ] },
-    { t: 'choice', ask: ['ren', '...'], options: [['"A country where nobody burns a village to make a point."', 'larger'], ['"I want Kahn dead. After that, I don\'t know."', 'revenge'], ['"...I don\'t know yet."', 'unknown']], after: [['genjiro', 'Hm. Then you have more thinking to do than fighting.']] },
+    { t: 'choice', key: 'whyFight', ask: ['ren', '...'], options: [
+      ['"A country where nobody burns a village to make a point."', 'larger', [['genjiro', 'Then you already know the work is longer than one man\'s life.']]],
+      ['"I want Kahn dead. After that, I don\'t know."', 'revenge', [['genjiro', 'Revenge is a road. It is not a country.']]],
+      ['"...I don\'t know yet."', 'unknown', [['genjiro', 'Hm. Then you have more thinking to do than fighting.']]]
+    ] },
   ],
 });
 // ============================================================ ACT IV · THE LAST LANTERNS (missions 61-80)
@@ -13821,7 +14074,7 @@ M({
     { t: 'talk', who: 'Tenant Widow', text: 'Speak with a family forced from their home', parts: [['Tenant Widow', 'They take the tools for debts nobody owes. Then the land, because you cannot work it without tools. Then the children go to the warehouses, to work off the quota.'], ['aiko', 'Will people speak? If it was safe?'], ['Tenant Widow', 'Everyone hates him. Nobody believes it could ever be safe.']] },
     { t: 'use', ats: ['estate.grain1', 'estate.grain2'], label: 'Look inside', text: 'Find the estate\'s hidden grain stores', hint: 'Grain for the garrisons that will attack the north.' },
     { t: 'scene', parts: [['narr', 'A small boy hauls sacks out of the granary. A wooden horse hangs on a string around his neck.'], ['ren', '...']] },
-    { t: 'choice', ask: ['ren', 'The estate is right there. The guards are few.'], options: [['Go for the estate. Now.', 'charge', [['narr', 'Genjiro\'s hand closes on his arm.']]], ['Breathe.', 'breathe']], after: [['genjiro', 'Not like this.', 'His soldiers, his merchants, his tenants. We take them away from him one by one. Then he falls over by himself.']] },
+    { t: 'choice', key: 'estateRush', ask: ['ren', 'The estate is right there. The guards are few.'], options: [['Go for the estate. Now.', 'charge', [['narr', 'Genjiro\'s hand closes on his arm.']]], ['Breathe.', 'breathe']], after: [['genjiro', 'Not like this.', 'His soldiers, his merchants, his tenants. We take them away from him one by one. Then he falls over by himself.']] },
   ],
 });
 M({
@@ -13844,7 +14097,7 @@ M({
     { t: 'go', at: 'estate.hallDoor', r: 3, text: 'Go to the central hall with Genjiro' },
     { t: 'go', at: m => { const a = m.get('masanori'); return a ? [a.x + 1.5, a.y + 1.5] : m.at('estate.hallDoor'); }, r: 2.6, text: 'Confront Lord Masanori' },
     { t: 'scene', parts: [['masanori', 'So you are Ren Kisaragi. Smaller than the posters.', 'Let me be practical. Money. A place at the imperial court. You stop playing bandit, and I make sure the north is governed gently.'], ['masanori', 'The occupation is inevitable. Cooperation is the only realistic way to protect ordinary people. I have protected thousands that way.'], ['genjiro', '(quietly) Every collaborator I ever met said those exact words.']] },
-    { t: 'choice', ask: ['masanori', 'Well?'], options: [['"No."', 'no'], ['"...How much?"', 'how', [['genjiro', '(clears his throat)'], ['ren', 'No.']]]], after: [['masanori', 'Then you are a fool, and fools do not last.'], ['narr', 'A panel slides in the wall. He is gone.']], done(m) { m.remove(m.get('masanori'), true); } },
+    { t: 'choice', key: 'masanori', ask: ['masanori', 'Well?'], options: [['"No."', 'no'], ['"...How much?"', 'how', [['genjiro', '(clears his throat)'], ['ren', 'No.']]]], after: [['masanori', 'Then you are a fool, and fools do not last.'], ['narr', 'A panel slides in the wall. He is gone.']], done(m) { m.remove(m.get('masanori'), true); } },
     { t: 'rest', title: 'Dawn', tod: 0.27, then(m) { m.place('nao', ['estate.street', -3, 1.5]); m.place('aiko', ['estate.street', -1, 2]); } },
     { t: 'use', ats: [['estate.street', -6, -1], ['estate.street', 2, -1], ['estate.square', 0, -2]], label: 'Pull down the banner', text: 'Help the villagers pull down the lord\'s banners', onUse(m, k) { if (!k) m.talk([['Villager', 'Half his guards walked off in the night!'], ['Villager', 'And the elders have his account books!']]); const o = m.objs.filter(o => o.t === 'sunbanner')[k]; if (o) Missions.removeObj(o); } },
     { t: 'scene', parts: [['nao', 'No battle. No siege. Everyone just... stopped turning up for work.'], ['genjiro', 'That is how most lords fall. Nobody writes songs about it.']] },
@@ -14291,7 +14544,7 @@ M({
     { t: 'scene', parts: [['aiko', 'You and I take the northern approach.'], ['haru', 'Medical stations outside the walls. Both sides get treated.'], ['daichi', 'And the guns on the ridge are mine. Without flattening half the city, if I can manage it.']] },
     { t: 'go', at: 'council.inside', r: 3, text: 'Enter the council chamber' },
     { t: 'scene', parts: [['Representative', 'Elected assemblies in every region. Nothing less.'], ['Elder', 'Councils of village elders. We have governed ourselves for centuries, without paper.'], ['Former Lord', 'And who will keep order? My family has ruled its province for three hundred years. That authority should not be thrown away.'], ['Representative', 'Ren Kisaragi. You decide. They\'ll follow you.']] },
-    { t: 'choice', ask: ['ren', '...'], options: [['"I could settle this for you."', 'force', [['ren', '...No.', 'Then you\'d have traded one man who decides everything for another.']]], ['"No one person settles this."', 'council']], after: [['ren', 'Argue it out. Shout at each other. You\'re allowed to now.'], ['Former Lord', '...A provisional council, then. Until the regions can choose.'], ['Elder', 'And nobody gets a crown.'], ['Representative', 'Agreed.']] },
+    { t: 'choice', key: 'councilWay', ask: ['ren', '...'], options: [['"I could settle this for you."', 'force', [['ren', '...No.', 'Then you\'d have traded one man who decides everything for another.']]], ['"No one person settles this."', 'council']], after: [['ren', 'Argue it out. Shout at each other. You\'re allowed to now.'], ['Former Lord', '...A provisional council, then. Until the regions can choose.'], ['Elder', 'And nobody gets a crown.'], ['Representative', 'Agreed.']] },
     { t: 'go', at: 'council.view', r: 3, text: 'Step outside' },
   ],
 });
@@ -14358,7 +14611,7 @@ M({
 M({
   n: 96, title: 'The City Opens Its Gates', at: ['battery.sheds', -2, 4], atR: 7, giver: 'aiko', tod: 0.42, sites: ['capital'], party: ['aiko'], reward: 220,
   brief: 'The guns are silent and the road is blocked. The coalition goes in.',
-  recap: 'The final assault began. Resistance cells rose from hiding and opened storehouses; former imperial soldiers opened the gates they had once guarded. Aiko led the northern force through the merchant quarter while Ren pushed for the palace with the copied orders. Haru stayed with the wounded, treating soldiers from both sides: the war would end, and someone would have to live in the country afterward. When soldiers surrendered, Ren stopped the coalition taking revenge on them. A revolution that treats every former enemy as irredeemable becomes another occupation. At the palace, the doors stood open.',
+  recap: 'The final assault began. Resistance cells rose from hiding and opened storehouses; former imperial soldiers opened the gates they had once guarded. Aiko led the northern force through the merchant quarter while Ren pushed for the palace. Haru stayed with the wounded from both sides. In the avenue, coalition fighters wanted the surrendering conscripts dead for Hatakemura. What Ren did then stayed with him. At the palace, the doors stood open.',
   setup(m) {
     m.cast('haru', ['capital.gateW', 4, 3]); for (let i = 0; i < 3; i++) { const [a] = m.spawn(i ? 'villager' : 'imperial', ['capital.gateW', 5 + i * 1.2, 4.6], 1, { calm: true, tag: 'wounded', spread: 0.3 }); sickLook(a); }
     m.spawn('monk', ['capital.gateW', -3, 2], 3, { calm: true, tag: 'coalition', spread: 2 });
@@ -14370,7 +14623,23 @@ M({
     { t: 'go', at: 'capital.avenue', r: 7, text: 'Push into the city toward the palace district', hint: 'You carry the copied orders. Aiko is on the rooftops.', on(m) { m.spawn('conscript', ['capital.avenue', -3, 4], 1, { calm: true, key: 'Former Guard', name: 'Former Guard' }); }, talk: [['Former Guard', '(throwing down his spear) This way! The garrison is in the rice exchange!']] },
     { t: 'kill', cp: true, text: 'Break the defenders on the avenue', spawn(m) { m.spawn('imperial', ['capital.avenue', 4, -2], 4, { spread: 3 }); m.spawn('rifleman', ['capital.avenue', -4, -3], 1); for (let i = 0; i < 3; i++) m.spawn('conscript', ['capital.avenue', -1 + i * 1.4, 2], 1, Object.assign({ calm: true, tag: 'surrender', spread: 0.2, run: 1.2 }, i ? {} : { key: 'Conscript', name: 'Conscript' })); } },
     { t: 'scene', on(m) { for (const a of m.group('surrender')) sickLook(a); m.spawn('villager', ['capital.avenue', 1, 4], 1, { calm: true, key: 'Fighter', name: 'Coalition Fighter' }); }, parts: [['Conscript', 'Hold at any cost, they said! The palace said hold at any cost! We\'re done! We\'re DONE!'], ['Fighter', 'These are the ones who burned the grain at Hatakemura. I know that face. Every one of them gets what they gave.']] },
-    { t: 'choice', ask: ['ren', '...'], options: [['"Stop."', 'spare'], ['Say nothing.', 'silent', [['Conscript', 'Please...'], ['ren', '...Stop.']]]], after: [['ren', 'Bind their hands. The assemblies can judge them.'], ['Fighter', 'And if they let them go?'], ['ren', 'Then they let them go.'], ['narr', 'The spear comes down.']] },
+    { t: 'choice', key: 'surrender', ask: ['ren', '...'], options: [
+      ['"Stop."', 'spare'],
+      ['Say nothing.', 'silent', [['Conscript', 'Please...'], ['Fighter', 'Then this is for Hatakemura.']]]
+    ] },
+    { t: 'fn', run(m) {
+      const silent = (G.profile.flags.surrender || m.flags.surrender) === 'silent';
+      if (silent) {
+        for (const a of m.group('surrender')) { if (!a || a.dead) continue; a.hp = 0; a.dead = true; a.bleed = 0; a.essential = false; a.mEnemy = false; a.ai && (a.ai.mode = 'idle'); }
+        if (!m.fast) { Snd.play('swing', 0.9); Snd.play('thud', 0.7); G.shake = Math.max(G.shake, 2); }
+      } else {
+        for (const a of m.group('surrender')) { if (!a || a.dead) continue; a.yielded = true; a.state = 'kneel'; a.mEnemy = false; a.ai && (a.ai.mode = 'idle'); }
+      }
+    } },
+    { t: 'scene', parts: () => (G.profile.flags.surrender === 'silent'
+      ? [['narr', 'The spear comes down. Nobody stops it.'], ['Fighter', 'You saw. You let it happen.'], ['ren', '...'], ['aiko', '(from a roof, later) I saw it too.']]
+      : [['ren', 'Bind their hands. The assemblies can judge them.'], ['Fighter', 'And if they let them go?'], ['ren', 'Then they let them go.'], ['narr', 'The spear stays up.']]
+    ) },
     { t: 'go', at: ['capital.palaceGate', 0, 5], r: 5, text: 'Make for the palace gates' },
     { t: 'kill', cp: true, text: 'Clear the last guards at the palace gate', spawn(m) { m.spawn('imperial', ['capital.palaceGate', 0, 3], 3, { spread: 2.5, name: 'Palace Guard' }); m.spawn('officer', ['capital.palaceGate', 1, 2], 1, { name: 'Guard Captain' }); } },
     { t: 'scene', on(m) { m.cast('aiko', ['capital.palaceGate', 1.5, 3], { run: 1.2 }); }, parts: [['aiko', 'You\'re bleeding.'], ['ren', 'So are you.'], ['aiko', '...The doors are open.']] },
@@ -14399,7 +14668,10 @@ M({
     { t: 'choice', ask: ['kahn', 'Well?'], options: [['"No."', 'no'], ['"Your judges and informants keep their places?"', 'ask', [['kahn', 'They are the state. Without them there is nothing to hand over.'], ['ren', 'Then no.']]]], after: [['kahn', '...Then you are as much a fool as your father was.'], ['narr', 'A pistol, out of his sleeve.']] },
     { t: 'defeat', who: 'kahn', at: 110, cp: true, text: 'Fight Kahn. Keep him from the throne platform', hint: 'He has survived decades of war and knows how to use your anger. Roll or guard when he aims.', on(m) { const k = m.get('kahn'); if (k) { k.essential = false; k.faction = 'imperial'; k.mEnemy = true; k.canYield = false; k.gun = true; k.ai.mode = 'fight'; k.ai.target = G.player; k.aware = 1; } } },
     { t: 'scene', on(m) { const k = m.get('kahn'); if (k) { k.gun = false; k.mEnemy = false; k.ai.mode = 'idle'; k.ai.target = null; k.atk = null; k.aimAt = null; k.ai.aim = 0; k.state = 'kneel'; k.essential = true; } }, parts: [['narr', 'The pistol skids across the floor. Kahn is on his knees in front of his own throne.'], ['kahn', 'Well? Fifteen years. Go on.']] },
-    { t: 'choice', ask: ['ren', '...'], options: [['"You will stand trial. Before the people you claimed to rule."', 'trial']], after: [['kahn', 'Trial. Before farmers and fishermen and thieves.', 'No.'], ['narr', 'A blade, out of the other sleeve.']] },
+    { t: 'choice', key: 'kahnEnd', ask: ['ren', '...'], options: [
+      ['"You will stand trial. Before the people you claimed to rule."', 'trial', [['kahn', 'Trial. Before farmers and fishermen and thieves.', 'No.'], ['narr', 'A blade, out of the other sleeve.']]],
+      ['Cut him down.', 'cut', [['ren', '...Fifteen years.'], ['narr', 'He understands the look. He reaches for the other sleeve anyway.']]]
+    ] },
     { t: 'defeat', who: 'kahn', at: 0, text: 'End it', hint: 'There is no other way out of this now.', on(m) { const k = m.get('kahn'); if (k) { k.essential = false; k.state = 'idle'; k.mEnemy = true; k.wpn = 'tanto'; k.hp = Math.min(k.hp, 40); k.ai.mode = 'fight'; k.ai.target = G.player; k.aware = 1; } } },
     { t: 'scene', parts: [['ren', '...'], ['aiko', '(from the doorway) Ren?'], ['ren', 'It\'s done.'], ['ren', '...It doesn\'t feel like anything.']] },
   ],
@@ -14425,33 +14697,54 @@ M({
   end() { G.profile.flags.kurodaDone = true; },
 });
 M({
-  n: 100, title: 'The Last Three Lanterns', at: 'kiyo.roadW', chain: true, place: true, mounted: true, reload: true, tod: 0.7, sites: ['kiyo'], party: ['aiko', 'haru'], reward: 500,
-  brief: 'Months later. An autumn afternoon. Kiyohara.',
-  recap: 'Months passed. The assemblies argued, loudly and slowly, and Ren found it reassuring: people could disagree without being arrested. Aiko became a senior scout for the council; Haru built public clinics from the records of the Shrine of Quiet Rain; Ren refused every command and went back to the villages that had helped them. One autumn afternoon he rode to Kiyohara, rebuilt beside its old foundations, with a small bridge over the stream where he had escaped. Under the cedar he added three names to the memorial, and left a bell, a paper charm and a set of tools. "Somewhere quiet," he said, and rode out with Aiko and Haru. Behind them, a lantern burned beneath the cedar tree.',
+  n: 100, title: 'The Last Three Lanterns', at: 'kiyo.roadW', chain: true, place: true, mounted: true, reload: true, tod: 0.78, sites: ['kiyo'], party: ['aiko', 'haru'], reward: 500,
+  brief: 'Months later. Kiyohara, and whatever is left of it.',
+  recap: 'Months later Ren rode back to Kiyohara, to the cedar and the three names. What he found there, and who still rode with him, depended on the man he had been.',
   setup(m) {
-    for (let i = 0; i < 3; i++) m.spawn('kid', ['kiyo.bank', i * 1.5, 2], 1, { calm: true, tag: 'kids', spread: 1.5 });
-    m.spawn('villager', 'kiyo.square', 4, { calm: true, tag: 'folk', spread: 4 }); m.prop('cabbagecart', ['kiyo.square', 4, 3], { solid: true }); m.spawn('farmer', ['kiyo.square', 5.5, 4.5], 1, { calm: true, key: 'Cart Owner', name: 'Cart Owner', face: PI * 1.25 });
-    m.spawn('villager', ['kiyo.roadW', 5, 2], 1, { calm: true, key: 'Villager', name: 'Villager', face: PI * 0.75 });
+    const k = Endings.kind();
+    G.tod = k === 'lantern' ? 0.74 : 0.86;
+    if (k !== 'lantern') { G.rain = true; G.rainT = 900; } else { G.rain = true; G.rainT = 400; }
+    Endings.pin();
+    if (k === 'ash') {
+      m.spawn('villager', 'kiyo.square', 1, { calm: true, tag: 'folk', spread: 2 });
+      m.spawn('villager', ['kiyo.roadW', 5, 2], 1, { calm: true, key: 'Villager', name: 'Villager', face: PI * 0.75 });
+    } else if (k === 'rain') {
+      m.spawn('kid', ['kiyo.bank', 0, 2], 1, { calm: true, tag: 'kids' });
+      m.spawn('villager', 'kiyo.square', 2, { calm: true, tag: 'folk', spread: 3 });
+      m.spawn('villager', ['kiyo.roadW', 5, 2], 1, { calm: true, key: 'Villager', name: 'Villager', face: PI * 0.75 });
+    } else {
+      for (let i = 0; i < 3; i++) m.spawn('kid', ['kiyo.bank', i * 1.5, 2], 1, { calm: true, tag: 'kids', spread: 1.5 });
+      m.spawn('villager', 'kiyo.square', 3, { calm: true, tag: 'folk', spread: 4 });
+      m.prop('cabbagecart', ['kiyo.square', 4, 3], { solid: true });
+      m.spawn('farmer', ['kiyo.square', 5.5, 4.5], 1, { calm: true, key: 'Cart Owner', name: 'Cart Owner', face: PI * 1.25 });
+      m.spawn('villager', ['kiyo.roadW', 5, 2], 1, { calm: true, key: 'Villager', name: 'Villager', face: PI * 0.75 });
+    }
   },
-  end() { G.profile.flags.ended = true; },
+  end() { G.profile.flags.ended = true; Endings.pin(); },
   steps: [
-    { t: 'card', black: true, kicker: 'Months later', title: 'Autumn', dur: 3.6 },
-    { t: 'scene', parts: [['aiko', 'The council wants me to sleep in the official lodgings. With a roof.'], ['ren', 'And?'], ['aiko', 'I slept on it. Outside.'], ['haru', 'Eleven clinics now. Kenzo\'s granddaughter runs the one in the marsh.'], ['aiko', 'And the assembly in Kagetsuki threw a chair at the governor\'s nephew yesterday.'], ['ren', 'Good. Nobody got arrested for it.'], ['aiko', 'Your plans are still too complicated, by the way.']] },
-    { t: 'go', at: 'kiyo.square', r: 6, text: 'Ride into Kiyohara', talk: [['Villager', 'Welcome to Kiyohara! Take the new bridge, the old ford\'s too deep since the spring.']] },
+    { t: 'card', black: true, kicker: 'Months later', title: 'Autumn', sub: 'The rain has not learned to stop.', dur: 3.6 },
+    { t: 'scene', parts: () => Endings.open(), done(m) {
+      if (Endings.kind() !== 'ash') return;
+      for (const id of ['aiko', 'haru']) {
+        const a = m.get(id); if (!a) continue;
+        G.gang = G.gang.filter(b => b !== a); a.comp = false; a.faction = 'civ'; m.remove(a, true);
+      }
+    } },
+    { t: 'go', at: 'kiyo.square', r: 6, text: 'Ride into Kiyohara', talk: () => Endings.welcome() },
     { t: 'go', at: 'kiyo.memorial', r: 2.6, foot: true, text: 'Walk to the memorial beneath the cedar', hint: 'Get down from Kumo (E).' },
     { t: 'use', at: ['kiyo.memorial', 1.2, -0.4], label: 'Carve three names', text: 'Add three names on a separate stone beside it', dur: 2.6, busy: 'Genjiro Takeda. Nao, the Paper Fox. Daichi Mori.' },
     { t: 'doc', id: 'names' },
-    { t: 'scene', parts: [['haru', 'Genjiro would have complained about the lettering.'], ['aiko', 'Nao would have stolen the chisel.'], ['ren', 'Daichi would have measured the stone first.'], ['haru', 'Twice.']] },
-    { t: 'use', at: ['kiyo.memorial', -0.8, -0.6], label: 'Place Genjiro\'s bell', text: 'Place Genjiro\'s bronze bell beneath the memorial', on(m) { m.place('aiko', ['kiyo.memorial', -2.5, 1.5]); m.place('haru', ['kiyo.memorial', 2.5, 1.5]); } },
+    { t: 'scene', parts: () => Endings.names() },
+    { t: 'use', at: ['kiyo.memorial', -0.8, -0.6], label: 'Place Genjiro\'s bell', text: 'Place Genjiro\'s bronze bell beneath the memorial', on(m) { if (Endings.kind() !== 'ash') { m.place('aiko', ['kiyo.memorial', -2.5, 1.5]); m.place('haru', ['kiyo.memorial', 2.5, 1.5]); } } },
     { t: 'use', at: ['kiyo.memorial', 0.2, -0.8], label: 'Hang Nao\'s paper charm', text: 'Hang Nao\'s paper charm beside it' },
-    { t: 'use', at: ['kiyo.memorial', 1, -0.2], label: 'Leave Daichi\'s tools', text: 'Leave Daichi\'s old tools on the stone', onUse(m) { m.prop('lanternpost', ['kiyo.memorial', -0.4, -1.6], { light: { r: 30, c: '255,190,110' } }); } },
-    { t: 'wait', dur: 5, text: '', on(m) { m.look('kiyo.bank', 5); }, talk: [['Child', 'Last one in the river is a rotten radish!'], ['Child', 'No fair! You started early!']] },
+    { t: 'use', at: ['kiyo.memorial', 1, -0.2], label: 'Leave Daichi\'s tools', text: 'Leave Daichi\'s old tools on the stone', onUse(m) { m.prop('lanternpost', ['kiyo.memorial', -0.4, -1.6], { light: { r: 30, c: Endings.kind() === 'ash' ? '180,160,140' : '255,190,110' } }); } },
+    { t: 'wait', dur: 5, text: '', on(m) { m.look('kiyo.bank', 5); }, talk: () => Endings.river() },
     { t: 'mount', text: 'Mount Kumo', hint: 'Whistle him (H) if he has wandered.', on(m) { if (!m.fast) m.look('kiyo.cedar', 2.5); } },
-    { t: 'scene', on(m) { const p = m.at('kiyo.square', 4, 3); if (p) Miso.lead = [p[0] - 0.8, p[1] + 0.8]; }, parts: [['aiko', 'Where will you go?'], ['ren', 'Somewhere quiet.'], ['Cart Owner', 'HEY! That dog! He\'s got my fish!'], ['haru', 'Then we should probably take the dog somewhere else.']], done() { Miso.lead = null; } },
-    { t: 'go', at: ['kiyo.gateW', -24, 0], r: 6, mounted: true, text: 'Ride out of Kiyohara with Aiko and Haru', talk: [['aiko', 'Somewhere quiet. You know the bridge at Takamine is down again.'], ['ren', '...Somewhere quiet after Takamine.']] },
+    { t: 'scene', parts: () => Endings.leave() },
+    { t: 'go', at: ['kiyo.gateW', -24, 0], r: 6, mounted: true, text: 'Ride out of Kiyohara', talk: () => Endings.rideTalk() },
     { t: 'wait', dur: 6, text: '', on(m) { m.look('kiyo.memorial', 6); } },
     { t: 'card', black: true, stayBlack: true, kicker: '', title: '', dur: 2.6 },
-    { t: 'card', black: true, kicker: 'Shadows of the White Sun', title: 'Some empires are conquered by armies.', sub: 'Others fall when enough people refuse to be afraid.', dur: 6 },
+    { t: 'card', black: true, kicker: 'Shadows of the White Sun', title: () => Endings.cardTitle(), sub: () => Endings.cardSub(), dur: 6.4 },
   ],
 });
 // ============================================================ RENDER + MAIN LOOP
