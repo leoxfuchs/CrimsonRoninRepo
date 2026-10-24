@@ -818,7 +818,7 @@ const mkChunk = () => ({ t: new Uint8Array(1024), b: new Uint8Array(1024), s: ne
 const PLACES = [
   { id: 'yard', name: 'Sōun\'s Training Yard', jp: '稽古場', x: 50, y: 105, r: 7, b: B.PLAINS, kind: 'poi', safe: true },
   { id: 'village', name: 'Kusamura Village', jp: '草村', x: 86, y: 101, r: 20, b: B.PLAINS, kind: 'town', safe: true },
-  { id: 'hideout', name: 'Kuroba-dera Ruins', jp: '黒羽寺', x: 63, y: 132, r: 13, b: B.HIDEOUT, kind: 'home', safe: true },
+  { id: 'hideout', name: 'Kuroba-dera Ruins', jp: '黒羽寺', x: 63, y: 132, r: 13, b: B.HIDEOUT, kind: 'poi', safe: true },
   { id: 'ford', name: 'Oryu Bridge', jp: '大龍橋', x: 112, y: 92, r: 4, b: B.PLAINS, kind: 'poi' },
   { id: 'bamboo', name: 'Takeyabu Grove', jp: '竹藪', x: 130, y: 78, r: 14, b: B.BAMBOO, kind: 'region' },
   { id: 'camp', name: 'Mukade Camp', jp: '百足', x: 125, y: 61, r: 9, b: B.BAMBOO, kind: 'camp' },
@@ -1045,7 +1045,13 @@ const World = {
   streamAll(px, py) { this.stream(px, py, 1e9); },
   heartChunk(k) { const i = k % NCK - OC, j = (k / NCK | 0) - OC; return i >= 0 && j >= 0 && i < HL / CK && j < HL / CK; },
   tower(id, x0, y0, name) {
-    const open3 = (x, y) => { for (let j = y - 2; j < y + 4; j++) for (let i = x - 2; i < x + 4; i++) if (!this.in(i, j) || this.bAt(i, j) || this.solidAt(i, j) === 2 || TINFO[this.tileAt(i, j)].water) return false; return true; };
+    const open3 = (x, y) => {
+      for (let j = y - 2; j < y + 4; j++) for (let i = x - 2; i < x + 4; i++) {
+        if (!this.in(i, j) || this.bAt(i, j) || this.solidAt(i, j) === 2 || TINFO[this.tileAt(i, j)].water) return false;
+        for (const o of this.at(i, j)) if (o.t === 'tower') return false;
+      }
+      return true;
+    };
     let at = null;
     for (let r = 0; r <= 12 && !at; r++) for (let dy = -r; dy <= r && !at; dy++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r && open3(x0 + dx, y0 + dy)) { at = [x0 + dx, y0 + dy]; break; }
     const o = at && this.deco('tower', at[0], at[1], 2, 2, { towerId: id, tname: name, interact: { kind: 'sync', label: 'Climb the watchtower', tower: id } });
@@ -2379,15 +2385,15 @@ const Towns = {
     const W = World;
     W.disc(64, 132, 9.5, (i, j) => { if (!TINFO[W.tileAt(i, j)].water && W.tileAt(i, j) !== TILE.PATH) W.set(i, j, R() < 0.5 ? TILE.MOSS : TILE.DGRASS); });
     W.street(55, 131, 24, 4, TILE.GRAVEL);
-    this.B('h_hall', 55, 123, 12, 8, { hk: 'hall', name: 'Kuroba-dera Hall' });
-    this.B('h_barracks', 70, 124, 9, 5, { hk: 'barracks', name: 'Barracks' });
-    this.B('h_kura', 80, 124, 5, 4, { hk: 'kura', name: 'Treasury' });
-    this.B('h_forge', 48, 124, 6, 5, { hk: 'forge', door: 'E', name: 'Forge' });
-    this.B('h_dojo', 56, 136, 9, 6, { hk: 'dojo', door: 'E', name: 'Dojo' });
-    W.deco('h_garden', 66, 137, 4, 4, { hk: 'garden', solid: false }); W.deco('h_shrine', 72, 137, 1, 1, { hk: 'shrine' });
-    for (const [x, y] of [[55, 135], [66, 135], [70, 130], [78, 130]]) W.deco('h_lamp', x, y, 1, 1, { hk: 'walls', solid: false });
+    this.B('h_hall', 55, 123, 12, 8, { name: 'Kuroba-dera Hall' });
+    this.B('h_barracks', 70, 124, 9, 5, { name: 'Barracks' });
+    this.B('h_kura', 80, 124, 5, 4, { name: 'Storehouse' });
+    this.B('h_forge', 48, 124, 6, 5, { door: 'E', name: 'Old forge' });
+    this.B('h_dojo', 56, 136, 9, 6, { door: 'E', name: 'Old dojo' });
+    W.deco('h_garden', 66, 137, 4, 4, { solid: false }); W.deco('h_shrine', 72, 137, 1, 1);
+    for (const [x, y] of [[55, 135], [66, 135], [70, 130], [78, 130]]) W.deco('h_lamp', x, y, 1, 1, { solid: false });
     const g1 = Math.atan2(120 - 132, 68.5 - 64), g2 = Math.atan2(140 - 132, 46 - 64);
-    W.ring(64, 132, 14, 70, (x, y, a) => { if (Math.abs(angDiff(a, g1)) < 0.25 || Math.abs(angDiff(a, g2)) < 0.25) return; if (!W.bAt(x, y)) W.deco('h_wall', x, y, 1, 1, { hk: 'walls', solid: false }); });
+    W.ring(64, 132, 14, 70, (x, y, a) => { if (Math.abs(angDiff(a, g1)) < 0.25 || Math.abs(angDiff(a, g2)) < 0.25) return; if (!W.bAt(x, y)) W.deco('h_wall', x, y, 1, 1, { solid: false, dir: Math.abs(Math.sin(a)) > 0.7 ? 0 : 1 }); });
     Object.assign(W.spots, { hideout: [64, 133], graves: [47, 144] });
   },
   castle(R) {
@@ -3195,11 +3201,39 @@ Props.draw.h_kura = (g, x, y, o, R) => {
   if (L >= 3) { const m = [lerp(P.bottom[0], P.right[0], 0.5), lerp(P.bottom[1], P.right[1], 0.5)]; g.fillStyle = '#d9a441'; g.beginPath(); g.arc(m[0], m[1] - 18, 3, 0, TAU); g.fill(); MON(g, Math.round(m[0]), Math.round(m[1] - 18), '#1a1214'); }
 };
 Props.draw.h_wall = (g, x, y, o, R) => {
-  const L = o.lvl || 0;
+  const L = o.lvl || 0, dir = o.dir ? 1 : 0;
+  const along = t => {
+    const s = t - 0.5;
+    return dir ? [x - s * HTW * 1.75, y + s * HTH * 1.75] : [x + s * HTW * 1.75, y + s * HTH * 1.75];
+  };
   if (L === 0) { if (R() < 0.6) rubble(g, x, y, 4, R, 6); return; }
-  if (L === 1) { for (let i = 0; i < 3; i++) { g.fillStyle = i % 2 ? '#8a9a52' : '#a2b064'; g.fillRect(x - 6 + i * 5, y - 10, 2, 10); } g.fillStyle = '#5a6a34'; g.fillRect(x - 7, y - 7, 14, 1); return; }
-  if (L === 2) { for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#5a3e26' : '#6a4a2e'; g.fillRect(x - 7 + i * 4, y - 16 + (i % 2), 3, 16); g.fillStyle = '#8a6a44'; g.fillRect(x - 7 + i * 4, y - 18 + (i % 2), 2, 2); } return; }
-  isoBox(g, x, y, 0.9, 0.9, 0, 8, '#8a867e', '#6f6b64', '#5c5953'); isoBox(g, x, y, 0.7, 0.7, 8, 14, '#ece4d0', '#e6dcc4', '#cfc4aa'); isoRoof(g, x, y, 0.7, 0.7, 14, 4, 0.15, ROOF.tileD);
+  if (L === 1) {
+    for (let i = 0; i < 5; i++) {
+      const [fx, fy] = along(i / 4);
+      g.fillStyle = i % 2 ? '#7a9a48' : '#9ab05a'; g.fillRect(Math.round(fx) - 1, Math.round(fy) - 16, 2, 16);
+      g.fillStyle = '#5a7a34'; g.fillRect(Math.round(fx) - 1, Math.round(fy) - 18, 2, 2);
+    }
+    g.strokeStyle = '#5a6a34'; g.beginPath();
+    const a = along(0), b = along(1);
+    for (const h of [5, 10]) { g.moveTo(a[0], a[1] - h); g.lineTo(b[0], b[1] - h); }
+    g.stroke();
+    return;
+  }
+  if (L === 2) {
+    for (let i = 0; i < 4; i++) {
+      const [fx, fy] = along(i / 3);
+      g.fillStyle = i % 2 ? '#5a3e26' : '#6a4a2e'; g.fillRect(Math.round(fx) - 1, Math.round(fy) - 20, 3, 20);
+      g.fillStyle = '#8a6a44'; g.fillRect(Math.round(fx) - 1, Math.round(fy) - 22, 3, 2);
+    }
+    g.strokeStyle = '#4a3020'; g.lineWidth = 2; g.beginPath();
+    const a = along(0), b = along(1);
+    for (const h of [7, 13]) { g.moveTo(a[0], a[1] - h); g.lineTo(b[0], b[1] - h); }
+    g.stroke(); g.lineWidth = 1;
+    return;
+  }
+  isoBox(g, x, y, dir ? 0.42 : 0.95, dir ? 0.95 : 0.42, 0, 11, '#8a867e', '#6f6b64', '#5c5953');
+  isoBox(g, x, y, dir ? 0.32 : 0.78, dir ? 0.78 : 0.32, 11, 18, '#ece4d0', '#e6dcc4', '#cfc4aa');
+  isoRoof(g, x, y, dir ? 0.38 : 0.82, dir ? 0.82 : 0.38, 18, 4, 0.12, ROOF.tileD);
 };
 Props.draw.h_lamp = (g, x, y, o) => { const L = o.lvl || 0; if (L === 0) { g.fillStyle = '#6a6964'; g.fillRect(x - 4, y - 2, 8, 2); return; } return Props.draw.stonelantern(g, x, y); };
 // ---- watchtower (yagura): climb to reveal the map
@@ -3886,9 +3920,19 @@ class Actor {
   }
 }
 function blockedCircle(x, y, r) { const d = r * 0.72; return World.blockedAt(x, y) || World.blockedAt(x - r, y) || World.blockedAt(x + r, y) || World.blockedAt(x, y - r) || World.blockedAt(x, y + r) || World.blockedAt(x - d, y - d) || World.blockedAt(x + d, y - d) || World.blockedAt(x - d, y + d) || World.blockedAt(x + d, y + d); }
+function campWallLv(x, y) { return (typeof MpCamp !== 'undefined' && MpCamp.wallLevel) ? MpCamp.wallLevel(x, y) : 0; }
+function campWallSlows(a) { return a && !a.isP && !a.remote && a.faction !== 'gang' && a.faction !== 'player' && !a.ally && !a.comp; }
 function moveActor(a, vx, vy, dt) {
   const dx = vx * dt, dy = vy * dt;
   if (World.blockedAt(a.x, a.y) && !TINFO[World.tileAtF(a.x, a.y)].water) { if (World.in(Math.floor(a.x + dx), Math.floor(a.y + dy))) { a.x += dx; a.y += dy; } return; }
+  if (campWallSlows(a)) {
+    const lv = campWallLv(a.x + dx, a.y + dy) || campWallLv(a.x, a.y);
+    if (lv) {
+      if (lv >= 3) { a.kx *= -0.3; a.ky *= -0.3; return; }
+      a._wallT = (a._wallT || 0) + dt;
+      if (a._wallT < (lv >= 2 ? 10 : 2)) return;
+    } else a._wallT = 0;
+  }
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.1)), sx = dx / n, sy = dy / n;
   for (let i = 0; i < n; i++) {
     if (!blockedCircle(a.x + sx, a.y, a.r)) a.x += sx; else { a.kx *= -0.3; }
@@ -4830,7 +4874,7 @@ const Systems = {
     const S = World.spots, P = G.profile;
     const add = (key, fn, respawn = 1, camp = null) => { const r = { key, fn, respawn, camp, deadDay: 0 }; this.roster.push(r); if (camp && P.camps[camp]) return; this.spawnRoster(r); };
     const npc = (type, spot, name, extra = {}, look) => () => { const sp = S[spot]; const a = makeNPC(type, sp[0], sp[1], Object.assign({ name, persistent: true, post: sp.slice(), postFace: PI * 0.25, essential: true }, extra)); if (look) Object.assign(a.look, look); return a; };
-    add('soun', npc('ronin', 'soun', 'Master Sōun', { faction: 'civ', wpn: 'katana', skill: 0.9 }, { hair: 0, hairCol: 4, hat: 0, top: 2, bottom: 7, sash: 6, face: 2, pattern: 0 }));
+    add('soun', npc('ronin', 'soun', 'Master Sōun', { faction: 'civ', wpn: 'katana', skill: 0.9, talk: { kind: 'soun', label: 'Talk to Master Sōun' } }, { hair: 0, hairCol: 4, hat: 0, top: 2, bottom: 7, sash: 6, face: 2, pattern: 0 }));
     add('gensai', npc('townsfolk', 'gensai', 'Headman Gensai', {}, { hair: 3, top: 6, bottom: 2, face: 2 }));
     add('heiji', npc('farmer', 'heiji', 'Heiji', {}, { hat: 2 }));
     add('kane', npc('farmer', 'kane', 'Old Kane', {}, { hat: 0, hair: 5, hairCol: 4, top: 10 }));
@@ -5077,7 +5121,7 @@ const Systems = {
     if (here && here.kind === 'town' && r < 0.035 && !G.onMission() && !Mini.cur) { const q = offscreenSpot(p, 24, 32); if (q && Rob.pickTick(q)) return; }
     // newcomers turn up out of sight and walk into it, never out of thin air
     const pos = offscreenSpot(p, 24, 34); if (!pos) return;
-    const pl = World.placeAt(pos[0], pos[1]); if (pl && (pl.kind === 'town' || pl.kind === 'home' || pl.kind === 'camp' || pl.id === 'yard')) return;
+    const pl = World.placeAt(pos[0], pos[1]); if (pl && (pl.kind === 'town' || pl.kind === 'home' || pl.kind === 'camp' || pl.id === 'yard' || pl.id === 'hideout')) return;
     // highwaymen work the roads beyond Ashigawa
     const tl = World.tileAt(p.x, p.y); if (!World.heart(p.x, p.y) && r < 0.06 && (tl === TILE.PATH || tl === TILE.SNOWPATH || tl === TILE.BRIDGE) && !G.onMission() && Rob.holdupTick(pos)) return;
     // the nearest outlaw camp that still stands sends patrols out onto its roads
@@ -5141,6 +5185,7 @@ const Systems = {
     else if (k === 'roadduel') { this.startDuel(a); a.talk = null; }
     else if (k === 'free') Story.freeHana(a);
     else if (k === 'mini') Mini.talk(a);
+    else if (k === 'soun') Story.meetSoun(a);
     else { const h = G.profile.honor; const line = NOBLE_LINES[a.role] ? pick(NOBLE_LINES[a.role]) : h < -50 ? pick(['Please… take what you want.', 'Stay back, demon!', 'I have children…']) : h > 60 ? pick(['An honor, ' + G.profile.name + '-sama.', 'The people speak of you.', 'May the kami guide your blade.']) : pick(RUMORS); UI.open('dialog', { speaker: a.name || (a.role ? a.role[0].toUpperCase() + a.role.slice(1) : 'Villager'), actor: a, lines: [line], buttons: [{ label: 'Farewell', alt: true }] }); }
   },
   doInteract() {
@@ -5642,8 +5687,13 @@ const Panels = {
     return { title: d.title || d.speaker, seal: '話', html: `${d.title ? `<div class="speaker">${esc(d.speaker)}</div>` : ''}${d.lines.map(l => `<p class="speech">${esc(l)}</p>`).join('')}<div class="btns">${btns}</div>`, on(act, arg) { const b = (d.buttons || [])[+arg]; UI.close(); if (b && b.fn) b.fn(); return false; } };
   },
   journal(data) {
-    const p = G.profile, tab = data.tab || 'story';
-    const tabs = [['story', 'Story so far'], ['main', 'Story quests'], ['side', 'Quests'], ['activity', 'Activities'], ['done', 'Completed'], ['beasts', 'Creatures']].map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-act="tab" data-arg="${k}">${n}</button>`).join('');
+    const p = G.profile, mp = !!G.mp;
+    const tab0 = data.tab || (mp ? 'activity' : 'story');
+    const tab = mp && (tab0 === 'story' || tab0 === 'main') ? 'activity' : tab0;
+    const tabs = (mp
+      ? [['side', 'Quests'], ['activity', 'Activities'], ['done', 'Completed'], ['beasts', 'Creatures']]
+      : [['story', 'Story so far'], ['main', 'Story quests'], ['side', 'Quests'], ['activity', 'Activities'], ['done', 'Completed'], ['beasts', 'Creatures']]
+    ).map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-act="tab" data-arg="${k}">${n}</button>`).join('');
     const ids = Object.keys(p.quests).filter(id => QDEFS[id] && (tab === 'done' ? p.quests[id].done : !p.quests[id].done && QDEFS[id].kind === tab));
     const tracked = p.track;
     const rows = ids.map(id => { const d = QDEFS[id], st = Quests.cur(id), s = p.quests[id]; return `<div class="row ${id === tracked ? 'equipped' : ''}"><div class="grow"><span class="nm">${esc(d.title)}</span><span class="ds">${s.done ? 'Complete' : esc(st.text) + (st.n > 1 ? ' · ' + s.n + '/' + st.n : '')}</span>${!s.done && st.hint ? `<span class="ds">${esc(st.hint)}</span>` : ''}</div>${s.done ? '' : id === tracked ? '<span class="px">Tracked</span>' : `<button class="btn alt" data-act="track" data-arg="${id}">Track</button>`}</div>`; }).join('');
@@ -6332,6 +6382,27 @@ const Story = {
     FX.text(a.x, a.y, 'Thank you! I can find my way home.', '#efe3c8'); Quests.emit('free');
   },
   spawnRaiders() { for (let i = 0; i < 4; i++) { const q = World.randomWalkable(156, 138, 0, 3, 60) || [154, 140]; G.actors.push(makeNPC('pirate', q[0], q[1], { tag: 'raider', persistent: true, wanderR: 3 })); } },
+  meetSoun(a) {
+    const p = G.profile;
+    if (childOf(G.player)) {
+      UI.open('dialog', { speaker: 'Master Sōun', actor: a, lines: [pick(['Again. From the beginning.', 'Your hands are too tight. The sword is not a hoe.', 'Good. Now the other side.'])], buttons: [{ label: 'Yes, Master', alt: true }] });
+      return;
+    }
+    if (!p.flags.sounGift) {
+      UI.open('dialog', {
+        speaker: 'Master Sōun', actor: a, sub: 'A familiar face',
+        lines: [
+          'You. You seem familiar.',
+          'I might have trained with you, a long time ago. I cannot be sure. The years sand the names off.',
+          'No matter. Standing here, you have brought an old man a little happiness.',
+          'Take this. Five thousand mon. A poor thanks, but it is mine to give.'
+        ],
+        buttons: [{ label: 'Accept it', fn: () => { p.flags.sounGift = true; G.addGold(5000, a.x, a.y); Systems.save(); } }]
+      });
+      return;
+    }
+    UI.open('dialog', { speaker: 'Master Sōun', actor: a, lines: [pick(['The years have not made me any surer. Come and sit, if you like.', 'The yard is quieter than it was. I do not mind.', 'You still stand like someone I taught. Or I am imagining it.'])], buttons: [{ label: 'Farewell', alt: true }] });
+  },
 };
 // the open world (side quests, bounties, Blades, camps) opens once Ren has a dog, a horse and a stolen map
 const storyFree = () => !!(G.mp || (G.profile && G.profile.story && G.profile.story.n > 10));
@@ -6383,6 +6454,7 @@ const Guide = {
   },
   // the story so far: the mission you are on, then every act and the missions finished in it
   board() {
+    if (G.mp) return '<div class="sbNow"><p>Gang mode. The campaign is a single-player story.</p></div>';
     const s = G.profile.story, cur = Missions.def(s.n), A = cur && actOf(s.n);
     const now = cur ? `<div class="sbNow"><div class="chN">Act ${A.roman} · Mission ${cur.n}</div><div class="chT" style="font-size:18px">${esc(cur.title)}</div><p>${esc(cur.brief || '')}</p>${Missions.cur ? `<div class="sbStep">Now: ${esc(Missions.objText())}</div>` : `<div class="chGoal">◆ Ride to the gold marker (${esc(Missions.letter(cur))}) on your map to begin.</div>`}</div>` : '<div class="sbNow"><p>The story is complete. The island is yours to roam.</p></div>';
     const acts = ACTS.filter(a => s.n > a.from || s.n > 100).map(a => {
@@ -7713,16 +7785,18 @@ const Interiors = {
   ruin(b, U, V) { b.zone = () => 'ruin'; b.decor = []; Buildings.place(b, 'rubble', 0.4, V - 1.3, 1.2, 0.9); },
   // ---- the hideout: furniture follows the upgrade level
   h_hall(b, U, V) {
-    const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl;
+    const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl, mine = !!(b.hk && L > 0);
     b.zone = (u, v) => L === 0 ? 'ruin' : L === 1 ? 'wood' : (v < 2 ? 'wood' : 'tatami');
-    b.decor = L === 0 ? [] : [{ wall: 'N', t: 0.5, w: 0.2, kind: L >= 2 ? 'map' : 'scroll' }, { wall: 'W', t: 0.4, w: 0.25, kind: L >= 2 ? 'rack' : 'shelf' }].concat(L >= 2 ? [{ wall: 'N', t: 0.15, w: 0.1, kind: 'banner' }, { wall: 'N', t: 0.85, w: 0.1, kind: 'banner' }] : []).concat(L >= 3 ? [{ wall: 'W', t: 0.8, w: 0.2, kind: 'gold' }] : []);
-    P('mapTable', U / 2 - 1.2, V / 2 - 0.6, 2.4, 1.4, { interact: { kind: 'hideout', label: 'Plan at the war table (rebuild, gang, treasury)' } });
-    P('futon', U - 1.8, V - 2.6, 1.0, 2.0, { solid: false, interact: { kind: 'restHome', label: 'Sleep until morning (saves)' } });
-    P('wrack', 0.3, V - 3.0, 0.45, 2.4, { interact: { kind: 'hideout', tab: 'gear', label: 'Your armory (stash and take up blades)' } });
+    b.decor = !mine ? [] : [{ wall: 'N', t: 0.5, w: 0.2, kind: L >= 2 ? 'map' : 'scroll' }, { wall: 'W', t: 0.4, w: 0.25, kind: L >= 2 ? 'rack' : 'shelf' }].concat(L >= 2 ? [{ wall: 'N', t: 0.15, w: 0.1, kind: 'banner' }, { wall: 'N', t: 0.85, w: 0.1, kind: 'banner' }] : []).concat(L >= 3 ? [{ wall: 'W', t: 0.8, w: 0.2, kind: 'gold' }] : []);
+    if (mine) {
+      P('mapTable', U / 2 - 1.2, V / 2 - 0.6, 2.4, 1.4, { interact: { kind: 'hideout', label: 'Plan at the war table (rebuild, gang, treasury)' } });
+      P('futon', U - 1.8, V - 2.6, 1.0, 2.0, { solid: false, interact: { kind: 'restHome', label: 'Sleep until morning (saves)' } });
+      P('wrack', 0.3, V - 3.0, 0.45, 2.4, { interact: { kind: 'hideout', tab: 'gear', label: 'Your armory (stash and take up blades)' } });
+    }
     if (L === 0) { P('rubble', 1.2, 1.4, 1.4, 1.0); P('rubble', U - 3, V - 1.4, 1.3, 0.9); }
-    else { P('andon', 1, 2.5, 0.4, 0.4, { light: { r: 32, c: '255,190,120' } }); P('andon', U - 1.2, 2.5, 0.4, 0.4, { light: { r: 32, c: '255,190,120' } }); }
-    if (L >= 2) P('altar', U / 2 - 1.2, V - 1.2, 2.4, 0.9, { light: { r: 30, c: '255,200,120' } });
-    if (L >= 3) for (const u of [2, U - 2.6]) P('brazier', u, V / 2 - 0.3, 0.6, 0.6, { light: { r: 44, c: '255,140,60' } });
+    else if (mine) { P('andon', 1, 2.5, 0.4, 0.4, { light: { r: 32, c: '255,190,120' } }); P('andon', U - 1.2, 2.5, 0.4, 0.4, { light: { r: 32, c: '255,190,120' } }); }
+    if (mine && L >= 2) P('altar', U / 2 - 1.2, V - 1.2, 2.4, 0.9, { light: { r: 30, c: '255,200,120' } });
+    if (mine && L >= 3) for (const u of [2, U - 2.6]) P('brazier', u, V / 2 - 0.3, 0.6, 0.6, { light: { r: 44, c: '255,140,60' } });
   },
   h_barracks(b, U, V) {
     const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl;
@@ -7732,10 +7806,10 @@ const Interiors = {
     if (L >= 2) P('armor', U - 1.2, 0.6, 0.8, 0.8);
   },
   h_forge(b, U, V) {
-    const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl;
-    b.zone = () => L === 0 ? 'ruin' : 'earth'; b.decor = L >= 3 ? [{ wall: 'N', t: 0.5, w: 0.4, kind: 'rack' }] : [];
-    P('anvil', U / 2 - 0.4, V - 2.6, 0.8, 0.5, { interact: { kind: 'hideout', tab: 'gear', label: 'The forge (stash and take up blades)' } });
-    if (L >= 1) { P('forge', U / 2 - 1, V - 1.3, 2.0, 1.0, { light: { r: 54, c: '255,120,50' } }); P('tub', U - 1.4, V - 2.2, 0.9, 0.9); }
+    const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl, mine = !!(b.hk && L > 0);
+    b.zone = () => L === 0 ? 'ruin' : 'earth'; b.decor = mine && L >= 3 ? [{ wall: 'N', t: 0.5, w: 0.4, kind: 'rack' }] : [];
+    if (mine) P('anvil', U / 2 - 0.4, V - 2.6, 0.8, 0.5, { interact: { kind: 'hideout', tab: 'gear', label: 'The forge (stash and take up blades)' } });
+    if (mine && L >= 1) { P('forge', U / 2 - 1, V - 1.3, 2.0, 1.0, { light: { r: 54, c: '255,120,50' } }); P('tub', U - 1.4, V - 2.2, 0.9, 0.9); }
     else P('rubble', 0.6, 1.2, 1.3, 1.0);
   },
   h_dojo(b, U, V) {
@@ -7746,9 +7820,10 @@ const Interiors = {
     if (L === 0) P('rubble', 1, V - 1.6, 1.2, 0.9);
   },
   h_kura(b, U, V) {
-    const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl;
-    b.zone = () => L === 0 ? 'ruin' : 'wood'; b.decor = L >= 1 ? [{ wall: 'N', t: 0.5, w: 0.4, kind: 'shelf' }] : [];
-    for (let k = 0; k < L + 1; k++) P('strongbox', 0.4 + (k % 2) * 2.2, V - 1.0 - Math.floor(k / 2) * 1.0, 0.9, 0.6, { interact: { kind: 'hideout', label: 'Your treasury', tab: 'rest' } });
+    const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl, mine = !!(b.hk && L > 0);
+    b.zone = () => L === 0 || !mine ? 'ruin' : 'wood'; b.decor = mine && L >= 1 ? [{ wall: 'N', t: 0.5, w: 0.4, kind: 'shelf' }] : [];
+    if (mine) for (let k = 0; k < L + 1; k++) P('strongbox', 0.4 + (k % 2) * 2.2, V - 1.0 - Math.floor(k / 2) * 1.0, 0.9, 0.6, { interact: { kind: 'hideout', label: 'Your treasury', tab: 'rest' } });
+    else P('rubble', 0.6, V - 1.4, 1.3, 0.9);
   },
 };
 // ============================================================ FURNITURE: interior props, sized by their footprint (o.w x o.h tiles)
@@ -10775,6 +10850,7 @@ const Missions = {
   },
   // ---- start, steps, finish
   start(def, o = {}) {
+    if (G.mp) return;
     if (!def) return;
     if (def.reload && G.profile._reloadFor !== def.n) {
       G.profile._reloadFor = def.n; G.profile.pos = null; Card.black(true, true); this.cur = null; this.chainDef = null; this.reloading = true;
@@ -11176,6 +11252,13 @@ const fmtTime = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padSt
 // one tracker for everything: the running mission, a tracked side quest, or the way to the next mission
 const Track = {
   get() {
+    if (G.mp) {
+      const P = G.profile, id = P && P.track && Quests.st(P.track) && !Quests.isDone(P.track) ? P.track : null;
+      if (!id) return null;
+      const d = QDEFS[id]; if (!d || d.kind === 'main') return null;
+      const st = Quests.cur(id), s = Quests.st(id); if (!st) return null;
+      return { kind: d.kind, head: (d.kind === 'activity' ? 'Activity' : 'Quest') + ' · ' + d.title, text: st.text + (st.n > 1 ? ' (' + s.n + '/' + st.n + ')' : ''), hint: st.hint, tgt: Quests.target(id), quest: id };
+    }
     const m = Missions.cur;
     if (m) { const t = Missions.objText(); return t ? { kind: 'mission', head: 'Mission ' + m.def.n + ' · ' + m.def.title, text: t, hint: m.step && m.step.hint, tgt: Missions.target() } : { kind: 'mission', head: 'Mission ' + m.def.n + ' · ' + m.def.title, text: '…', tgt: null }; }
     const P = G.profile, id = P && P.track && Quests.st(P.track) && !Quests.isDone(P.track) ? P.track : null;
@@ -13743,9 +13826,9 @@ const DevKit = {
 // ============================================================ GANG / MULTIPLAYER
 // Legal camp slots on Kurenai-jima. Buildings keep 5 tiles of open ground between
 // them, so a fully built camp is about 36×30 tiles around the slot centre
-// ([cx-19, cy-16] → [cx+17, cy+14]). Trees (only) are stripped in that footprint
-// plus padding on every side. Terrain, biomes, rivers, roads and rocks are never
-// edited. Kuroba-dera (63,132) is not an MP spawn.
+// ([cx-19, cy-16] → [cx+20, cy+14]), with a rectangular palisade outside that.
+// Trees (only) are stripped in that footprint plus padding. Terrain, biomes,
+// rivers, roads and rocks are never edited. Kuroba-dera (63,132) is not an MP spawn.
 //   kusamura  108,128  near Kusamura Village (86,101)
 //   hanaori    56,162  near Hanaori Shrine (34,145)
 //   isonami   126,162  near Isonami Harbor (150,145)
@@ -13767,7 +13850,7 @@ const MpCamp = {
     barracks: { name: 'Barracks', costs: [150, 400, 900], bonus: ['Room for 1 sworn blade', 'Room for 2', 'Room for 5'] },
     kura: { name: 'Treasury', costs: [100, 300, 700], bonus: ['Store mon', '4% a day', '12% a day'] },
     garden: { name: 'Herb garden', costs: [80, 220, 550], bonus: ['+1 bandage on rest', '+2 bandages', '+3 bandages, +1 sake'] },
-    walls: { name: 'Walls & lanterns', costs: [80, 250, 650], bonus: ['Stakes', 'Fence, +1 honor on rest', 'Palissade, +2 honor'] },
+    walls: { name: 'Walls & lanterns', costs: [80, 250, 650], bonus: ['Bamboo. Outsiders take two breaths to push through.', 'Wood fences. Ten breaths to force.', 'Stone. Nobody comes in but you.'] },
     stables: { name: 'Stables', costs: [200, 600, 1500], bonus: ['Hitching posts (2 horses)', 'Small shed (4 horses, +12% speed)', 'Full stable (6 horses, +28% speed)'] },
     hearth: { name: 'Campfire', costs: [60, 180, 420], bonus: ['A fire to sit around', 'Lanterns and bedrolls', 'A shelter over the fire'] }
   },
@@ -13776,8 +13859,9 @@ const MpCamp = {
     { id: 'road', name: 'Road horse', cost: 420, coat: 2, spdMul: 1.0, blurb: 'A sound road horse.' },
     { id: 'fine', name: 'Fine mount', cost: 900, coat: 4, spdMul: 1.18, blurb: 'A fine grey. Costs a fortune.' }
   ],
-  TREEISH: null, plots: [], built: [], ready: false, slot: null, GAP: 5,
-  pad(s) { return { x0: s.x - 24, y0: s.y - 21, x1: s.x + 22, y1: s.y + 19 }; },
+  TREEISH: null, plots: [], built: [], ready: false, slot: null, GAP: 5, wallTiles: null,
+  pad(s) { return { x0: s.x - 26, y0: s.y - 23, x1: s.x + 25, y1: s.y + 21 }; },
+  yard(s) { return { x0: s.x - 22, y0: s.y - 19, x1: s.x + 22, y1: s.y + 17 }; },
   layout(cx, cy) {
     // 5 tiles of open ground between every footprint. The campfire yard sits in the middle.
     return {
@@ -13796,7 +13880,7 @@ const MpCamp = {
   },
   // tile just outside the south (or east) face, never on the footprint
   frontOf(spec, slot) {
-    if (!spec || spec.ring) return [slot.x, slot.y + 13];
+    if (!spec || spec.ring) return [slot.x, slot.y + 18.5];
     const w = spec.w || 1, h = spec.h || 1;
     if (spec.door === 'E') return [spec.x + w + 0.6, spec.y + h * 0.5];
     return [spec.x + w * 0.5, spec.y + h + 0.6];
@@ -13852,9 +13936,68 @@ const MpCamp = {
         }
       }
     }
+    this.nudgeTowers();
     this.ready = true;
   },
+  nudgeTowers() {
+    const pads = this.SLOTS.map(s => this.pad(s));
+    const inPads = (x, y, w = 2, h = 2) => pads.some(p => x < p.x1 && x + w > p.x0 && y < p.y1 && y + h > p.y0);
+    const decoOf = rec => {
+      if (rec && rec.t === 'tower') return rec;
+      const cx = Math.floor(rec.cx != null ? rec.cx : rec.x), cy = Math.floor(rec.cy != null ? rec.cy : rec.y);
+      if (cx !== cx || cy !== cy) return null;
+      for (let j = cy - 3; j <= cy + 4; j++) for (let i = cx - 3; i <= cx + 4; i++) {
+        for (const o of World.at(i, j)) if (o.towerId && rec.towerId && o.towerId === rec.towerId) return o;
+      }
+      return null;
+    };
+    const blocked = (x, y) => {
+      if (inPads(x, y)) return true;
+      for (let j = y; j < y + 3; j++) for (let i = x; i < x + 3; i++) {
+        if (!World.in(i, j) || World.bAt(i, j) || this.wet(i, j) || World.solidAt(i, j) === 2) return true;
+        for (const o of World.at(i, j)) if (o.t === 'tower') return true;
+      }
+      return false;
+    };
+    for (const rec of World.towers.slice()) {
+      const o = decoOf(rec) || rec;
+      if (!o || o.x == null) continue;
+      if (!inPads(o.x, o.y, o.w, o.h) && !Buildings.at(o.x, o.y) && !Buildings.at(o.x + 1, o.y + 1)) continue;
+      let at = null;
+      const ox = Math.round(o.x), oy = Math.round(o.y);
+      for (let r = 1; r <= 28 && !at; r++) {
+        for (let dx = -r; dx <= r && !at; dx++) {
+          if (!blocked(ox + dx, oy - r)) at = [ox + dx, oy - r];
+          else if (!blocked(ox + dx, oy + r)) at = [ox + dx, oy + r];
+        }
+        for (let dy = -r + 1; dy <= r - 1 && !at; dy++) {
+          if (!blocked(ox - r, oy + dy)) at = [ox - r, oy + dy];
+          else if (!blocked(ox + r, oy + dy)) at = [ox + r, oy + dy];
+        }
+      }
+      if (!at) continue;
+      const id = o.towerId || rec.towerId, name = o.tname || rec.tname;
+      if (o.t === 'tower') {
+        World.removeObj(o);
+        if (o.solid) {
+          World.subRect(o.x, o.y, o.x + o.w, o.y + o.h, 0);
+          for (let j = Math.floor(o.y); j < Math.ceil(o.y + o.h); j++) for (let i = Math.floor(o.x); i < Math.ceil(o.x + o.w); i++) if (World.solidAt(i, j) === 1 && !World.bAt(i, j)) World.setSolid(i, j, 0);
+        }
+      }
+      World.towers = World.towers.filter(t => t !== o && t !== rec && t.towerId !== id);
+      const placed = World.deco('tower', at[0], at[1], 2, 2, { towerId: id, tname: name, interact: { kind: 'sync', label: 'Climb the watchtower', tower: id } });
+      if (placed) {
+        World.keepClear(placed.cx, placed.cy, 2.5);
+        World.towers.push(placed);
+      }
+    }
+  },
+  wallLevel(x, y) {
+    if (!this.wallTiles || !this.wallTiles.size) return 0;
+    return this.wallTiles.get(World.key(Math.floor(x), Math.floor(y))) || 0;
+  },
   apply(gang) {
+    this.wallTiles = new Map();
     for (const o of this.plots) if (o) World.removeObj(o);
     this.plots = [];
     for (const b of this.built) {
@@ -13872,8 +14015,8 @@ const MpCamp = {
     World.spots.mpCamp = [L.spawn.x, L.spawn.y];
     World.spots.mpStable = [L.stables.x + 2, L.stables.y + 2.5];
     let pl = PLACES.find(p => p.id === 'mpCamp');
-    if (!pl) { pl = { id: 'mpCamp', name: 'Gang camp', jp: '陣', x: slot.x, y: slot.y, r: 22, b: B.PLAINS, kind: 'home', safe: true }; PLACES.push(pl); }
-    pl.x = slot.x; pl.y = slot.y; pl.r = 22; pl.name = (gang && gang.name) || slot.name;
+    if (!pl) { pl = { id: 'mpCamp', name: 'Gang camp', jp: '陣', x: slot.x, y: slot.y, r: 26, b: B.PLAINS, kind: 'home', safe: true }; PLACES.push(pl); }
+    pl.x = slot.x; pl.y = slot.y; pl.r = 26; pl.name = (gang && gang.name) || slot.name;
     const pendingMarks = [];
     for (const key of Object.keys(this.BUILD)) {
       const spec = L[key], n = lv[key] | 0, def = this.BUILD[key];
@@ -13907,6 +14050,7 @@ const MpCamp = {
       const [hx, hy] = this.frontOf(L.stables, slot);
       this.mark(hx + 1.4, hy, { interact: { kind: 'horseBuy', tier: 'nag', label: 'Buy a better horse (Nag 180 · Road 420 · Fine 900)' } });
     }
+    this.nudgeTowers();
     G.applyStats();
   },
   stampHearth(spec, n) {
@@ -13939,15 +14083,24 @@ const MpCamp = {
     else if (n >= 2) { const b = Buildings.create('hut', x + 5, y, 6, 4, { name: 'Stable shed' }); this.built.push(b); }
   },
   stampWalls(slot, n) {
-    const r = 20 + n, kind = n >= 3 ? 'h_wall' : 'fence';
-    World.ring(slot.x, slot.y, r, 40, (x, y) => {
+    const yrd = this.yard(slot), seen = new Set();
+    const put = (x, y, dir) => {
       x = Math.round(x); y = Math.round(y);
-      if (!World.in(x, y) || World.bAt(x, y) || this.wet(x, y)) return;
-      this.addPlot(kind, x, y, 1, 1, { hk: 'walls', solid: false });
-    });
+      const k = World.key(x, y);
+      if (seen.has(k) || !World.in(x, y) || World.bAt(x, y) || this.wet(x, y)) return;
+      seen.add(k);
+      this.wallTiles.set(k, n);
+      this.addPlot('h_wall', x, y, 1, 1, { hk: 'walls', solid: false, dir });
+    };
+    for (let x = yrd.x0; x <= yrd.x1; x++) { put(x, yrd.y0, 0); put(x, yrd.y1, 0); }
+    for (let y = yrd.y0 + 1; y < yrd.y1; y++) { put(yrd.x0, y, 1); put(yrd.x1, y, 1); }
     if (n >= 2) {
-      this.place('h_lamp', slot.x - 4, slot.y + 4, 1, 1, { hk: 'walls', solid: false });
-      this.place('h_lamp', slot.x + 4, slot.y + 4, 1, 1, { hk: 'walls', solid: false });
+      this.place('h_lamp', yrd.x0 + 2, yrd.y1, 1, 1, { hk: 'walls', solid: false });
+      this.place('h_lamp', yrd.x1 - 2, yrd.y1, 1, 1, { hk: 'walls', solid: false });
+    }
+    if (n >= 3) {
+      this.place('h_lamp', yrd.x0 + 2, yrd.y0, 1, 1, { hk: 'walls', solid: false });
+      this.place('h_lamp', yrd.x1 - 2, yrd.y0, 1, 1, { hk: 'walls', solid: false });
     }
   },
   near(x, y) {
