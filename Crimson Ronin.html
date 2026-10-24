@@ -615,7 +615,7 @@ const Snd = {
   }
 };
 // ============================================================ GROUND: tile types + per-pixel terrain painter (cached in chunks)
-const TILE = { DEEP: 0, WATER: 1, SAND: 2, GRASS: 3, DGRASS: 4, PATH: 5, STONE: 6, PADDY: 7, SNOW: 8, ROCK: 9, FLOOR: 10, MOSS: 11, BAMBOOG: 12, PETAL: 13, GRAVEL: 14, MAPLEG: 15, SNOWPATH: 16, BRIDGE: 17, MUD: 18, ASH: 19 };
+const TILE = { DEEP: 0, WATER: 1, SAND: 2, GRASS: 3, DGRASS: 4, PATH: 5, STONE: 6, PADDY: 7, SNOW: 8, ROCK: 9, FLOOR: 10, MOSS: 11, BAMBOOG: 12, PETAL: 13, GRAVEL: 14, MAPLEG: 15, SNOWPATH: 16, BRIDGE: 17, MUD: 18, ASH: 19, PAVE: 20 };
 const TINFO = [
   { n: 'deep', walk: 0, water: 1, pal: ['#1a3654', '#1e3d5e', '#224566', '#264b6d'] },
   { n: 'water', walk: 0, water: 1, pal: ['#2c5a76', '#316480', '#376e8a', '#3e7a95'] },
@@ -637,14 +637,16 @@ const TINFO = [
   { n: 'bridge', walk: 1, pal: ['#6a3826', '#78402b', '#854831', '#904f36'] },
   { n: 'mud', walk: 1, pal: ['#3a442a', '#424d2e', '#4a5532', '#535e37', '#5c6640'] },
   { n: 'ash', walk: 1, pal: ['#38312f', '#423a37', '#4c4340', '#564c48', '#615652'] },
+  { n: 'pave', walk: 1, pal: ['#4a4c52', '#54565c', '#5c5f66', '#666870', '#70747c'] },
 ];
-const CRISP = new Set([TILE.STONE, TILE.FLOOR, TILE.GRAVEL, TILE.PADDY, TILE.BRIDGE]);
+const CRISP = new Set([TILE.STONE, TILE.FLOOR, TILE.GRAVEL, TILE.PADDY, TILE.BRIDGE, TILE.PAVE]);
 const PAL = TINFO.map(t => t.pal.map(hexToRgb));
 const C = s => hexToRgb(s);
 const XC = {
   flowers: [C('#ece4c6'), C('#e8c55a'), C('#a585d6'), C('#e07a6a')], tuft: C('#7aa552'), tuftD: C('#2e5429'),
   petals: [C('#f4b6c6'), C('#f9d6de'), C('#e98fa8')], leaves: [C('#c4402a'), C('#df6a2d'), C('#d79a2f'), C('#a22b22'), C('#e2b13c')],
   pebble: C('#b5a07c'), pebbleD: C('#56422d'), seam: C('#4a4743'), seamW: C('#3e2a1a'), sprout: C('#8fbe4c'), sproutD: C('#5f8f34'), dike: C('#6b5a3a'),
+  paveSeam: C('#3a3c42'), paveCrack: C('#2c2e34'), paveLine: C('#8a8d94'),
   foam: C('#d8ecef'), foam2: C('#9cc6d2'), bank: C('#3a2a1e'), bankS: C('#8a7650'), bankSn: C('#8e9aaa'), shallow: C('#4f93a8'), sparkle: C('#ffffff'),
   crack: C('#38373b'), rake: C('#a8a296'), litter: C('#b3b167'), moss2: C('#5c8a45')
 };
@@ -691,6 +693,14 @@ const Ground = {
         const row = Math.floor(wy * 2), off = row % 2 ? 0.25 : 0, cx = Math.floor(wx * 2 + off);
         if (frac(wy * 2) < 0.09 || frac(wx * 2 + off) < 0.06) col = XC.seam;
         else col = pal[clamp(Math.floor(hash2(cx, row, 11) * pal.length * 0.8 + h * 1.2), 0, pal.length - 1)];
+        break;
+      }
+      case TILE.PAVE: {
+        const row = Math.floor(wy * 0.85), colx = Math.floor(wx * 0.85);
+        if (frac(wy * 0.85) < 0.035 || frac(wx * 0.85) < 0.03) col = XC.paveSeam;
+        else if (h > 0.991) col = XC.paveCrack;
+        else if (Math.abs(frac((wx + wy) * 0.35) - 0.5) < 0.012 && frac(wx * 2.2) > 0.42) col = XC.paveLine;
+        else col = pal[clamp(Math.floor(hash2(colx, row, 15) * pal.length * 0.55 + h * 1.1), 0, pal.length - 1)];
         break;
       }
       case TILE.FLOOR: {
@@ -902,6 +912,64 @@ const World = {
     return this.addObj(t, x, y, w, h, extra);
   },
   paint(x0, y0, w, h, t) { for (let j = y0; j < y0 + h; j++) for (let i = x0; i < x0 + w; i++) if (this.in(i, j) && !TINFO[this.tileAt(i, j)].water && !this.clearAt(i, j) && this.solidAt(i, j) !== 2) { this.set(i, j, t); this.setClear(i, j); } },
+  // a farm plot: rice or dry rows, a fence around the lot, a gate facing the village. Roads never paint through these.
+  indexFarm(c) {
+    (this.farms || (this.farms = [])).push(c);
+    const B = 32; this.farmG = this.farmG || new Map();
+    for (let cy = Math.floor(c[1] / B); cy <= Math.floor((c[3] - 0.01) / B); cy++) for (let cx = Math.floor(c[0] / B); cx <= Math.floor((c[2] - 0.01) / B); cx++) {
+      const k = cx + ',' + cy; let L = this.farmG.get(k); if (!L) this.farmG.set(k, L = []); L.push(c);
+    }
+  },
+  farmAt(x, y, pad = 0) {
+    const G = this.farmG; if (!G) return null;
+    if (pad) { const F = this.farms; if (!F) return null; for (const c of F) if (x >= c[0] - pad && y >= c[1] - pad && x < c[2] + pad && y < c[3] + pad) return c; return null; }
+    const L = G.get((x >> 5) + ',' + (y >> 5)); if (!L) return null;
+    for (const c of L) if (x >= c[0] && y >= c[1] && x < c[2] && y < c[3]) return c;
+    return null;
+  },
+  outFarm(x, y, pad = 2) {
+    const c = this.farmAt(x, y, pad); if (!c) return [x, y];
+    const dl = x - (c[0] - pad), dr = (c[2] + pad) - x, dt = y - (c[1] - pad), db = (c[3] + pad) - y, m = Math.min(dl, dr, dt, db);
+    if (m === dl) x = c[0] - pad; else if (m === dr) x = c[2] + pad; else if (m === dt) y = c[1] - pad; else y = c[3] + pad;
+    return [x, y];
+  },
+  fenceLine(ax, ay, bx, by, gap) {
+    const L = dist(ax, ay, bx, by) || 1, dir = Math.abs(bx - ax) >= Math.abs(by - ay) ? 0 : 1;
+    for (let d = 0; d <= L; d += 2) {
+      if (gap && Math.abs(d - L * 0.5) < 2.2) continue;
+      const t = L ? d / L : 0, x = Math.round(lerp(ax, bx, t)), y = Math.round(lerp(ay, by, t));
+      if (!this.in(x, y) || this.bAt(x, y) || TINFO[this.tileAt(x, y)].water) continue;
+      if (!this.deco('fence', x, y, 1, 1, { solid: true, dir })) continue;
+      if (dir) this.subRect(x, y - 0.45, x + 1, y + 1.45); else this.subRect(x - 0.45, y, x + 1.45, y + 1);
+    }
+  },
+  field(x0, y0, w, h, opt = {}) {
+    x0 = Math.round(x0); y0 = Math.round(y0); w = Math.round(w); h = Math.round(h);
+    const x1 = x0 + w, y1 = y0 + h, t = opt.tile || TILE.PADDY, keep = !!opt.keepPath;
+    if (!this.farms || !this.farms.some(c => c[0] === x0 && c[1] === y0 && c[2] === x1 && c[3] === y1)) this.indexFarm([x0, y0, x1, y1]);
+    for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) {
+      if (!this.in(i, j) || this.bAt(i, j)) continue;
+      const cur = this.tileAt(i, j);
+      if (TINFO[cur].water || cur === TILE.BRIDGE || cur === TILE.STONE || cur === TILE.FLOOR || cur === TILE.PAVE) continue;
+      if (keep && (cur === TILE.PATH || cur === TILE.SNOWPATH)) continue;
+      this.set(i, j, t); this.setClear(i, j); if (this.solidAt(i, j) === 2) this.setSolid(i, j, 0);
+    }
+    const gate = opt.gate || 'N';
+    this.fenceLine(x0 - 1, y0 - 1, x1, y0 - 1, gate === 'N');
+    this.fenceLine(x0 - 1, y1, x1, y1, gate === 'S');
+    this.fenceLine(x0 - 1, y0 - 1, x0 - 1, y1, gate === 'W');
+    this.fenceLine(x1, y0 - 1, x1, y1, gate === 'E');
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    if (!opt.noScare) this.deco('scarecrow', Math.round(mx), Math.round(my), 1, 1, { solid: false });
+    if (opt.crops) for (let j = y0 + 1; j < y1 - 1; j += 2) for (let i = x0 + 1; i < x1 - 1; i += 2) this.deco('bush', i, j, 1, 1, { solid: false });
+    // a short track up to the gate, never into the field
+    const track = (tx, ty) => { if (this.in(tx, ty) && !this.bAt(tx, ty) && !TINFO[this.tileAt(tx, ty)].water && this.tileAt(tx, ty) !== TILE.BRIDGE) { this.set(tx, ty, TILE.PATH); this.setClear(tx, ty); } };
+    if (gate === 'N') for (let k = 1; k <= 4; k++) { track(Math.floor(mx), y0 - k); track(Math.floor(mx) - 1, y0 - k); }
+    if (gate === 'S') for (let k = 1; k <= 4; k++) { track(Math.floor(mx), y1 - 1 + k); track(Math.floor(mx) - 1, y1 - 1 + k); }
+    if (gate === 'W') for (let k = 1; k <= 4; k++) { track(x0 - k, Math.floor(my)); track(x0 - k, Math.floor(my) - 1); }
+    if (gate === 'E') for (let k = 1; k <= 4; k++) { track(x1 - 1 + k, Math.floor(my)); track(x1 - 1 + k, Math.floor(my) - 1); }
+    this.keepClear(mx, my, Math.max(w, h) * 0.55);
+  },
   street(x0, y0, w, h, t) {
     // where a street meets water it crosses on a deck as wide as the street
     const hz = w > h, n = hz ? w : h, m = hz ? h : w, wetAt = k => { for (let q = 0; q < m; q++) { const tt = hz ? this.tileAt(x0 + k, y0 + q) : this.tileAt(x0 + q, y0 + k); if (TINFO[tt].water) return true; } return false; };
@@ -941,7 +1009,7 @@ const World = {
     Noise.seed = seed; this.seed = seed; const R = RNG(seed);
     this.chunks = new Array(NCK * NCK); this.sub = new Map(); this.grid = new Map(); this.bmap = new Map(); this.feat = new Map();
     this.live = new Set(); this.chunkObjs = new Map(); this.chestAt = new Map();
-    this.spots = {}; this.towers = []; this.chests = []; this.steam = []; PLACES.length = HPLACES;
+    this.spots = {}; this.towers = []; this.chests = []; this.steam = []; this.farms = []; this.farmG = new Map(); PLACES.length = HPLACES;
     Buildings.reset(); Bridges.reset();
     // 1. the island's shape, provinces, rivers, roads and settlements, as plans (03o_realm.js)
     Realm.plan(R);
@@ -971,7 +1039,8 @@ const World = {
     this.disc(64, 16, 5, (i, j) => this.set(i, j, TILE.WATER));
     this.stroke([[64, 16], [70, 30], [84, 50], [98, 66], [108, 82], [114, 98], [118, 114], [122, 130], [132, 152], [142, 172], [150, 190]], (i, j, w) => this.set(i, j, w > 1.7 ? TILE.DEEP : TILE.WATER), 1.7, 0.7);
     for (const [x, y, r] of [[72, 84, 3.6], [30, 150, 2.6], [52, 141, 1.8], [160, 64, 3], [40, 80, 2.3]]) this.disc(x, y, r, (i, j) => this.set(i, j, TILE.WATER));
-    // roads between Ashigawa's settlements, and the four roads out of the province
+    // roads between Ashigawa's settlements, and the four roads out of the province — then a lot more winding
+    // lanes that T-join those, pass near the camps and shrines, and sometimes just wander off into the fields
     const roads = [
       [[62, 100.5], [56, 104], [50, 106]], [[56, 104], [64, 112], [68.5, 120], [68.5, 132]],
       [[110, 100.5], [114, 93], [120, 84], [128, 76], [128, 70]], [[128, 70], [124, 67.5]],
@@ -982,13 +1051,60 @@ const World = {
       [[163, 144.5], [168, 132], [171, 124]], [[86.5, 112], [88, 128], [90, 148], [96, 162], [99, 169]],
       [[184, 36.5], [178, 56], [171, 80], [173, 100], [169, 110], [168, 117]], [[38, 40], [45, 35.2], [56, 32], [72, 28], [96, 28], [116, 32], [124, 36.5]],
     ];
+    // paddies sit a walk from the houses, off the roads — indexed before any lane is woven so the roads go around
+    for (const r of [[64, 122, 82, 132], [96, 122, 114, 132], [54, 72, 68, 84], [126, 132, 138, 142], [108, 122, 118, 132]]) this.indexFarm(r);
+    {
+      const hubs = [[50, 105], [86.5, 100.5], [63, 132], [112, 92], [130, 78], [125, 61], [152, 36], [60, 56], [39, 35], [42, 77], [34, 145], [20, 111], [135, 119], [150, 145], [169, 118], [90, 158], [99, 171], [171, 83], [167, 15], [72, 28], [108, 98], [84, 102]];
+      const inTown = (x, y) => { const p = this.placeAt(x, y, HPLACES); return p && p.kind === 'town' && dist(x, y, p.x, p.y) < p.r * 0.72; };
+      const inFarm = (x, y) => !!this.farmAt(x, y, 2);
+      const hSnap = (x, y, maxD) => {
+        let best = null, bd = maxD;
+        for (const pts of roads) for (let i = 0; i < pts.length - 1; i++) {
+          const q = segClosest([x, y], pts[i], pts[i + 1]), d = dist(q[0], q[1], x, y);
+          if (d < bd) { bd = d; best = q; }
+        }
+        return best;
+      };
+      for (let i = 0; i < hubs.length; i++) {
+        const [hx, hy] = hubs[i], a0 = Noise.value(hx, hy) * TAU, d = 9 + (i % 6) * 2;
+        const from = [clamp(hx + Math.cos(a0) * d, 6, HL - 6), clamp(hy + Math.sin(a0) * d, 6, HL - 6)];
+        if (inTown(from[0], from[1]) || inFarm(from[0], from[1])) continue;
+        const hit = hSnap(from[0], from[1], 58);
+        if (hit && !inTown(hit[0], hit[1]) && !inFarm(hit[0], hit[1]) && dist(from[0], from[1], hit[0], hit[1]) > 7) roads.push(this.weave(from, hit, i + 3));
+        const a1 = a0 + 1.9, len = 16 + (i % 8) * 4;
+        const to = [clamp(hx + Math.cos(a1) * len, 6, HL - 6), clamp(hy + Math.sin(a1) * len, 6, HL - 6)];
+        if (inTown(to[0], to[1]) || inFarm(to[0], to[1])) continue;
+        const hit2 = hSnap(to[0], to[1], 20);
+        if (!hit2 || (!inTown(hit2[0], hit2[1]) && !inFarm(hit2[0], hit2[1]))) roads.push(this.weave(from, hit2 || to, i + 17));
+      }
+      for (let y = 14; y < HL - 14; y += 20) for (let x = 14; x < HL - 14; x += 20) {
+        const jx = x + (Noise.value(x, y) - 0.5) * 12, jy = y + (Noise.value(x + 9, y) - 0.5) * 12;
+        if (jx + jy > 300 || TINFO[this.tileAt(jx, jy)].water || inTown(jx, jy) || inFarm(jx, jy)) continue;
+        if (hSnap(jx, jy, 8)) continue;
+        const hit = hSnap(jx, jy, 34);
+        if (hit && !inTown(hit[0], hit[1]) && !inFarm(hit[0], hit[1])) roads.push(this.weave([jx, jy], hit, x * 3 + y));
+      }
+      for (let k = 0; k < 22; k++) {
+        const x0 = 10 + ((k * 41) % (HL - 20)), y0 = 10 + ((k * 59) % (HL - 20));
+        if (x0 + y0 > 300) continue;
+        const x1 = clamp(x0 + Math.cos(k * 1.9) * (24 + k * 2.4), 8, HL - 8), y1 = clamp(y0 + Math.sin(k * 1.3) * (24 + k * 2.4), 8, HL - 8);
+        if (inTown(x0, y0) || inTown(x1, y1) || inFarm(x0, y0) || inFarm(x1, y1)) continue;
+        const a = hSnap(x0, y0, 18) || [x0, y0], b = hSnap(x1, y1, 16) || [x1, y1];
+        if (dist(a[0], a[1], b[0], b[1]) > 9 && !inTown(a[0], a[1]) && !inTown(b[0], b[1]) && !inFarm(a[0], a[1]) && !inFarm(b[0], b[1])) roads.push(this.weave(a, b, k + 80));
+      }
+    }
     // bridges first, laid along each road's line wherever it meets the river or a lake
+    roads[4].pave = true; roads[4].w = 2.2;
+    roads[14].pave = true; roads[14].w = 2.35;
+    roads[15].pave = true; roads[15].w = 2.2;
     const hwet = (x, y) => this.heart(x, y) && TINFO[this.tileAt(x, y)].water;
-    for (const r of roads) Bridges.route(r, hwet, 1.15, { heart: true });
-    for (const r of Realm.exits) Bridges.route(r, hwet, 1.3, { heart: true });
+    for (const r of roads) Bridges.route(r, hwet, r.w || 1.15, { heart: true });
+    for (const r of Realm.exits) Bridges.route(r, hwet, r.w || 1.3, { heart: true });
     for (const b of Bridges.list) if (b.heart) Bridges.stamp(b);
-    for (const r of roads) this.road(r, 1.15);
-    const hclip = [0, 0, HL, HL]; for (const r of Realm.exits) this.road(r, 1.3, hclip);
+    for (const r of roads) this.road(r, r.w || 1.15);
+    this.heartRoads = roads;
+    for (const pts of roads) Realm.indexRoad(pts);
+    const hclip = [0, 0, HL, HL]; for (const r of Realm.exits) this.road(r, r.w || 1.3, hclip);
     // towns, camps and landmarks (03t_towns.js)
     Towns.build(R);
     for (const [id, x0, y0] of TOWERS) this.tower(id, x0, y0, World.place(id)?.name);
@@ -1081,9 +1197,36 @@ const World = {
     const wob = L > 8 ? Math.sin(t * PI) : 0;
     return [lerp(p[0], q[0], t) + wob * (Noise.value(s + p[0], 3) - 0.5) * 4, lerp(p[1], q[1], t) + wob * (Noise.value(s + p[1], 5) - 0.5) * 4];
   },
+  // a winding polyline between two points inside Ashigawa (jogs, not a straight spoke)
+  weave(a, b, n) {
+    const L = dist(a[0], a[1], b[0], b[1]) || 1;
+    const nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L, jogs = L > 70 ? 2 : 1, wps = [a];
+    for (let i = 1; i <= jogs; i++) {
+      const t = i / (jogs + 1) + (Noise.value(n + i, a[0]) - 0.5) * 0.14;
+      const amp = (0.18 + Noise.value(n, i) * 0.28) * Math.min(22, L * 0.38);
+      const s = (i % 2 ? 1 : -1) * (Noise.value(n + 4, i) > 0.5 ? 1 : -1);
+      wps.push([clamp(lerp(a[0], b[0], t) + nx * s * amp, 4, HL - 4), clamp(lerp(a[1], b[1], t) + ny * s * amp, 4, HL - 4)]);
+    }
+    wps.push(b);
+    const pts = [];
+    for (let s = 0; s < wps.length - 1; s++) {
+      const p = wps[s], q = wps[s + 1], d = dist(p[0], p[1], q[0], q[1]) || 1, m = Math.max(1, Math.round(d / 8));
+      const px = -(q[1] - p[1]) / d, py = (q[0] - p[0]) / d;
+      if (s) pts.pop();
+      for (let k = 0; k <= m; k++) {
+        const t = k / m, wob = Math.sin(t * PI) * (Noise.value(p[0] + s, p[1] + k) - 0.5) * Math.min(8, d * 0.18);
+        const shy = this.outFarm(lerp(p[0], q[0], t) + px * wob, lerp(p[1], q[1], t) + py * wob);
+        pts.push([clamp(shy[0], 3, HL - 3), clamp(shy[1], 3, HL - 3)]);
+      }
+    }
+    return pts;
+  },
   // a road paints only inside `clip` when one is given, so each block can lay its own stretch. Water it crosses already
-  // has its bridge (03b_bridges.js); the road's shoulders simply stop at the bank
+  // has its bridge (03b_bridges.js); the road's shoulders simply stop at the bank. Village streets keep their own tiles:
+  // the country road stops at the gate and the town's path takes over.
   road(pts, wide = 1.3, clip, cores) {
+    const pave = !!pts.pave, cut = pave ? 4.8 : 2.6;
+    if (pave) wide = Math.max(wide, pts.w || 2.35);
     for (let s = 0; s < pts.length - 1; s++) {
       const [ax, ay] = pts[s], [bx, by] = pts[s + 1], L = dist(ax, ay, bx, by), along = Math.abs(bx - ax) > Math.abs(by - ay) ? 0 : 1;
       if (L < 0.01 || (clip && (Math.max(ax, bx) + 8 < clip[0] || Math.min(ax, bx) - 8 > clip[2] || Math.max(ay, by) + 8 < clip[1] || Math.min(ay, by) - 8 > clip[3]))) continue;
@@ -1091,9 +1234,12 @@ const World = {
         const [x, y] = this.roadPt(pts, s, d / L, L);
         if (clip && (x < clip[0] - 3 || y < clip[1] - 3 || x > clip[2] + 3 || y > clip[3] + 3)) continue;
         const ford = TINFO[this.tileAt(x, y)].water && !Bridges.lift(x, y) && !Bridges.over(x, y, 0.2);
-        // mountain passes are cut wider than the road itself
-        if (this.solidAt(Math.floor(x), Math.floor(y)) === 2 && !TINFO[this.tileAt(x, y)].water) this.disc(x, y, 2.6, (i, j) => { if (this.solidAt(i, j) === 2 && !TINFO[this.tileAt(i, j)].water) { this.setSolid(i, j, 0); const tt = this.tileAt(i, j); if (tt === TILE.ROCK || tt === TILE.SNOW || tt === TILE.ASH) this.set(i, j, this.biomeAt(i, j) === B.SNOW ? TILE.SNOW : TILE.GRAVEL); } this.setClear(i, j); }, clip);
+        // mountain passes are cut wider than the road itself (imperial roads cut a broader bench)
+        if (this.solidAt(Math.floor(x), Math.floor(y)) === 2 && !TINFO[this.tileAt(x, y)].water) this.disc(x, y, cut, (i, j) => { if (this.solidAt(i, j) === 2 && !TINFO[this.tileAt(i, j)].water) { this.setSolid(i, j, 0); const tt = this.tileAt(i, j); if (tt === TILE.ROCK || tt === TILE.SNOW || tt === TILE.ASH) this.set(i, j, this.biomeAt(i, j) === B.SNOW ? TILE.SNOW : TILE.GRAVEL); } this.setClear(i, j); }, clip);
         if (cores && cores.length && cores.some(c => x > c[0] && y > c[1] && x < c[2] && y < c[3])) continue;
+        if (this.farmAt(x, y)) continue;
+        if (this.heart(x, y)) { const pl = this.placeAt(x, y, HPLACES); if (pl && pl.kind === 'town' && dist(x, y, pl.x, pl.y) < pl.r * 0.72) continue; }
+        if (pave) this.disc(x, y, 5.6, (i, j) => this.setClear(i, j), clip);
         this.disc(x, y, wide, (i, j) => {
           if (this.bAt(i, j)) return;
           const cur = this.tileAt(i, j), b = this.biomeAt(i, j);
@@ -1103,8 +1249,10 @@ const World = {
           const pool = TINFO[cur].water && cur === TILE.WATER && b === B.MARSH && !this.heart(i, j) && !Realm.wetAt(i, j);
           // the road's own shoulder along a bank is built up out of the water; the river its bridge crosses is left alone
           if (TINFO[cur].water && !pool && (Bridges.over(i + 0.5, j + 0.5, 0.35) || cur === TILE.DEEP || (!ford && dist(i + 0.5, j + 0.5, x, y) > 0.95))) return;
-          if (pool || (TINFO[cur].water && ford)) { this.set(i, j, TILE.PATH); this.disc(i + 0.5, j + 0.5, 1.3, (p, q) => { if (this.tileAt(p, q) === TILE.WATER && this.biomeAt(p, q) === B.MARSH) { this.set(p, q, TILE.MUD); this.setSolid(p, q, 0); } }, clip); }
-          else if (cur !== TILE.STONE && cur !== TILE.FLOOR && cur !== TILE.PADDY) this.set(i, j, b === B.SNOW ? TILE.SNOWPATH : b === B.CASTLE ? TILE.STONE : TILE.PATH);
+          if (pool || (TINFO[cur].water && ford)) { this.set(i, j, pave ? TILE.PAVE : TILE.PATH); this.disc(i + 0.5, j + 0.5, 1.3, (p, q) => { if (this.tileAt(p, q) === TILE.WATER && this.biomeAt(p, q) === B.MARSH) { this.set(p, q, TILE.MUD); this.setSolid(p, q, 0); } }, clip); }
+          else if (cur === TILE.STONE || cur === TILE.FLOOR || cur === TILE.PADDY || cur === TILE.PAVE) return;
+          else if (pave && (cur === TILE.PATH || cur === TILE.SNOWPATH)) return;
+          else if (cur !== TILE.STONE && cur !== TILE.FLOOR && cur !== TILE.PADDY) this.set(i, j, pave ? TILE.PAVE : b === B.SNOW ? TILE.SNOWPATH : b === B.CASTLE ? TILE.STONE : TILE.PATH);
           if (this.solidAt(i, j) === 2) this.setSolid(i, j, 0);
           this.setClear(i, j);
         }, clip);
@@ -1128,12 +1276,14 @@ const World = {
   growth(x, y, R) {
     const s = this.solidAt(x, y), tl = this.tileAt(x, y);
     if (s === 2) { if (this.clearAt(x, y) || TINFO[tl].water) return null; const b = this.biomeAt(x, y), r = R(); return r < 0.4 ? (b === B.SNOW || tl === TILE.SNOW ? (r < 0.25 ? 'cliff' : 'snowpine') : b === B.ASH ? (r < 0.3 ? 'cliff' : 'deadtree') : r < 0.3 ? 'cliff' : 'pine') : null; }
+    if (tl === TILE.PADDY) return null;
     if (!this.free(x, y)) return null;
     const b = this.biomeAt(x, y), n = Noise.fbm(x * 0.09 + 50, y * 0.09, 3);
     const grove = clamp((n - 0.36) * 3.2, 0, 1), r = R();
     const nearWater = TINFO[this.tileAt(x + 1, y)].water || TINFO[this.tileAt(x, y + 1)].water || TINFO[this.tileAt(x - 1, y)].water || TINFO[this.tileAt(x, y - 1)].water;
     // trees and bamboo keep a step back from roads and bridges, so nothing leans out over the way
-    let edge = false; for (let dy = -2; dy <= 2 && !edge; dy++) for (let dx = -2; dx <= 2; dx++) { const t = this.tileAt(x + dx, y + dy); if (t === TILE.PATH || t === TILE.SNOWPATH || t === TILE.STONE || t === TILE.BRIDGE) { edge = true; break; } }
+    let edge = false; for (let dy = -2; dy <= 2 && !edge; dy++) for (let dx = -2; dx <= 2; dx++) { const t = this.tileAt(x + dx, y + dy); if (t === TILE.PATH || t === TILE.SNOWPATH || t === TILE.STONE || t === TILE.BRIDGE || t === TILE.PAVE) { edge = true; break; } }
+    if (!edge) for (let dy = -4; dy <= 4 && !edge; dy++) for (let dx = -4; dx <= 4; dx++) if (this.tileAt(x + dx, y + dy) === TILE.PAVE) { edge = true; break; }
     if (edge) return R() < 0.03 ? 'rock' : null;
     if (Bridges.list.length && Bridges.over(x + 0.5, y + 0.5, 3.5)) return null;
     if (nearWater && r < 0.045 && b !== B.SNOW && b !== B.ASH) return R() < 0.5 ? 'reeds' : 'willow';
@@ -1608,7 +1758,7 @@ const Realm = {
     const v = this.cs(this.sea, x, y); return v > -24 && v < 24 ? v + (Noise.value(x * 0.09, y * 0.09) - 0.5) * 12 : v;
   },
   plan(R) {
-    this.names = new Set(['Edo', 'Fumoto']); this.segs = null; this.wetC = new Map(); this.sites = []; this.settles = []; this.live = new Set(); this.rivers = []; this.lakes = []; this.roads = []; this.highwayList = [];
+    this.names = new Set(['Edo', 'Fumoto']); this.segs = null; this.wetC = new Map(); this.sites = []; this.settles = []; this.live = new Set(); this.rivers = []; this.lakes = []; this.roads = []; this.highwayList = []; this.roadG = new Map(); this.roadB = 96; this._cores = null;
     this.exits = [[[184, 36.5], [200, 38], [222, 44]], [[99, 169], [97, 186], [92, 204], [88, 222]], [[23, 118.5], [6, 116], [-14, 114], [-34, 112]], [[96, 28], [100, 8], [102, -14], [104, -34]]];
     // bays bite into the coast (never toward Ashigawa); islets rise offshore (both in the island's original frame)
     this.bays = []; this.islets = [];
@@ -1624,8 +1774,10 @@ const Realm = {
     for (const S of this.settles) if (S.headman) this.headmanQuest(S);
     this.sideQuests(R);
     this.highways(R);
-    StoryMap.spurs();
+    StoryMap.spurs(R);
+    this.lanes(R);
     this.onsenPlan(R);
+    this.byways(R);
     this.chestsPlan(R);
     this.index();
     // every road gets its bridges where it meets a river, a lake or a marsh pool (the road bends onto each, so its
@@ -1859,9 +2011,10 @@ const Realm = {
     const P = this.provinces[p], castle = sub === 'castle', id = typeof n === 'string' ? n : 'r' + n;
     nm = nm || this.name(R, castle ? 'Castle Town' : sub === 'market' ? 'Town' : sub === 'fishing' ? 'Harbor' : 'Village', castle ? '城下' : sub === 'fishing' ? '港' : '');
     const L = castle ? 40 : sub === 'market' ? 32 : sub === 'fishing' ? 20 : 22 + Math.round(R() * 6), rows = castle ? 4 : sub === 'market' ? 3 : 2, deep = (rows - 1) * 13 + 2, north = castle ? 48 : 12;
-    const S = this.site({ id, kind: 'town', sub, p, x: cx, y: cy + 1, r: L + 14, L, rows, short: nm.short, homes: [], keepers: [], folk: castle ? 9 : sub === 'market' ? 7 : 4, guards: castle ? 6 : sub === 'market' ? 2 : 0, monks: [], bb: [cx - L - 34, cy - north - 20, cx + L + 34, cy + deep + 28], c: [cx, cy + 1], builder: 'town' });
+    const S = this.site({ id, kind: 'town', sub, p, x: cx, y: cy + 1, r: L + 14, L, rows, short: nm.short, homes: [], keepers: [], folk: castle ? 9 : sub === 'market' ? 7 : 4, guards: castle ? 6 : sub === 'market' ? 2 : 0, monks: [], bb: [cx - L - 40, cy - north - 20, cx + L + 40, cy + deep + 36], c: [cx, cy + 1], builder: 'town' });
     // highways stop at the town's edge and come in along the main street
     S.core = [cx - L - 1, cy - north, cx + L + 1, cy + deep + 1]; S.gates = [[cx - L - 3, cy + 1], [cx + L + 3, cy + 1]];
+    this.planFarms(S);
     S.kemari = castle || sub === 'market' || (sub === 'village' && R() < 0.35); S.inn = castle || sub === 'market' || (sub === 'village' && R() < 0.6);
     if (!castle) S.headman = { name: 'Headman ' + R.pick(NAMES_G), key: 'hm_' + id, at: [cx + 0.5, cy + 1.5] };
     else { S.lord = { name: 'Lord ' + R.pick(NAMES_F), key: 'lord_' + id }; S.lady = { name: 'Lady ' + R.pick(LADIES), key: 'lady_' + id }; }
@@ -1870,6 +2023,25 @@ const Realm = {
     S.place = this.addPlace({ id, name: nm.name, jp: nm.jp, x: cx, y: cy + 1 + (rows - 1) * 5, r: L + 10, b: P.b, kind: 'town', safe: true, sub });
     S.tower = { towerId: 'rt' + id, cx: cx + L + 8, cy: cy - 14, tname: 'Watchtower · ' + nm.short }; World.towers.push(S.tower);
     return S;
+  },
+  // fields a walk from the houses, never against the streets; roads are told about them before they are drawn
+  planFarms(S) {
+    if (S.sub === 'edo' || S.sub === 'fishing') return;
+    const P = this.provinces[S.p]; if (P && P.b === B.SNOW) return;
+    const cx = S.x, cy = S.y - 1, L = S.L, last = cy + (S.rows - 1) * 13;
+    const add = (x0, y0, w, h) => {
+      const mx = x0 + w / 2, my = y0 + h / 2;
+      if (this.seaVal(mx, my) > -10) return;
+      if (S.core && mx > S.core[0] && my > S.core[1] && mx < S.core[2] && my < S.core[3]) return;
+      const r = [Math.round(x0), Math.round(y0), Math.round(x0 + w), Math.round(y0 + h)];
+      (S.farms || (S.farms = [])).push(r); World.indexFarm(r);
+    };
+    if (S.sub === 'village' || S.sub === 'mountain' || S.sub === 'market') {
+      add(cx - L + 2, last + 14, 16, 10); add(cx + 4, last + 14, 16, 10);
+      add(cx - L - 24, cy + 2, 12, 10); add(cx + L + 12, cy + 2, 12, 10);
+    } else if (S.sub === 'castle') {
+      add(cx - L + 4, last + 18, 18, 10); add(cx + 8, last + 18, 18, 10);
+    }
   },
   // Edo: the Shogun's city, a grid of seven streets below the great castle and its moat, a river crossed by Nihonbashi
   edoPlan(R) {
@@ -1934,10 +2106,111 @@ const Realm = {
     S.place = this.addPlace({ id, name: nm.name, jp: nm.jp, x: sx, y: sy, r: 10, b: B.SNOW, kind: 'poi', sub: 'ski' });
     return S;
   },
-  // ---- highways: a minimum spanning tree over the settlements (never across open sea), plus a few loops
+  // ---- roads: index so later lanes can T-join the ones already drawn
+  indexRoad(pts) {
+    const B = this.roadB || 96;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i][0], ay = pts[i][1], bx = pts[i + 1][0], by = pts[i + 1][1], rec = [pts, i];
+      for (let cy = Math.floor(Math.min(ay, by) / B); cy <= Math.floor(Math.max(ay, by) / B); cy++)
+        for (let cx = Math.floor(Math.min(ax, bx) / B); cx <= Math.floor(Math.max(ax, bx) / B); cx++) {
+          const k = cx + ',' + cy; let L = this.roadG.get(k); if (!L) this.roadG.set(k, L = []); L.push(rec);
+        }
+    }
+  },
+  addRoad(pts, w) {
+    if (!pts || pts.length < 2) return null;
+    if (w != null) pts.w = w; else if (pts.w == null) pts.w = 1.2;
+    this.roads.push(pts); this.indexRoad(pts); return pts;
+  },
+  townCores() {
+    if (!this._cores) this._cores = this.sites.filter(s => s.core && (s.kind === 'town' || s.kind === 'holy')).map(s => s.core);
+    return this._cores;
+  },
+  // push a point out of a town or temple so the road meets the gate instead of cutting the lots
+  outCore(x, y, pad = 8) {
+    for (const c of this.townCores()) {
+      if (x <= c[0] - pad || y <= c[1] - pad || x >= c[2] + pad || y >= c[3] + pad) continue;
+      const dl = x - (c[0] - pad), dr = (c[2] + pad) - x, dt = y - (c[1] - pad), db = (c[3] + pad) - y, m = Math.min(dl, dr, dt, db);
+      if (m === dl) x = c[0] - pad; else if (m === dr) x = c[2] + pad; else if (m === dt) y = c[1] - pad; else y = c[3] + pad;
+    }
+    const o = World.outFarm(x, y, 2); return [o[0], o[1]];
+  },
+  snapRoad(x, y, maxD) {
+    const B = this.roadB || 96, i0 = Math.floor((x - maxD) / B), i1 = Math.floor((x + maxD) / B), j0 = Math.floor((y - maxD) / B), j1 = Math.floor((y + maxD) / B);
+    let best = null, bd = maxD;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const L = this.roadG.get(i + ',' + j); if (!L) continue;
+      for (const rec of L) {
+        const pts = rec[0], si = rec[1], q = segClosest([x, y], pts[si], pts[si + 1]), d = dist(q[0], q[1], x, y);
+        if (d < bd) { bd = d; best = q; }
+      }
+    }
+    return best;
+  },
+  // polyline + segment under a point, so travellers and patrols can follow the road itself
+  hitRoad(x, y, maxD) {
+    const B = this.roadB || 96, i0 = Math.floor((x - maxD) / B), i1 = Math.floor((x + maxD) / B), j0 = Math.floor((y - maxD) / B), j1 = Math.floor((y + maxD) / B);
+    let best = null, bd = maxD;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const L = this.roadG.get(i + ',' + j); if (!L) continue;
+      for (const rec of L) {
+        const pts = rec[0], si = rec[1], q = segClosest([x, y], pts[si], pts[si + 1]), d = dist(q[0], q[1], x, y);
+        if (d < bd) { bd = d; best = { pts, i: si, q, d }; }
+      }
+    }
+    return best;
+  },
+  // a point near a place, not on it — patrols ride past the objective, not through the hall
+  beside(x, y, d0, d1, r, R) {
+    const d = Math.min(38, Math.min(r || 0, 16) + d0 + R() * Math.max(1, d1 - d0)), a0 = R() * TAU;
+    for (let k = 0; k < 14; k++) {
+      const a = a0 + k * 0.47, px = x + Math.cos(a) * d, py = y + Math.sin(a) * d;
+      if (this.seaVal(px, py) < -12 && dist(px, py, this.fuji[0], this.fuji[1]) > FUJI_R + 4) return [px, py];
+    }
+    return [x + d, y];
+  },
+  // A to B with dog-legs and a lingering sway, pulled back onto land if a jog hits the sea
+  wind(a, b, R, opt = {}) {
+    const L = dist(a[0], a[1], b[0], b[1]); if (L < 5) return [a.slice(), b.slice()];
+    const nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L;
+    const nJog = opt.jogs != null ? opt.jogs : (L > 220 ? 3 : L > 90 ? 2 : 1), wps = [a];
+    for (let i = 1; i <= nJog; i++) {
+      const t = clamp((i + (R() - 0.5) * 0.22) / (nJog + 1), 0.12, 0.88), side = (i % 2 ? 1 : -1) * (R() < 0.4 ? -1 : 1);
+      const amp = (0.16 + R() * 0.32) * Math.min(opt.amp || 80, L * 0.42);
+      let x = lerp(a[0], b[0], t) + nx * side * amp, y = lerp(a[1], b[1], t) + ny * side * amp;
+      for (let k = 0; k < 10 && this.seaVal(x, y) > -10; k++) { x = lerp(x, lerp(a[0], b[0], t), 0.4); y = lerp(y, lerp(a[1], b[1], t), 0.4); }
+      wps.push(this.outCore(x, y));
+    }
+    wps.push(b);
+    const pts = []; let wet = 0, n = 0, river = 0;
+    for (let s = 0; s < wps.length - 1; s++) {
+      const p = wps[s], q = wps[s + 1], d = dist(p[0], p[1], q[0], q[1]) || 1, m = Math.max(1, Math.round(d / 20));
+      const px = -(q[1] - p[1]) / d, py = (q[0] - p[0]) / d;
+      if (s) pts.pop();
+      for (let k = 0; k <= m; k++) {
+        const t = k / m, wob = Math.sin(t * PI) * (Noise.value(p[0] * 0.03 + s, p[1] * 0.03 + k) - 0.5) * Math.min(26, d * 0.16);
+        let x = lerp(p[0], q[0], t) + px * wob, y = lerp(p[1], q[1], t) + py * wob;
+        if (k && k < m) { const o = this.outCore(x, y); x = o[0]; y = o[1]; }
+        n++; if (this.seaVal(x, y) > -6 || dist(x, y, this.fuji[0], this.fuji[1]) < FUJI_R - 2) wet++; if (opt.shy && this.wet && this.wet.has(this.cell(x, y))) river++;
+        pts.push([x, y]);
+      }
+    }
+    if (wet > n * 0.18 || (opt.shy && river > n * 0.22)) return null;
+    return pts;
+  },
+  link(from, R, w, maxD, opt) {
+    if (!from) return;
+    const hit = this.snapRoad(from[0], from[1], maxD); if (!hit) return;
+    if (dist(from[0], from[1], hit[0], hit[1]) < 6) return;
+    const pts = this.wind(from, hit, R, opt || { amp: 70, jogs: dist(from[0], from[1], hit[0], hit[1]) > 100 ? 2 : 1 });
+    if (pts) this.addRoad(pts, w);
+  },
+  // ---- highways: a minimum spanning tree over the settlements (never across open sea), plus extra loops that
+  // wander off the chord so the network is not a star of village-to-village lines
   highways(R) {
-    const nodes = this.sites.filter(s => (s.kind === 'town' || s.kind === 'holy' || s.kind === 'ski') && s.gates).map(s => ({ x: s.x, y: s.y + 0.5, gates: s.gates }));
-    for (const e of this.exits) { const q = e[e.length - 1]; nodes.push({ x: q[0], y: q[1] }); }
+    for (const pts of this.roads.concat(this.exits)) this.indexRoad(pts);
+    const nodes = this.sites.filter(s => (s.kind === 'town' || s.kind === 'holy' || s.kind === 'ski') && s.gates).map(s => ({ x: s.x, y: s.y + 0.5, gates: s.gates, S: s }));
+    for (const e of this.exits) { const q = e[e.length - 1]; e.pave = true; e.w = 2.35; nodes.push({ x: q[0], y: q[1], exit: true }); }
     const seaCross = (a, b) => { const L = dist(a.x, a.y, b.x, b.y); let wet = 0; for (let d = 0; d < L; d += 16) { const t = d / L; if (this.cs(this.sea, lerp(a.x, b.x, t), lerp(a.y, b.y, t)) > -6) { if (++wet > 1) return true; } else wet = 0; } return false; };
     const cost = (a, b) => { const L = dist(a.x, a.y, b.x, b.y); let m = 0, n = 0; for (let d = 0; d < L; d += 16) { const t = d / L; m += this.cs(this.mtn, lerp(a.x, b.x, t), lerp(a.y, b.y, t)); n++; } return L * (1 + 3 * m / Math.max(1, n)); };
     const bucket = new Map(), B0 = 500, bk = (x, y) => Math.floor(x / B0) + ',' + Math.floor(y / B0);
@@ -1947,19 +2220,89 @@ const Realm = {
       const near = [];
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const j of bucket.get((Math.floor(a.x / B0) + dx) + ',' + (Math.floor(a.y / B0) + dy)) || []) if (j !== i) near.push([dist(a.x, a.y, nodes[j].x, nodes[j].y), j]);
       near.sort((p, q) => p[0] - q[0]);
-      for (const [d, j] of near.slice(0, 7)) { const key = i < j ? i + ':' + j : j + ':' + i; if (seen.has(key) || d > 800) continue; seen.add(key); if (!seaCross(a, nodes[j])) edges.push([cost(a, nodes[j]), i, j]); }
+      for (const [d, j] of near.slice(0, 11)) { const key = i < j ? i + ':' + j : j + ':' + i; if (seen.has(key) || d > 1050) continue; seen.add(key); if (!seaCross(a, nodes[j])) edges.push([cost(a, nodes[j]), i, j]); }
     });
     edges.sort((a, b) => a[0] - b[0]);
     const par = nodes.map((_, i) => i), find = i => par[i] === i ? i : (par[i] = find(par[i])), used = [];
     for (const e of edges) { const a = find(e[1]), b = find(e[2]); if (a !== b) { par[a] = b; used.push(e); } }
-    const usedSet = new Set(used);
-    for (const e of edges) if (!usedSet.has(e) && e[0] < 520 && R() < 0.22) used.push(e);
+    const usedSet = new Set(used), mst = new Set(used.map(e => e[1] < e[2] ? e[1] + ':' + e[2] : e[2] + ':' + e[1]));
+    for (const e of edges) if (!usedSet.has(e) && e[0] < 720 && R() < 0.32) used.push(e);
+    const trunks = [];
     for (const [, i, j] of used) {
       const gate = (u, v) => u.gates ? u.gates.reduce((m, g) => dist(g[0], g[1], v.x, v.y) < dist(m[0], m[1], v.x, v.y) ? g : m) : [u.x, u.y];
-      const ga = gate(nodes[i], nodes[j]), gb = gate(nodes[j], nodes[i]), a = { x: ga[0], y: ga[1] }, b = { x: gb[0], y: gb[1] };
-      const L = dist(a.x, a.y, b.x, b.y), n = Math.max(1, Math.round(L / 32)), nx = -(b.y - a.y) / L, ny = (b.x - a.x) / L, pts = [[a.x, a.y]];
-      for (let k = 1; k < n; k++) { const t = k / n, off = (Noise.value(i * 3.1 + t * 2.3, j * 1.7) - 0.5) * Math.min(60, L * 0.12) * Math.sin(t * PI); pts.push([lerp(a.x, b.x, t) + nx * off, lerp(a.y, b.y, t) + ny * off]); }
-      pts.push([b.x, b.y]); pts.w = 1.55; this.roads.push(pts); this.highwayList.push(pts);
+      const ga = gate(nodes[i], nodes[j]), gb = gate(nodes[j], nodes[i]);
+      const pts = this.wind(ga, gb, R, { amp: 110, jogs: dist(ga[0], ga[1], gb[0], gb[1]) > 180 ? 3 : 2 });
+      if (!pts) continue;
+      const imperial = u => u && (u.exit || (u.S && u.S.sub === 'edo'));
+      if (imperial(nodes[i]) || imperial(nodes[j])) { pts.pave = true; this.addRoad(pts, 2.4); }
+      else {
+        this.addRoad(pts, 1.55);
+        const castle = (nodes[i].S && nodes[i].S.sub === 'castle') || (nodes[j].S && nodes[j].S.sub === 'castle');
+        if (castle && mst.has(i < j ? i + ':' + j : j + ':' + i)) trunks.push(pts);
+      }
+      this.highwayList.push(pts);
+    }
+    trunks.sort((a, b) => dist(b[0][0], b[0][1], b[b.length - 1][0], b[b.length - 1][1]) - dist(a[0][0], a[0][1], a[a.length - 1][0], a[a.length - 1][1]));
+    for (const pts of trunks.slice(0, 8)) { pts.pave = true; pts.w = 2.4; }
+  },
+  // camps, ruins and leftover towns T-join the highways; some tracks just wander off into the country
+  lanes(R) {
+    for (const S of this.sites) {
+      const g = (S.gates && S.gates[0]) || [S.x, S.y];
+      if (this.snapRoad(g[0], g[1], 22)) continue;
+      this.link(this.beside(S.x, S.y, 14, 26, Math.min(S.r || 8, 14), R), R, S.kind === 'town' ? 1.3 : 1.12, 640);
+    }
+    for (const S of this.sites) {
+      if (S.kind !== 'camp' && S.kind !== 'poi' && S.kind !== 'story') continue;
+      if (R() > 0.7) continue;
+      const a = this.beside(S.x, S.y, 20, 50, S.r || 8, R), ang = R() * TAU, len = 70 + R() * 150;
+      let b = [a[0] + Math.cos(ang) * len, a[1] + Math.sin(ang) * len];
+      for (let k = 0; k < 8 && this.seaVal(b[0], b[1]) > -12; k++) { b[0] = lerp(b[0], a[0], 0.3); b[1] = lerp(b[1], a[1], 0.3); }
+      const hit = this.snapRoad(b[0], b[1], 36); if (hit) b = hit;
+      const pts = this.wind(a, b, R, { amp: 55, jogs: 2, shy: true });
+      if (pts) this.addRoad(pts, 1.05);
+    }
+    // where two roads already run near each other, throw a winding lane between them so they actually meet
+    for (let n = 0, tries = 0; n < 180 && tries < 1100; tries++) {
+      const [x, y] = this.randIn(R);
+      if (this.seaVal(x, y) > -20 || this.cs(this.mtn, x, y) > 0.55) continue;
+      const a = this.snapRoad(x, y, 150); if (!a) continue;
+      let b = null, bd = 170;
+      for (let k = 0; k < 12; k++) {
+        const t = k / 12 * TAU, q = this.snapRoad(x + Math.cos(t) * 80, y + Math.sin(t) * 80, 100);
+        if (!q) continue;
+        const d = dist(q[0], q[1], a[0], a[1]);
+        if (d > 32 && d < bd) { bd = d; b = q; }
+      }
+      if (!b) continue;
+      const pts = this.wind(a, b, R, { amp: 50, jogs: 1, shy: true });
+      if (pts) { this.addRoad(pts, 1.12); n++; }
+    }
+  },
+  // after the hot springs are placed (they like a little wilderness), fill empty country and send tracks off the highways
+  byways(R) {
+    const onsen = this.sites.filter(s => s.sub === 'onsen');
+    const farOnsen = (x, y) => onsen.every(s => dist(x, y, s.x, s.y) > 64);
+    for (const S of onsen) this.link(this.beside(S.x, S.y, 24, 42, 8, R), R, 1.05, 400, { amp: 55, jogs: 2, shy: true });
+    for (let n = 0, tries = 0; n < 400 && tries < 1600; tries++) {
+      const pts = this.roads[Math.floor(R() * this.roads.length)]; if (!pts || pts.length < 2) continue;
+      const i = Math.floor(R() * (pts.length - 1)), a = pts[i], b = pts[i + 1], L = dist(a[0], a[1], b[0], b[1]) || 1;
+      const t = R(), px = lerp(a[0], b[0], t), py = lerp(a[1], b[1], t);
+      const nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L, s = R() < 0.5 ? 1 : -1, len = 80 + R() * 170;
+      const from = [px + nx * s * 2, py + ny * s * 2];
+      let to = [px + nx * s * len + (R() - 0.5) * 90, py + ny * s * len + (R() - 0.5) * 90];
+      if (this.seaVal(to[0], to[1]) > -12 || !farOnsen(to[0], to[1])) continue;
+      const hit = this.snapRoad(to[0], to[1], 30);
+      if (hit && dist(hit[0], hit[1], px, py) > 26) to = hit;
+      const w = this.wind(from, to, R, { amp: 55, jogs: 2, shy: true });
+      if (w) { this.addRoad(w, 1.02); n++; }
+    }
+    for (let k = 0; k < 900; k++) {
+      const [x, y] = this.randIn(R);
+      if (this.seaVal(x, y) > -24 || this.cs(this.mtn, x, y) > 0.5) continue;
+      if (!farOnsen(x, y) || Math.max(-x, x - HL, -y, y - HL, 0) < 30) continue;
+      if (this.snapRoad(x, y, 70)) continue;
+      this.link([x, y], R, 1.08, 300, { amp: 60, jogs: 2, shy: true });
     }
   },
   // hot springs lie out in the wild: far from any town, shrine or ski lodge, and well off the highways
@@ -1993,7 +2336,11 @@ const Realm = {
     for (const L of this.lakes) add(L[0] - L[2] * 1.5 - 2, L[1] - L[2] * 1.5 - 2, L[0] + L[2] * 1.5 + 2, L[1] + L[2] * 1.5 + 2, 'lakes', L);
     for (const rv of this.rivers) { const [pts, w] = rv; for (let s = 0; s < pts.length - 1; s++) add(Math.min(pts[s][0], pts[s + 1][0]) - w - 3, Math.min(pts[s][1], pts[s + 1][1]) - w - 3, Math.max(pts[s][0], pts[s + 1][0]) + w + 3, Math.max(pts[s][1], pts[s + 1][1]) + w + 3, 'rivers', rv); }
     for (const pts of this.roads.concat(this.exits)) for (let s = 0; s < pts.length - 1; s++) add(Math.min(pts[s][0], pts[s + 1][0]) - 8, Math.min(pts[s][1], pts[s + 1][1]) - 8, Math.max(pts[s][0], pts[s + 1][0]) + 8, Math.max(pts[s][1], pts[s + 1][1]) + 8, 'roads', pts);
-    for (const S of this.sites) { add(S.bb[0], S.bb[1], S.bb[2], S.bb[3], 'sites', S); if (S.core) add(S.core[0] - 16, S.core[1] - 16, S.core[2] + 16, S.core[3] + 16, 'cores', S.core); }
+    for (const S of this.sites) {
+      add(S.bb[0], S.bb[1], S.bb[2], S.bb[3], 'sites', S);
+      if (S.core) add(S.core[0] - 16, S.core[1] - 16, S.core[2] + 16, S.core[3] + 16, 'cores', S.core);
+      if (S.farms) for (const f of S.farms) add(f[0] - 6, f[1] - 6, f[2] + 6, f[3] + 6, 'cores', f);
+    }
   },
   // ---- building a settlement once you reach it
   fits(x, y, w, h, pad = 1) {
@@ -2026,7 +2373,7 @@ const Realm = {
   // the ends; a castle town (and Edo) keeps its lord's palace behind walls to the north
   // a settlement's open ground is planted, not wild: a tree here and there in the lots, well clear of houses and streets
   garden(S, R) {
-    const W = World, [x0, y0, x1, y1] = S.core, bare = new Set([TILE.PATH, TILE.STONE, TILE.GRAVEL, TILE.FLOOR, TILE.SNOWPATH, TILE.PADDY, TILE.SAND, TILE.BRIDGE]);
+    const W = World, [x0, y0, x1, y1] = S.core, bare = new Set([TILE.PATH, TILE.STONE, TILE.GRAVEL, TILE.FLOOR, TILE.SNOWPATH, TILE.PADDY, TILE.SAND, TILE.BRIDGE, TILE.PAVE]);
     const near = (x, y, r) => { for (let j = y - r; j <= y + r; j++) for (let i = x - r; i <= x + r; i++) if (W.bAt(i, j) || bare.has(W.tileAt(i, j)) || W.at(i, j).length) return true; return false; };
     for (let y = Math.ceil(y0) + 2; y < y1 - 2; y++) for (let x = Math.ceil(x0) + 2; x < x1 - 2; x++) {
       if (R() > 0.02 || !W.free(x - 1, y - 1, 3, 3) || near(x, y, 3)) continue;
@@ -2088,7 +2435,13 @@ const Realm = {
     const spot = (x0, y0, x1, y1) => { for (let k = 0; k < 30; k++) { const xx = Math.round(lerp(x0, x1, R())), yy = Math.round(lerp(y0, y1, R())); if (W.free(xx, yy) && !W.bAt(xx, yy) && !doors.some(b => b.doorPt && dist(b.doorPt.outer[0], b.doorPt.outer[1], xx + 0.5, yy + 0.5) < 2)) return [xx, yy]; } return null; };
     for (let k = 0; k < rows; k++) for (let n = 0; n < (castle ? 5 : 3); n++) { const q = spot(cx - L, cy + k * 13 + 2, cx + L, cy + k * 13 + 4); if (q) n % 2 ? W.lamp(q[0], q[1]) : W.deco(R.pick(['cart', 'barrels', 'crates', 'rack']), q[0], q[1]); }
     let q = spot(cx + L + 2, cy - 4, cx + L + 6, cy + 4); if (q) W.deco('hokora', q[0], q[1], 1, 1, { interact: { kind: 'pray', label: 'Pray at the roadside shrine' } });
-    if (sub === 'village' || sub === 'mountain' && !snow) for (const [dx, dy, w, h] of [[-L, last - cy + 6, 16, 8], [4, last - cy + 6, 16, 8], [-L - 14, -10, 11, 9], [L + 4, 6, 11, 9]]) { const x0 = cx + dx, y0 = cy + dy; if (this.fits(x0, y0, w, h, 0)) { W.paint(x0, y0, w, h, TILE.PADDY); W.deco('scarecrow', x0 + (w >> 1), y0 + (h >> 1), 1, 1, { solid: false }); } }
+    if (S.farms) for (const f of S.farms) {
+      const [x0, y0, x1, y1] = f, w = x1 - x0, h = y1 - y0;
+      if (!this.fits(x0, y0, w, h, 0)) continue;
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      const gate = my > last + 4 ? 'N' : mx < cx - L ? 'E' : mx > cx + L ? 'W' : 'N';
+      W.field(x0, y0, w, h, { gate });
+    }
     if (sub === 'fishing') for (let k = 0; k < 6; k++) { q = spot(cx - L - 6, last + 3, cx + L + 6, last + 10); if (q) W.deco(k < 3 ? 'fishrack' : 'boat', q[0], q[1], 1, 1, { solid: k < 3 }); }
     W.keepClear(cx, cy + 1, 4);
   },
@@ -2361,8 +2714,8 @@ const Towns = {
     const hm = this.B('headman', 89, 93, 10, 7, { name: 'Headman\'s House' }); this.copy(hm, 'master', 'gensai');
     this.B('minka', 100, 94, 8, 6);
     for (const x of [64, 74, 90, 99]) this.B('minka', x, 103, 8, 6);
-    W.paint(64, 112, 21, 7, TILE.PADDY); W.paint(90, 112, 16, 7, TILE.PADDY); W.paint(78, 84, 7, 4, TILE.PADDY);
-    for (const [x, y] of [[70, 115], [96, 115], [81, 85]]) W.deco('scarecrow', x, y, 1, 1, { solid: false });
+    W.field(64, 122, 18, 10, { gate: 'N' }); W.field(96, 122, 18, 10, { gate: 'N' });
+    W.field(54, 72, 14, 12, { tile: TILE.DGRASS, crops: true, gate: 'S' });
     W.deco('well', 84, 102); W.deco('board', 88, 102, 1, 1, { interact: { kind: 'bounty', label: 'Read the bounty board' } });
     W.deco('hokora', 108, 98, 1, 1, { interact: { kind: 'pray', label: 'Pray at the roadside shrine' } });
     for (const [x, y] of [[66, 102], [72, 102], [79, 102], [94, 102], [102, 102], [70, 111], [96, 111], [62, 98]]) W.lamp(x, y);
@@ -2469,8 +2822,8 @@ const Towns = {
     const W = World;
     W.street(124, 120, 23, 2, TILE.PATH);
     this.B('minka', 126, 113, 8, 6); const k = this.B('minka', 136, 113, 8, 6, { name: 'Kane\'s House' }); this.copy(k, 'home', 'kane');
-    W.paint(124, 123, 9, 6, TILE.PADDY); W.paint(135, 123, 11, 6, TILE.PADDY);
-    W.deco('scarecrow', 128, 125, 1, 1, { solid: false }); W.lamp(125, 122); W.lamp(142, 122);
+    W.field(126, 132, 12, 10, { gate: 'N' }); W.field(108, 122, 10, 10, { gate: 'E' });
+    W.lamp(125, 122); W.lamp(142, 122);
     W.spots.mizutaC = [135, 120.5];
   },
   coast(R) {
@@ -4215,8 +4568,8 @@ function perceive(a, dt) {
 }
 function aiUpdate(a, dt) {
   if (a.dead || a === G.player || a.dummy) return;
-  // only Ren's riders ride: anyone who has left the party gets down, and the horse goes off on its own
-  if (a.mount && !G.gang.includes(a)) GangRide.getDown(a);
+  // Ren's riders, and anyone the road put in a saddle: everyone else gets down
+  if (a.mount && !G.gang.includes(a) && !a.roadRide) GangRide.getDown(a);
   if (a.sparring) return Spar.ai(a, dt);
   if (a.sleeping) { if (Math.random() < dt * 0.45) FX.addPart({ t: 'dust', x: a.x + 0.3, y: a.y, z: 8, vx: 0.15, vy: -0.08, vz: 5, life: 1.2, max: 1.2, col: 'rgba(230,230,240,' }); if (Math.random() < dt * 0.08) FX.text(a.x + 0.5, a.y - 0.2, 'z', '#c8d0dc'); return; }
   if (a.sitting || a.lying) { a.move(0, 0, dt); return; }
@@ -4229,6 +4582,7 @@ function aiUpdate(a, dt) {
   }
   // someone the story is moving: walking a route, following, being chased; lookouts keep their posts and patrols
   if (a.mPath && Missions.walkAI(a, dt)) return;
+  if (a.traffic && Traffic.ai(a, dt)) return;
   if (a.mTag && a.mission) return Missions.tagAI(a, dt);
   if (a.watch) return wanderAI(a, dt);
   if (a.faction === 'gang') return gangAI(a, dt);
@@ -4555,7 +4909,7 @@ const G = {
     for (const m of (profile.gang || [])) if (m.alive) { const q = World.randomWalkable(this.player.x, this.player.y, 1, 2.5) || [this.player.x, this.player.y]; this.spawnGangMember(m, q[0], q[1]); }
     if (profile.horse) { const q = World.randomWalkable(this.player.x, this.player.y, 1.5, 3) || [this.player.x + 1, this.player.y]; this.horse = Horse.make(q[0], q[1], profile.horse.coat, profile.horse); }
     World.streamAll(this.player.x, this.player.y);
-    Systems.populate(); Wildlife.reset(); Bamboo.reset();
+    Systems.populate(); Wildlife.reset(); Bamboo.reset(); Traffic.reset();
     Systems.ensureBounties();
     this.state = 'play'; UI.showHUD(true); Camera.snap = true;
     // the story: a new game begins on the last beautiful morning in Kiyohara (or fifteen years later, on Hawk Ridge);
@@ -4592,6 +4946,7 @@ const G = {
     this.updatePlayer(dt);
     Horse.update(dt);
     GangRide.updateLoose(dt);
+    Traffic.update(dt);
     Wildlife.update(dt); Bamboo.tick(dt); Restricted.update(dt);
     Guns.update(dt); Cannon.update(dt); Fires.update(dt); Miso.update(dt);
     this.attackers = 0;
@@ -5111,10 +5466,12 @@ const Systems = {
   // ---- the open road: travellers, raiders, challengers
   spawnTick() {
     const p = G.player;
-    for (const a of G.actors) if (!a.persistent && !a.isP && dist(a.x, a.y, p.x, p.y) > 40 && GangRide.offscreen(a.x, a.y)) a.gone = true;
+    for (const a of G.actors) if (!a.persistent && !a.isP && !a.traffic && !a.roadRide && dist(a.x, a.y, p.x, p.y) > 40 && GangRide.offscreen(a.x, a.y)) a.gone = true;
     // no fresh enemies wander in while you are already fighting
-    if (G.duel || !storyFree() || Missions.cur || G.danger > 0 || G.calmT < 4) return;
-    const near = G.actors.filter(a => !a.persistent && !a.dead && !a.gone && dist(a.x, a.y, p.x, p.y) < 30).length;
+    if (G.duel || Missions.cur || G.danger > 0 || G.calmT < 4) return;
+    if (Traffic.tick()) return;
+    if (!storyFree()) return;
+    const near = G.actors.filter(a => !a.persistent && !a.dead && !a.gone && !a.traffic && dist(a.x, a.y, p.x, p.y) < 30).length;
     if (near >= 6) return;
     const r = Math.random(), P = G.profile, here = World.placeAt(p.x, p.y);
     // a crowded street hides a pickpocket now and then
@@ -5123,7 +5480,7 @@ const Systems = {
     const pos = offscreenSpot(p, 24, 34); if (!pos) return;
     const pl = World.placeAt(pos[0], pos[1]); if (pl && (pl.kind === 'town' || pl.kind === 'home' || pl.kind === 'camp' || pl.id === 'yard' || pl.id === 'hideout')) return;
     // highwaymen work the roads beyond Ashigawa
-    const tl = World.tileAt(p.x, p.y); if (!World.heart(p.x, p.y) && r < 0.06 && (tl === TILE.PATH || tl === TILE.SNOWPATH || tl === TILE.BRIDGE) && !G.onMission() && Rob.holdupTick(pos)) return;
+    const tl = World.tileAt(p.x, p.y); if (!World.heart(p.x, p.y) && r < 0.06 && (tl === TILE.PATH || tl === TILE.SNOWPATH || tl === TILE.BRIDGE || tl === TILE.PAVE) && !G.onMission() && Rob.holdupTick(pos)) return;
     // the nearest outlaw camp that still stands sends patrols out onto its roads
     let camp = null, cd = 1e9; for (const c of PLACES) if (c.kind === 'camp' && !P.camps[c.id] && Math.abs(c.x - pos[0]) < 60 && Math.abs(c.y - pos[1]) < 60) { const d = dist(c.x, c.y, pos[0], pos[1]); if (d < cd) { cd = d; camp = c; } }
     const crewLabel = c => c.id === 'cove' ? 'Wako Pirate' : c.crew ? c.crew.replace('The ', '') : c.name.replace(' Camp', '').replace(' Hollow', '').replace(' Fort', '') + ' Bandit';
@@ -5310,9 +5667,9 @@ const Systems = {
     const q = World.randomWalkable(spot[0], spot[1], 0, 3, 80) || spot;
     pl.dead = false; pl.state = 'idle'; pl.hp = pl.maxHp; pl.bleed = 0; pl.st = pl.maxSt; pl.flash = 0; pl.x = q[0]; pl.y = q[1]; pl.crouch = false;
     if (!G.actors.includes(pl)) G.actors.push(pl);
-    G.actors = G.actors.filter(a => a.persistent || a.isP || dist(a.x, a.y, pl.x, pl.y) > 28);
+    G.actors = G.actors.filter(a => !a.traffic && !a.roadRide && (a.persistent || a.isP || dist(a.x, a.y, pl.x, pl.y) > 28));
     for (const a of G.actors) if (a.ai && a.ai.target === pl) { a.ai.mode = 'idle'; a.ai.target = null; a.aware = 0; if (!a.dead && a.hp < a.maxHp) a.hp = a.maxHp; }
-    GangRide.reset();
+    GangRide.reset(); Traffic.reset();
     for (const m of G.gang) { const r = World.randomWalkable(pl.x, pl.y, 1, 2.5) || [pl.x, pl.y]; m.x = r[0]; m.y = r[1]; m.hp = m.maxHp; m.bleed = 0; }
     if (G.horse) { const r = World.randomWalkable(pl.x, pl.y, 1.5, 3) || [pl.x, pl.y]; G.horse.x = r[0]; G.horse.y = r[1]; G.horse.spd = 0; G.horse.called = false; }
     G.wanted = 0; G.state = 'play'; Camera.snap = true; UI.fade(); World.streamAll(pl.x, pl.y);
@@ -5341,7 +5698,7 @@ const Systems = {
       G.horse.spd = 0;
     }
     for (const m of G.gang) { const r = World.randomWalkable(q[0], q[1], 0.8, 2) || q; m.x = r[0]; m.y = r[1]; if (m.mount) { m.mount.x = m.x; m.mount.y = m.y; m.mount.spd = 0; } }
-    GangRide.loose = []; Wildlife.reset(); Bamboo.reset();
+    GangRide.loose = []; Wildlife.reset(); Bamboo.reset(); Traffic.reset();
     G.tod = (G.tod + 0.04) % 1; Camera.snap = true; UI.fade(); World.streamAll(q[0], q[1]);
     G.actors = G.actors.filter(a => a.persistent || a.isP);
   },
@@ -5508,7 +5865,7 @@ const UI = {
     this.drawMini();
   },
   // the whole island as a small iso image (1 pixel ≈ 4 tiles across), painted from the realm's plans
-  TILECOL: ['#1a3654', '#2f6684', '#c8b484', '#4a7a3b', '#2c5130', '#9a7c54', '#8a877f', '#4f7a70', '#dfe6ef', '#7a797e', '#7a5434', '#33602f', '#7a8842', '#5d8a4a', '#cfcac0', '#8a3a20', '#b8b3a9', '#8a4a30', '#4e5038', '#4a4246'].map(hexToRgb),
+  TILECOL: ['#1a3654', '#2f6684', '#c8b484', '#4a7a3b', '#2c5130', '#9a7c54', '#8a877f', '#4f7a70', '#dfe6ef', '#7a797e', '#7a5434', '#33602f', '#7a8842', '#5d8a4a', '#cfcac0', '#8a3a20', '#b8b3a9', '#8a4a30', '#4e5038', '#4a4246', '#5c5f66'].map(hexToRgb),
   BIOMECOL: ['#4a7a3b', '#7a8842', '#dfe6ef', '#4a7a3b', '#64944f', '#4a7a3b', '#8a4630', '#33602f', '#2c5130', '#3e4a2e', '#4a4246'].map(hexToRgb),
   oceanCol(sv) { const a = clamp(sv / 60, 0, 1), b = clamp((sv - 60) / 500, 0, 1); return [lerp(lerp(62, 30, a), 14, b), lerp(lerp(122, 61, a), 32, b), lerp(lerp(149, 94, a), 54, b)]; },
   buildMiniImg() {
@@ -5564,7 +5921,7 @@ const UI = {
         if (bk) { const bb = Buildings.list[bk - 1]; c0 = hexToRgb(bb.st.castle ? '#e8e2d2' : bb.st.tent ? '#8a7a5a' : bb.snow ? '#e8eef4' : ROOFC[bb.st.roof] || '#5a5048'); if (x === bb.x || y === bb.y || x === bb.x + bb.w - 1 || y === bb.y + bb.h - 1) c0 = c0.map(q => q * 0.6); }
         else if (TINFO[t].water) { const sv = Wd.heart(x, y) ? Wd.waterDepth(x, y) : Rm.seaVal(x, y); c0 = sv > 0 ? this.oceanCol(sv) : this.TILECOL[t]; }
         else {
-          const tc = this.TILECOL[t] || this.TILECOL[3], bc = this.BIOMECOL[b] || tc, k = t === TILE.SNOW || t === TILE.ROCK || t === TILE.SAND || t === TILE.PATH || t === TILE.STONE || t === TILE.SNOWPATH || t === TILE.BRIDGE || t === TILE.PADDY || t === TILE.GRAVEL ? 1 : 0.55, f = (so === 2 ? 0.8 : 1) * (0.94 + hash2(x, y, 11) * 0.12);
+          const tc = this.TILECOL[t] || this.TILECOL[3], bc = this.BIOMECOL[b] || tc, k = t === TILE.SNOW || t === TILE.ROCK || t === TILE.SAND || t === TILE.PATH || t === TILE.STONE || t === TILE.SNOWPATH || t === TILE.BRIDGE || t === TILE.PADDY || t === TILE.GRAVEL || t === TILE.PAVE ? 1 : 0.55, f = (so === 2 ? 0.8 : 1) * (0.94 + hash2(x, y, 11) * 0.12);
           c0 = [(tc[0] * k + bc[0] * (1 - k)) * f, (tc[1] * k + bc[1] * (1 - k)) * f, (tc[2] * k + bc[2] * (1 - k)) * f];
         }
       }
@@ -6722,6 +7079,171 @@ const GangRide = {
     this.loose = this.loose.filter(h => !h.done && (h.to || (h.tied ? !(h.linger && this.offscreen(h.x, h.y) && dist(h.x, h.y, p.x, p.y) > 18) : !(h.t > 1 && this.offscreen(h.x, h.y)) && (h.t < 30 || !this.offscreen(h.x, h.y) && h.t < 90))));
   },
   reset() { this.loose = []; this.trail = []; for (const a of G.gang || []) { a.mount = null; if (a.ai) a.ai.ride = null; } }
+};
+// ============================================================ ROAD TRAFFIC: riders on any lane, White Sun patrols in three strengths
+// People on horseback use the roads. Now and then a couple of imperials walk the same way, or a mounted troop rides it.
+// Rarely, and only on a wide lane, an open field, or a paved highway, the whole column comes through: soldiers, horses,
+// and cannons hauled along the road.
+const Traffic = {
+  groups: [],
+  reset() { this.groups = []; },
+  info(pts) {
+    if (pts._road && pts._road.n === pts.length) return pts._road;
+    const segs = []; let L = 0;
+    for (let i = 0; i < pts.length - 1; i++) { segs.push(L); L += dist(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]); }
+    return pts._road = { segs, L, n: pts.length };
+  },
+  at(pts, s) {
+    const I = this.info(pts); s = clamp(s, 0, I.L); let i = I.segs.length - 1;
+    while (i > 0 && I.segs[i] > s) i--;
+    const a = pts[i], b = pts[Math.min(pts.length - 1, i + 1)], d = dist(a[0], a[1], b[0], b[1]) || 1, t = (s - I.segs[i]) / d;
+    return { x: lerp(a[0], b[0], t), y: lerp(a[1], b[1], t), face: Math.atan2(b[1] - a[1], b[0] - a[0]) };
+  },
+  along(pts, i, q) { return this.info(pts).segs[i] + dist(pts[i][0], pts[i][1], q[0], q[1]); },
+  slot(pts, s, lat, dir) {
+    const q = this.at(pts, s), face = dir < 0 ? q.face + PI : q.face, fx = Math.cos(face), fy = Math.sin(face);
+    return { x: q.x - fy * lat, y: q.y + fx * lat, face };
+  },
+  // cannons need room: paved imperial highways, the wider country roads, or a lane across open ground
+  heavy(pts, x, y) {
+    if (pts.pave || (pts.w || 0) >= 1.7) return true;
+    if (World.tileAt(x, y) === TILE.PAVE) return true;
+    const b = World.biomeAt(x, y);
+    return b === B.PLAINS || b === B.SAKURA || b === B.COAST || b === B.CASTLE || b === B.MARSH || b === B.ASH;
+  },
+  tick() {
+    const p = G.player; if (!p || Buildings.inside) return false;
+    if (this.groups.filter(g => g.crew.some(a => a && !a.dead && !a.gone && dist(a.x, a.y, p.x, p.y) < 70)).length >= 2) return false;
+    const hit = Realm.hitRoad(p.x, p.y, 20); if (!hit || hit.d > 18) return false;
+    const I = this.info(hit.pts); if (I.L < 40) return false;
+    const roll = Math.random();
+    let kind = null;
+    if (this.heavy(hit.pts, p.x, p.y) && !this.groups.some(g => g.kind === 'column') && roll < 0.012) kind = 'column';
+    else if (roll < 0.05) kind = 'walk';
+    else if (roll < 0.09) kind = 'ride';
+    else if (roll < 0.28) kind = 'rider';
+    if (!kind) return false;
+    return this.spawn(kind, hit, p);
+  },
+  spawn(kind, hit, p) {
+    const pts = hit.pts, I = this.info(pts), s0 = this.along(pts, hit.i, hit.q);
+    const span = kind === 'column' ? 18 : kind === 'ride' ? 8 : 4;
+    let gate = null;
+    for (const dir of Math.random() < 0.5 ? [1, -1] : [-1, 1]) {
+      for (let d = 24; d <= 44 && !gate; d += 4) {
+        const head = s0 - dir * d, tail = head - dir * span;
+        if (head < 6 || head > I.L - 6 || tail < 4 || tail > I.L - 4) continue;
+        const q = this.at(pts, head);
+        if (!GangRide.offscreen(q.x, q.y) || blockedCircle(q.x, q.y, 0.4)) continue;
+        const pl = World.placeAt(q.x, q.y); if (pl && (pl.kind === 'town' || pl.kind === 'home' || pl.kind === 'camp')) continue;
+        gate = { s: head, dir, q };
+      }
+    }
+    if (!gate) return false;
+    const spd = kind === 'column' ? 2.05 : kind === 'walk' ? 1.55 : kind === 'ride' ? 4.7 : 4.2;
+    const g = { kind, pts, s: gate.s, dir: gate.dir, spd, crew: [], guns: [], horses: [], fight: false };
+    const add = (type, off, lat, mount, extra = {}) => {
+      const q = this.slot(pts, g.s + off * g.dir, lat, g.dir);
+      const a = makeNPC(type, q.x, q.y, Object.assign({ traffic: g, roadOff: off, roadLat: lat, wanderR: 0, persistent: false }, extra));
+      a.face = q.face; a.home = [q.x, q.y];
+      if (mount) this.up(a);
+      G.actors.push(a); g.crew.push(a); return a;
+    };
+    const horse = (off, lat) => {
+      const q = this.slot(pts, g.s + off * g.dir, lat, g.dir);
+      const h = Horse.make(q.x, q.y, rndi(0, COATS.length - 1), { vol: 0.18 });
+      h.face = q.face; h.off = off; h.lat = lat; h.spd = spd; g.horses.push(h); return h;
+    };
+    const gun = (off) => {
+      const q = this.slot(pts, g.s + off * g.dir, 0, g.dir);
+      g.guns.push({ x: q.x, y: q.y, face: q.face, dir: Math.cos(q.face) - Math.sin(q.face) > 0, off, lat: 0 });
+    };
+    if (kind === 'rider') {
+      const n = Math.random() < 0.35 ? 2 : 1, types = ['farmer', 'townsfolk', 'merchant', 'ronin'];
+      for (let i = 0; i < n; i++) add(pick(types), -i * 2.2, i ? (i % 2 ? 0.4 : -0.4) : 0, true, { talk: { kind: 'talk' }, faction: 'civ' });
+    } else if (kind === 'walk') {
+      const n = rndi(2, 3);
+      for (let i = 0; i < n; i++) add(i === 0 && n > 2 ? 'conscript' : 'imperial', -i * 1.5, i % 2 ? 0.38 : -0.38, false);
+    } else if (kind === 'ride') {
+      const n = rndi(3, 5);
+      for (let i = 0; i < n; i++) add(i === 0 ? 'officer' : 'imperial', -i * 2.1, (i % 2 ? 0.45 : -0.45) * (i ? 1 : 0), true);
+    } else {
+      add('officer', 0, 0, true);
+      add('imperial', -2.2, 0.5, true);
+      add('imperial', -4.2, -0.5, true);
+      add('imperial', -6.2, 0.4, false);
+      add('imperial', -7.6, -0.4, false);
+      add('conscript', -9.0, 0.35, false);
+      add('rifleman', -10.4, -0.35, false);
+      horse(-12.6, 0.28); horse(-14.0, -0.28);
+      gun(-15.6);
+      if (Math.random() < 0.45) { horse(-17.4, 0.28); horse(-18.8, -0.28); gun(-20.4); }
+    }
+    this.groups.push(g);
+    return true;
+  },
+  up(a) {
+    a.mount = Horse.make(a.x, a.y, rndi(0, COATS.length - 1), { vol: 0.22 });
+    a.mount.face = a.face; a.ai.ride = 'ride'; a.crouch = false; a.roadRide = true;
+  },
+  down(a) {
+    a.roadRide = false; a.traffic = null;
+    if (a.mount) GangRide.getDown(a);
+  },
+  update(dt) {
+    const p = G.player;
+    for (const g of this.groups) {
+      const alive = g.crew.filter(a => a && !a.dead && !a.gone);
+      g.fight = alive.some(a => a.ai && (a.ai.mode === 'fight' || a.provoked));
+      if (!alive.length) {
+        const far = !p || g.guns.concat(g.horses).every(o => GangRide.offscreen(o.x, o.y) && dist(o.x, o.y, p.x, p.y) > 28);
+        if (far) g.dead = true;
+        continue;
+      }
+      if (alive.every(a => dist(a.x, a.y, p.x, p.y) > 52 && GangRide.offscreen(a.x, a.y))) {
+        for (const a of alive) a.gone = true;
+        g.dead = true; continue;
+      }
+      const I = this.info(g.pts);
+      if (!g.fight) {
+        g.s += g.dir * g.spd * dt;
+        if (g.s > I.L - 3) { if (alive.every(a => GangRide.offscreen(a.x, a.y))) { for (const a of alive) a.gone = true; g.dead = true; continue; } g.dir = -1; g.s = I.L - 3; }
+        if (g.s < 3) { if (alive.every(a => GangRide.offscreen(a.x, a.y))) { for (const a of alive) a.gone = true; g.dead = true; continue; } g.dir = 1; g.s = 3; }
+      }
+      for (const c of g.guns) {
+        const q = this.slot(g.pts, g.s + c.off * g.dir, c.lat || 0, g.dir);
+        if (!g.fight) { c.x = q.x; c.y = q.y; c.face = q.face; c.dir = Math.cos(q.face) - Math.sin(q.face) > 0; }
+        if (!g.fight && Math.random() < dt * 1.4) FX.dust(c.x - Math.cos(c.face) * 0.5, c.y - Math.sin(c.face) * 0.5, 1);
+      }
+      for (const h of g.horses) {
+        const q = this.slot(g.pts, g.s + h.off * g.dir, h.lat, g.dir);
+        if (!g.fight) { h.x = q.x; h.y = q.y; h.face = q.face; h.spd = g.spd; }
+        else h.spd = lerp(h.spd, 0, 1 - Math.pow(0.08, dt));
+        h.walk += dt * (0.6 + h.spd * 0.42);
+        if (h.spd > 0.4) { h.hoofT = (h.hoofT || 0) - dt * h.spd; if (h.hoofT <= 0) { h.hoofT = 1.6; Snd.play('hoof', clamp(h.spd / 7, 0.15, 0.55) * (h.vol || 0.18)); } }
+      }
+    }
+    this.groups = this.groups.filter(g => !g.dead);
+  },
+  ai(a, dt) {
+    const g = a.traffic, ai = a.ai; if (!g || g.dead) { a.traffic = null; return false; }
+    if (a.dead || a.yielded) { a.traffic = null; return false; }
+    if (g.fight || ai.mode === 'fight' || a.provoked || a.aggressive) { this.down(a); return false; }
+    if (a.faction === 'civ' && (G.danger > 0 || ai.mode === 'flee')) {
+      const from = ai.from || G.player, ang = Math.atan2(a.y - from.y, a.x - from.x);
+      if (a.mount) { GangRide.steer(a, a.x + Math.cos(ang) * 10, a.y + Math.sin(ang) * 10, dt, 9); if (dist(a.x, a.y, from.x, from.y) > 36) a.gone = true; return true; }
+      this.down(a); return false;
+    }
+    if (a.faction === 'imperial' && G.wanted > 0) {
+      const t = findTarget(a); if (t) { this.down(a); ai.mode = 'fight'; ai.target = t; return false; }
+    }
+    const q = this.slot(g.pts, g.s + (a.roadOff || 0) * g.dir, a.roadLat || 0, g.dir), d = dist(a.x, a.y, q.x, q.y);
+    if (d > 10 && GangRide.offscreen(a.x, a.y)) { a.x = q.x; a.y = q.y; if (a.mount) { a.mount.x = q.x; a.mount.y = q.y; a.mount.face = q.face; } }
+    if (a.mount) GangRide.steer(a, q.x, q.y, dt, g.spd * (d > 2 ? 1.25 : 1));
+    else if (d > 0.18) steerMove(a, q.x - a.x, q.y - a.y, dt, clamp(g.spd / Math.max(0.4, a.speed), 0.45, 0.85));
+    else { a.move(0, 0, dt); a.face = turnTo(a.face, q.face, dt * 6); }
+    return true;
+  }
 };
 // ============================================================ BUILDINGS: real footprints, walls with doors, dollhouse interiors
 // 1 tile ≈ 1 m; a person is ~26 px tall. Doors face +y ('S', screen lower-left) or +x ('E', screen lower-right) so they are always visible.
@@ -9603,24 +10125,25 @@ const StoryMap = {
     }
     for (const S of this.list) if (S.kind === 'story') Realm.names.add(S.short);
   },
-  // the spur roads that tie the wilder story places to the nearest highway (after the highways are drawn)
-  spurs() {
+  // the spur roads that tie the wilder story places to the nearest highway (after the highways are drawn).
+  // they pass near the place, they do not drive into the hall; a second lane often T-joins somewhere else so
+  // the objective sits by a road, not at the end of a lonely spoke
+  spurs(R) {
+    R = R || (() => 0.5);
     for (const S of this.list) {
-      const Ly = S.kind === 'story' && LAYOUTS[S.layout]; if (!Ly || !(Ly.spur || S.cross) || S.gates) continue;
-      for (const sp of [].concat(S.cross ? ['farA', 'farB'] : Ly.spur)) this.spur(S, S.spots[sp] || [S.x, S.y]);
+      if (S.gates) continue;
+      const Ly = S.kind === 'story' && LAYOUTS[S.layout];
+      const names = Ly && (Ly.spur || S.cross) ? [].concat(S.cross ? ['farA', 'farB'] : Ly.spur) : ['c'];
+      for (const sp of names) {
+        const from = S.spots[sp] || [S.x, S.y];
+        const roadish = typeof sp === 'string' && sp.indexOf('road') === 0;
+        const p = roadish ? from : Realm.beside(from[0], from[1], 14, 32, 4, R);
+        Realm.link(p, R, 1.18, 560, { amp: 70, jogs: 2 });
+      }
+      Realm.link(Realm.beside(S.x, S.y, 18, 32, Math.min(S.r || 10, 12), R), R, 1.08, 480, { amp: 80, jogs: 2, shy: true });
     }
   },
-  spur(S, from) {
-    {
-      let best = null, bd = 260;
-      for (const pts of Realm.roads) { if (pts === S.road || pts.spurOf === S) continue; for (let i = 0; i < pts.length - 1; i++) { const q = segClosest(from, pts[i], pts[i + 1]), d = dist(q[0], q[1], from[0], from[1]); if (d < bd) { bd = d; best = q; } } }
-      if (!best || bd < 3) return;
-      const L = dist(from[0], from[1], best[0], best[1]), n = Math.max(1, Math.round(L / 24)), pts = [];
-      let wet = 0; for (let k = 0; k <= n; k++) { const t = k / n, x = lerp(from[0], best[0], t), y = lerp(from[1], best[1], t); if (Realm.seaVal(x, y) > -6) wet++; pts.push([x, y]); }
-      if (wet) return;
-      pts.w = 1.2; pts.spurOf = S; Realm.roads.push(pts);
-    }
-  }
+  spur(S, from) { Realm.link(from, () => 0.37, 1.18, 520); }
 };
 function segClosest(p, a, b) { const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1, t = clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2, 0, 1); return [a[0] + dx * t, a[1] + dy * t]; }
 // ============================================================ STORY LAYOUTS: how each story place is built
@@ -9640,6 +10163,7 @@ function siteBuilder(S, R) {
         W.set(i, j, t); W.setSolid(i, j, t === TILE.WATER ? 2 : 0); if (clear) W.setClear(i, j);
       }
     },
+    field(dx, dy, w, h, opt = {}) { W.field(ox + dx, oy + dy, w, h, opt); },
     disc(dx, dy, r, t) { W.disc(ox + dx, oy + dy, r, (i, j) => { if (W.bAt(i, j) || W.tileAt(i, j) === TILE.BRIDGE) return; const cur = W.tileAt(i, j); if (TINFO[cur].water && t !== TILE.WATER && t !== TILE.MUD) return; W.set(i, j, t); W.setSolid(i, j, t === TILE.WATER ? 2 : 0); W.setClear(i, j); }); },
     level(dx, dy, r) { W.disc(ox + dx, oy + dy, r, (i, j) => { if (W.solidAt(i, j) === 2 && !TINFO[W.tileAt(i, j)].water) { W.setSolid(i, j, 0); const t = W.tileAt(i, j); if (t === TILE.ROCK) W.set(i, j, TILE.DGRASS); } W.setClear(i, j); }); },
     // a line of ground (a lane, a trail) w wide through relative points
@@ -9745,7 +10269,7 @@ const LAYOUTS = {
         for (const [dx, dy] of [[-4, 28], [2, 28]]) P.d('lanternpost', dx, dy, 1, 1, { light: { r: 30, c: '255,190,110' } });
       }
       // paddies to the north and south-west, the cedar wood to the south
-      if (!burnt) for (const [dx, dy, w, h] of [[-30, -16, 14, 8], [-14, -16, 12, 8], [-38, 18, 12, 9]]) { P.tile(dx, dy, w, h, TILE.PADDY); P.d('scarecrow', dx + (w >> 1), dy + (h >> 1), 1, 1, { solid: false }); }
+      if (!burnt) { P.field(-36, -28, 14, 10, { gate: 'S' }); P.field(-16, -28, 12, 10, { gate: 'S' }); P.field(-44, 22, 12, 10, { gate: 'E' }); }
       P.trees(70, 30, 44, ['pine', 'pine', 'sakura', 'maple'], [[26, 30, 6], [-38, 7, 6], [24, 22, 4], [20, 18, 3]], 0, 10);
       P.spot('backGate', 20, 18); P.spot('bank', 23.5, 21); P.spot('trees', 22, 38); P.spot('army', -58, 7);
       P.freeSpots();
@@ -9778,9 +10302,10 @@ const LAYOUTS = {
     spots: { start: [-18, -4], mud: [-11, -3], carriage: [-15, 1], mid: [0, 0], end: [18, 4] },
     build(S, P) {
       P.clear(0, 0, 18); P.path([[-20, -4], [-6, -1], [8, 2], [20, 4]], 0.8, TILE.PATH);
-      for (const [dx, dy, w, h] of [[-18, -12, 16, 6], [2, -9, 16, 7], [-18, 2, 14, 6], [0, 6, 18, 7]]) { P.tile(dx, dy, w, h, TILE.PADDY); }
+      P.field(-18, -12, 16, 6, { gate: 'S', keepPath: true }); P.field(2, -10, 16, 6, { gate: 'S', keepPath: true });
+      P.field(-18, 5, 14, 6, { gate: 'N', keepPath: true }); P.field(0, 6, 18, 7, { gate: 'N', keepPath: true });
       P.creek([[-18, -5.6], [20, 2.2]], 0.5); P.creek([[-18, -2.2], [20, 5.6]], 0.5);
-      P.tile(-20, -5, 2, 2, TILE.PATH); P.d('scarecrow', -10, -9, 1, 1, { solid: false }); P.d('scarecrow', 8, 9, 1, 1, { solid: false });
+      P.tile(-20, -5, 2, 2, TILE.PATH);
       P.b('ruin', 6, -16, 6, 5, { name: 'Abandoned Farmhouse' });
       P.tile(-13, -5, 4, 3, TILE.MUD); P.freeSpots();
     }
@@ -10218,8 +10743,7 @@ function freeRectNear(P, dx, dy, w, h, maxR = 40) {
 const EXTRAS = {
   cabbage(S, P) {
     const L = S.L || 22, q = freeRectNear(P, L + 6, 4, 9, 7); if (!q) return;
-    const [x, y] = q; P.tile(x, y, 9, 7, TILE.DGRASS); for (let j = 1; j < 6; j += 2) for (let i = 1; i < 8; i += 2) P.d('bush', x + i, y + j, 1, 1, { solid: false });
-    P.fence('fence', x - 1, y - 1, x + 9, y - 1); P.fence('fence', x - 1, y + 7, x + 9, y + 7, [[4, 6]]); P.d('scarecrow', x + 4, y + 3, 1, 1, { solid: false });
+    const [x, y] = q; P.field(x, y, 9, 7, { tile: TILE.DGRASS, crops: true, gate: 'S' });
     P.spot('garden', x + 4.5, y + 3.5); P.spot('gardenGate', x + 4.5, y + 8.5); const sx = S.spots.square[0] - P.ox, sy = S.spots.square[1] - P.oy; P.d('stall', sx + 3, sy - 1, 1, 1); P.spot('stall', sx + 3.5, sy + 1.2);
   },
   boyvil(S, P) {
@@ -10238,7 +10762,7 @@ const EXTRAS = {
   },
   mtnvil(S, P) {
     const t = freeRectNear(P, 0, -24, 14, 10); if (t) { P.b('honden', t[0], t[1] + 2, 7, 6, { name: 'Village Temple', spot: 'temple' }); P.b('kura', t[0] + 8, t[1], 5, 5, { name: 'Hidden Storehouse', spot: 'storehouse', in: 'storeIn' }); }
-    const c = freeRectNear(P, -(S.L || 22) - 16, 8, 10, 6); if (c) { P.tile(c[0], c[1], 10, 6, TILE.PADDY); P.creek([[c[0], c[1] - 1], [c[0] + 10, c[1] - 1]], 0.5); for (let i = 0; i < 3; i++) P.spot('channel' + (i + 1), c[0] + 1.5 + i * 3.5, c[1] + 0.5); }
+    const c = freeRectNear(P, -(S.L || 22) - 22, 10, 12, 8); if (c) { P.field(c[0], c[1], 12, 8, { gate: 'E' }); P.creek([[c[0], c[1] - 1], [c[0] + 12, c[1] - 1]], 0.5); for (let i = 0; i < 3; i++) P.spot('channel' + (i + 1), c[0] + 1.5 + i * 4, c[1] + 1.2); }
     const b = freeRectNear(P, (S.L || 22) + 14, -6, 4, 8); if (b) { P.creek([[b[0] + 2, b[1] - 6], [b[0] + 2, b[1] + 14]], 1.1); P.d('rubble', b[0], b[1] + 3); P.spot('bridge1', b[0] - 0.5, b[1] + 4); P.spot('bridge2', b[0] - 0.5, b[1] + 1); }
     const wx = Math.round(S.spots.square[0] - P.ox), wy = Math.round(S.spots.square[1] - P.oy); P.d('well', wx, wy - 1); P.spot('well', wx + 0.5, wy + 1.2);
   },
@@ -13498,6 +14022,10 @@ const Render = {
     Wildlife.push(D, camX, camY, BL); Miso.push(D, camX, camY, BL); Bamboo.push(D, camX, camY);
     Bridges.push(D, camX, camY);
     for (const h of GangRide.loose) { const sx = (h.x - h.y) * HTW - camX, sy = (h.x + h.y) * HTH - camY - BL(h.x, h.y); if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60) D.push({ k: h.x + h.y, h, loose: true, sx, sy }); }
+    for (const g of Traffic.groups) {
+      for (const h of g.horses) { const sx = (h.x - h.y) * HTW - camX, sy = (h.x + h.y) * HTH - camY - BL(h.x, h.y); if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60) D.push({ k: h.x + h.y, h, loose: true, sx, sy }); }
+      for (const c of g.guns) { const sx = (c.x - c.y) * HTW - camX, sy = (c.x + c.y) * HTH - camY - BL(c.x, c.y); if (sx > -50 && sx < VW + 50 && sy > -20 && sy < VH + 80) D.push({ k: c.x + c.y + 0.2, cannon: c, sx, sy }); }
+    }
     if (G.horse) { const h = G.horse, sx = (h.x - h.y) * HTW - camX, sy = (h.x + h.y) * HTH - camY - BL(h.x, h.y); if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60) D.push({ k: h.x + h.y + 0.01, h, sx, sy }); }
     for (const g of FX.gibs) { const sx = (g.x - g.y) * HTW - camX, sy = (g.x + g.y) * HTH - camY; if (sx > -40 && sx < VW + 40 && sy > -40 && sy < VH + 60) D.push({ k: g.x + g.y + (g.kind === 'corpse' || g.kind === 'half' ? -0.3 : 0), g }); }
     D.sort((a, b) => a.k - b.k);
@@ -13531,6 +14059,7 @@ const Render = {
         if (P && P.mounted && !P.dead && !d.loose && (P.mpMount === d.h || G.horse === d.h) && d.rider !== P) drawOn(P, P.mpSeat === 1 ? rump : saddle);
         if (typeof Net !== 'undefined') for (const a of Net.ridersOn(d.h)) if (a !== d.rider && a !== P) drawOn(a, a.mpSeat === 1 ? rump : saddle);
       }
+      else if (d.cannon) Props.draw.cannon(ctx, Math.round(d.sx), Math.round(d.sy), d.cannon);
       else if (d.g) FX.drawGib(ctx, d.g, camX, camY);
       else if (d.chop) Bamboo.draw(ctx, d.chop, camX, camY);
       else if (d.beast) Wildlife.draw(ctx, d.beast, Math.round(d.sx), Math.round(d.sy), t);
