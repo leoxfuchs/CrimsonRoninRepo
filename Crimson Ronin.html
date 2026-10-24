@@ -527,6 +527,7 @@ const Snd = {
       const len = this.ctx.sampleRate * 1.5; this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       this.startWind();
+      this.startRain();
       if (typeof Music !== 'undefined') Music.attach();
     } catch (e) { this.ctx = null; }
   },
@@ -605,12 +606,24 @@ const Snd = {
     this.noise(t, 0.016, 'highpass', 5200, 0.7, peak * 2.4);
     this.noise(t, 0.04, 'bandpass', fund * 3.4, 6, peak * 0.7);
   },
-  // blade singing after it clears the saya — high steel, no sub
+  // one singing blade — whistle trick, rising then falling, never a clang
   shing(t, peak) {
-    const f = this.jit(2480, 0.07);
-    this.noise(t, 0.018, 'highpass', 7200, 0.5, peak * 1.8);
-    this.noise(t, 0.07, 'bandpass', f * 1.35, 5.5, peak * 0.85);
-    [1, 1.68, 2.41, 3.27, 4.52].forEach((r, i) => this.res(t, f * r, 0.82 - i * 0.11, peak * [1, 0.7, 0.4, 0.22, 0.12][i], { q: 20 - i * 1.8, type: i ? 'sine' : 'triangle', jit: 0.012, attack: 0.002 }));
+    if (!this.ctx) return;
+    const f0 = 1980 + Math.random() * 220, top = f0 * 1.62, end = f0 * 0.78, d = 0.78;
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(top, t + 0.08); o.frequency.exponentialRampToValueAtTime(end, t + d);
+    const o2 = this.ctx.createOscillator(); o2.type = 'sine';
+    o2.frequency.setValueAtTime(f0 * 2.005, t); o2.frequency.exponentialRampToValueAtTime(top * 2.005, t + 0.08); o2.frequency.exponentialRampToValueAtTime(end * 2.005, t + d);
+    const g2 = this.ctx.createGain(); g2.gain.value = 0.16;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 15;
+    bp.frequency.setValueAtTime(f0, t); bp.frequency.exponentialRampToValueAtTime(top, t + 0.08); bp.frequency.exponentialRampToValueAtTime(end, t + d);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + 0.04);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak * 0.38), t + 0.22);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(bp); o2.connect(g2); g2.connect(bp); bp.connect(g); g.connect(this.sfxBus);
+    o.start(t); o2.start(t); o.stop(t + d + 0.06); o2.stop(t + d + 0.06);
+    this.noise(t, 0.09, 'bandpass', f0 * 1.2, 7, peak * 0.28, null, top);
   },
   wood(t, f, peak) {
     this.res(t, f, 0.1, peak, { type: 'triangle', q: 5.5, slide: f * 0.7, jit: 0.05 });
@@ -652,20 +665,11 @@ const Snd = {
         this.noise(t, 0.08, 'lowpass', 220, 1, 0.18 * v);
         this.res(t + 0.04, rnd(1800, 2400), 0.12, 0.03 * v, { q: 10, slide: 900 });
         break;
-      case 'draw': {
-        this.wood(t, rnd(260, 340), 0.07 * v);
-        this.scrape(t, 0.1, 4200, 2600, 0.14 * v, 2.8);
-        this.scrape(t + 0.06, 0.36, 1600, 5200, 0.22 * v, 4.4);
-        this.scrape(t + 0.1, 0.28, 900, 2600, 0.09 * v, 2.6);
-        this.res(t + 0.1, 1400, 0.34, 0.09 * v, { q: 13, type: 'triangle', slide: 3100, attack: 0.05 });
-        this.res(t + 0.14, 2100, 0.3, 0.06 * v, { q: 16, slide: 3900, attack: 0.06 });
-        this.tick(t + 0.16, 0.1 * v);
-        this.tick(t + 0.26, 0.08 * v);
-        this.whoosh(t + 0.28, 0.16, 3400, 700, 0.12 * v);
-        this.shing(t + 0.36, 0.2 * v);
-        this.res(t + 0.38, rnd(3600, 4400), 0.5, 0.07 * v, { q: 18, slide: 2200 });
+      case 'draw':
+        this.scrape(t, 0.16, 2400, 4600, 0.09 * v, 3.8);
+        this.whoosh(t + 0.05, 0.14, 2200, 700, 0.08 * v);
+        this.shing(t + 0.1, 0.13 * v);
         break;
-      }
       case 'sheathe':
         this.scrape(t, 0.3, 3600, 1500, 0.14 * v, 3.4);
         this.scrape(t + 0.1, 0.22, 1900, 800, 0.07 * v, 2.4);
@@ -937,6 +941,14 @@ const Snd = {
     const g = this.ctx.createGain(); g.gain.value = 0.014; s.connect(f); f.connect(g); g.connect(this.master); s.start();
     this.wind = { f, g };
   },
+  startRain() {
+    const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true; s.playbackRate.value = 0.9;
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3000; bp.Q.value = 0.55;
+    const g = this.ctx.createGain(); g.gain.value = 0.0001;
+    s.connect(hp); hp.connect(bp); bp.connect(g); g.connect(this.master); s.start();
+    this._rain = { g };
+  },
   whistleChirp(t, f, d, peak, fall) {
     if (!this.ctx) return;
     const o = this.ctx.createOscillator(); o.type = 'sine';
@@ -1024,6 +1036,8 @@ const Snd = {
     const menu = typeof UI !== 'undefined' && UI.isOpen && UI.isOpen();
     this.whistleHold(Input.held('KeyH') && !menu && G.state === 'play');
     if (this.wind) { this.wind.g.gain.value = lerp(this.wind.g.gain.value, 0.008 + windAmt * 0.028, 0.02); this.wind.f.frequency.value = 300 + Math.sin(performance.now() / 3000) * 120 + windAmt * 200; }
+    const raining = !!(typeof G !== 'undefined' && G.rain && G.state === 'play' && !(typeof Buildings !== 'undefined' && Buildings.inside));
+    if (this._rain) this._rain.g.gain.value = lerp(this._rain.g.gain.value, raining ? 0.007 : 0.0001, 0.04);
     if (typeof Music !== 'undefined') Music.tick(dt, mood);
   }
 };
@@ -5854,7 +5868,7 @@ const G = {
     if (prevTod < 0.25 && this.tod >= 0.25) Systems.dawn();
     this.night = this.tod < 0.22 || this.tod > 0.8;
     this.rainT -= dt; if (this.rainT <= 0) { this.rain = Math.random() < 0.15; this.rainT = rnd(60, 160); }
-    this.wind = 0.4 + Math.sin(performance.now() / 9000) * 0.3 + (this.rain ? 0.4 : 0);
+    this.wind = 0.4 + Math.sin(performance.now() / 9000) * 0.3 + (this.rain ? 0.08 : 0);
     this.wanted = Math.max(0, this.wanted - dt);
     Missions.update(dt);
     if (p.dead) return;
