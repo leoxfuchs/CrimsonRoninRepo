@@ -1,0 +1,13 @@
+{
+  "name": "crimson-ronin-server",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Shared-world WebSocket host for Crimson Ronin Gang mode",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

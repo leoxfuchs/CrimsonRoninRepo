@@ -99,12 +99,31 @@ Any static file server works (`npx serve`, Caddy, nginx, GitHub Pages, and so on
 | --- | --- |
 | **Quick Start · begin the story** | Jump straight into the campaign with the default look. |
 | **New Game · shape Ren’s look** | Customize hair, kimono, scars, and coat, then begin. |
+| **Gang / Multiplayer** | Shared persistent world. No story campaign. Side quests, a gang camp, and friends on one island. |
 | **How to Fight** | Show the control list on the title screen. |
 | **Controls** | Toggle **Turn and walk** (W walks the way Ren faces) vs **Classic** (WASD strafes, mouse aims). |
 
 On the intro card you can **Begin the story** (childhood in Kiyohara) or **Skip the childhood prologue**.
 
 Progress is written to the browser’s `localStorage`. **Continue the Journey** appears on the title screen once a save exists. Pause with `Esc` to save and return to title.
+
+### Gang / Multiplayer (shared world)
+
+Story mode still runs from the HTML file alone. **Gang / Multiplayer** needs the Node world server so every browser shares one persistent Kurenai.
+
+```bash
+docker compose up
+```
+
+Then open [http://127.0.0.1:8091/](http://127.0.0.1:8091/) (or `http://127.0.0.1:8091/crimson-ronin/`). WebSocket is `/ws` and `/crimson-ronin/ws`. The compose file binds **127.0.0.1:8091** only, so a later Caddy reverse-proxy on the leo VM can front `/crimson-ronin/` without nginx.
+
+Without Docker:
+
+```bash
+cd server && npm install && PORT=8091 BIND=127.0.0.1 node index.js
+```
+
+You spawn at your gang camp (a tree-cleared patch near a town, never Kuroba-dera). The map is fully revealed. Fast travel exists only back to camp. Side quests are repeatable with friends; starting one pulls nearby gangmates in. Pause (`Esc`) to invite by name or id. Two riders can share one horse (saddle + mount behind). Camp buildings are bought damaged, then upgraded with mon from side work. Sleep in the quarters to heal. Closing the tab does not wipe the world (`server/data/world.json`).
 
 ---
 
@@ -153,6 +172,8 @@ The world is the island of Kurenai-jima, thousands of tiles on a side, with a ha
 ```
 CrimsonRoninRepo/
 ├── Crimson Ronin.html    # the entire game: world, story, renderer, audio, UI
+├── compose.yaml          # static HTML + Gang WebSocket on 127.0.0.1:8091
+├── server/               # Node world host (ws, JSON save in server/data/)
 ├── README.md
 ├── .gitignore
 └── docs/screenshots/     # images used in this README

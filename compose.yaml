@@ -1,0 +1,20 @@
+# Local / leo-VM host for Gang multiplayer.
+# Caddy on the VM should reverse-proxy:
+#   /crimson-ronin/    → 127.0.0.1:8091  (static HTML)
+#   /crimson-ronin/ws  → 127.0.0.1:8091  (WebSocket, same process)
+# Bind only loopback on the host. Do not install nginx.
+services:
+  crimson-ronin:
+    image: node:20-alpine
+    working_dir: /app/server
+    command: sh -c "npm install --omit=dev && node index.js"
+    environment:
+      PORT: "8091"
+      BIND: "0.0.0.0"
+      STATIC_ROOT: /app
+      DATA_DIR: /app/server/data
+    volumes:
+      - .:/app
+    ports:
+      - "127.0.0.1:8091:8091"
+    restart: unless-stopped

@@ -213,6 +213,7 @@ em.kw{font-style:normal;color:#ffd24a;}
 .opt output{text-align:center;background:#0003;padding:5px;border:1px solid #00000080;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .namebox{display:flex;gap:6px;}
 .namebox input{flex:1;min-width:0;background:#0006;border:1px solid #000;color:var(--paper);font-family:var(--f-display);font-size:18px;padding:6px 10px;}
+#panelBody input{flex:1;min-width:0;background:#0006;border:1px solid #000;color:var(--paper);font-family:var(--f-ui);font-size:14px;padding:6px 10px;}
 #death{background:radial-gradient(circle,#3a0406f2,#0b0204fc);z-index:5;}
 .death-wrap{display:grid;gap:14px;justify-items:center;text-align:center;}
 .death-k{font-family:var(--f-display);font-weight:800;font-size:clamp(90px,20vw,170px);line-height:1;color:var(--vermilion);text-shadow:0 0 40px #000;margin:0;}
@@ -323,6 +324,8 @@ body.talking #mObj,body.talking #mSubs{display:none;}
         <button class="btn gold" id="btnContinue" hidden>Continue the Journey</button>
         <button class="btn" id="btnQuick">Quick Start · begin the story</button>
         <button class="btn alt" id="btnNew">New Game · shape Ren's look</button>
+        <button class="btn gold" id="btnGang">Gang / Multiplayer</button>
+        <button class="btn alt" id="btnGangCont" hidden>Continue the Gang</button>
         <button class="btn alt" id="btnKeys">How to Fight</button>
         <button class="btn alt" id="btnControls">Controls: Turn and walk</button>
         <button class="btn gold" id="btnDev" hidden>Dev Kit · jump to a mission</button>
@@ -3881,6 +3884,7 @@ class Actor {
     this.dead = true; this.state = 'dead'; this.hp = 0;
     makeCorpse(this, killer, info);
     G.onKill(killer, this, info);
+    if (G.mp && typeof Net !== 'undefined' && !this.isP && !this._mpKill) Net.send({ t: 'kill', x: this.x, y: this.y, name: this.name, faction: this.faction });
   }
 }
 function blockedCircle(x, y, r) { const d = r * 0.72; return World.blockedAt(x, y) || World.blockedAt(x - r, y) || World.blockedAt(x + r, y) || World.blockedAt(x, y - r) || World.blockedAt(x, y + r) || World.blockedAt(x - d, y - d) || World.blockedAt(x + d, y - d) || World.blockedAt(x - d, y + d) || World.blockedAt(x + d, y + d); }
@@ -4356,7 +4360,7 @@ const PERKS = [
 ];
 const DAY_LEN = 600;
 const G = {
-  state: 'title', difficultyIn: 0.8, actors: [], player: null, gang: [], pickups: [], profile: null, horse: null, fog: null, time: 0,
+  state: 'title', mp: false, difficultyIn: 0.8, actors: [], player: null, gang: [], pickups: [], profile: null, horse: null, fog: null, time: 0,
   tod: 0.3, night: false, rain: false, rainT: 0, wind: 0.4, hitstop: 0, slowT: 0, slowF: 1, shake: 0, wanted: 0, attackers: 0, maxAttackers: 2,
   duel: null, bloodyFeet: 0, buffer: 0, gangHold: false, stats: { parries: 0 }, sakeHeal: 0, spawnT: 0, saveT: 0, curPlace: null, danger: 0, interact: null, assassin: null, mouseWorld: [0, 0], frame: 0, fogT: 0, questT: 0,
   holders: [], tokenCool: 0,
@@ -4395,9 +4399,13 @@ const G = {
   xpNeed() { return 50 + this.profile.level * 40; },
   applyStats() {
     const p = this.profile, a = this.player; if (!a) return;
-    a.maxHp = 100 + this.perkN('iron') * 25 + p.hideout.shrine * 15 + (p.bonusHp || 0);
-    a.maxSt = 70 + this.perkN('endure') * 30 + p.hideout.dojo * 15;
-    a.dmgMult = (1 + this.perkN('edge') * 0.15) * (1 + p.hideout.forge * 0.1);
+    const camp = (this.mp && Net && Net.gang && Net.gang.buildings) || {};
+    const shrine = (this.mp ? (camp.shrine || 0) : p.hideout.shrine);
+    const dojo = (this.mp ? (camp.dojo || 0) : p.hideout.dojo);
+    const forge = (this.mp ? (camp.forge || 0) : p.hideout.forge);
+    a.maxHp = 100 + this.perkN('iron') * 25 + shrine * 15 + (p.bonusHp || 0);
+    a.maxSt = 70 + this.perkN('endure') * 30 + dojo * 15;
+    a.dmgMult = (1 + this.perkN('edge') * 0.15) * (1 + forge * 0.1);
     a.bleedMult = this.hasPerk('clot') ? 0.4 : 0.6;
     a.speedMult = this.hasPerk('swift') ? 1.12 : 1;
     a.wpn = p.wpn; a.armor = p.armor; a.look = p.look; a.name = p.name;
@@ -4466,9 +4474,15 @@ const G = {
     this.actors = []; this.gang = []; this.pickups = []; this.horse = null; FX.parts = []; FX.decals = []; FX.gibs = []; FX.emitters = []; FX.floaters = [];
     Systems.initFog();
     const st = profile.story || (profile.story = { n: 1, best: 0 });
+    if (profile.mp) {
+      this.mp = true; st.n = 99; st.best = 99;
+      if (G.fog) G.fog.fill(1);
+      for (const pl of PLACES) profile.discovered[pl.id] = true;
+      for (const t of World.towers) if (t.towerId) profile.towers[t.towerId] = 1;
+    }
     if (skipTutorial && st.n === 1) { st.n = 6; profile.horse = { coat: 4 }; }
-    const nextDef = Missions.def(st.n), fresh = !profile.pos;
-    const start = (fresh || (nextDef && (nextDef.chain || nextDef.kid))) && nextDef ? StoryMap.at(nextDef.at) : profile.pos || World.spots.start;
+    const nextDef = this.mp ? null : Missions.def(st.n), fresh = !profile.pos;
+    const start = this.mp ? (profile.pos || World.spots.mpCamp || World.spots.start) : ((fresh || (nextDef && (nextDef.chain || nextDef.kid))) && nextDef ? StoryMap.at(nextDef.at) : profile.pos || World.spots.start);
     this.player = new Actor({ x: start[0], y: start[1], faction: 'player', name: profile.name, look: profile.look, wpn: profile.wpn, hp: 100, maxHp: 100, speed: 4.0, skill: 1, face: 0 });
     World.streamAll(start[0], start[1]);
     if (blockedCircle(this.player.x, this.player.y, this.player.r)) {
@@ -4480,7 +4494,7 @@ const G = {
     this.actors.push(this.player);
     this.applyStats(); this.player.hp = this.player.maxHp; this.player.st = this.player.maxSt;
     for (const m of profile.gang) if (m.alive) { const q = World.randomWalkable(this.player.x, this.player.y, 1, 2.5) || [this.player.x, this.player.y]; this.spawnGangMember(m, q[0], q[1]); }
-    if (profile.horse) { const q = World.randomWalkable(this.player.x, this.player.y, 1.5, 3) || [this.player.x + 1, this.player.y]; this.horse = Horse.make(q[0], q[1], profile.horse.coat); }
+    if (profile.horse) { const q = World.randomWalkable(this.player.x, this.player.y, 1.5, 3) || [this.player.x + 1, this.player.y]; this.horse = Horse.make(q[0], q[1], profile.horse.coat, profile.horse); }
     World.streamAll(this.player.x, this.player.y);
     Systems.populate(); Wildlife.reset(); Bamboo.reset();
     Systems.ensureBounties();
@@ -4488,7 +4502,8 @@ const G = {
     // the story: a new game begins on the last beautiful morning in Kiyohara (or fifteen years later, on Hawk Ridge);
     // a saved game picks up at the next mission's marker, and a mission that follows straight on starts by itself
     Missions.cur = null; Missions.failing = false; Missions.reloading = false; Missions.ambient = []; Missions.chainDef = null; Subs.clear();
-    if (nextDef && (fresh || nextDef.chain || nextDef.kid)) setTimeout(() => { if (G.profile === profile && !Missions.cur) Missions.start(nextDef, { place: true }); }, 400);
+    if (this.mp) { MpCamp.ensure(); MpCamp.apply(Net.gang); if (typeof Net !== 'undefined' && Net.onStart) Net.onStart(); }
+    if (!this.mp && nextDef && (fresh || nextDef.chain || nextDef.kid)) setTimeout(() => { if (G.profile === profile && !Missions.cur) Missions.start(nextDef, { place: true }); }, 400);
     if (storyFree()) for (const id of ['blades', 'towers', 'camps']) if (!Quests.st(id)) Quests.start(id, true);
     this.curPlace = (World.placeAt(this.player.x, this.player.y) || {}).id || null;
     if (this.curPlace) this.profile.discovered[this.curPlace] = true;
@@ -4519,13 +4534,14 @@ const G = {
     Guns.update(dt); Cannon.update(dt); Fires.update(dt); Miso.update(dt);
     this.attackers = 0;
     for (const a of this.actors) if (!a.dead && a.ai?.target === p && (a.state === 'atk' || a.ai.token)) this.attackers++;
-    for (const a of this.actors) { if (a !== p && !a.isP && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) > 60 && !(a.ai && a.ai.mode === 'fight')) continue; if (a !== p) aiUpdate(a, dt); a.update(dt); }
+    for (const a of this.actors) { if (a !== p && !a.isP && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) > 60 && !(a.ai && a.ai.mode === 'fight')) continue; if (a !== p && !a.remote) aiUpdate(a, dt); if (!a.remote) a.update(dt); }
     const A = this.actors;
     for (let i = 0; i < A.length; i++) { const a = A[i]; if (a.dead || a.dummy || a.mount) continue; for (let j = i + 1; j < A.length; j++) { const b = A[j]; if (b.dead || b.dummy || b.mount) continue; if ((a === p || b === p) && p.mounted) continue; const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy, m = a.r + b.r; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2), push = (m - d) * 0.5, nx = dx / d, ny = dy / d; if (a !== p || b.isP) moveActor(a, -nx * push, -ny * push, 1); moveActor(b, nx * push, ny * push, 1); } } }
     this.actors = this.actors.filter(a => !(a.gone && !a.persistent) && !(a.dead && a.deadT > 30 && !a.linger && GangRide.offscreen(a.x, a.y)));
     for (const a of this.actors) if (a.dead) a.deadT = (a.deadT || 0) + dt;
     this.updatePickups(dt);
     Systems.update(dt);
+    if (this.mp && typeof Net !== 'undefined') Net.tick(dt);
     if ((this.spawnT -= dt) <= 0) { this.spawnT = 1.6; Systems.spawnTick(); }
     if ((this.questT -= dt) <= 0) { this.questT = 0.5; Quests.update(); }
     if ((this.fogT -= dt) <= 0) { this.fogT = 0.4; Systems.reveal(p.x, p.y, p.mounted ? 11 : 9); }
@@ -4546,7 +4562,7 @@ const G = {
     if (pid !== this.curPlace) {
       this.curPlace = pid;
       if (pl) {
-        if (!this.profile.discovered[pid]) { this.profile.discovered[pid] = true; UI.banner(pl); this.addXP(10); if (pl.safe) UI.toast('Discovered ' + pl.name + ' · you can fast travel here (M)', 'good'); }
+        if (!this.profile.discovered[pid]) { this.profile.discovered[pid] = true; UI.banner(pl); this.addXP(10); if (pl.safe && !this.mp) UI.toast('Discovered ' + pl.name + ' · you can fast travel here (M)', 'good'); }
         Quests.emit('enter', pid);
       }
     }
@@ -4579,6 +4595,15 @@ const G = {
   },
   updatePlayer(dt) {
     const p = this.player;
+    if (this.sleeping) {
+      const q = (Net && Net.gang && Net.gang.buildings && Net.gang.buildings.quarters) || 1;
+      const rate = q >= 3 ? 4 : q >= 2 ? 2 : 1;
+      p.hp = Math.min(p.maxHp, p.hp + rate * dt); p.bleed = Math.max(0, p.bleed - dt * 0.2); p.st = Math.min(p.maxSt, p.st + dt * 8);
+      p.moving = false; p.pose = 'sleep';
+      if (Input.hit('KeyE', 'Space', 'Escape')) { this.sleeping = false; UI.toast('You wake.'); }
+      Systems.findInteract();
+      return;
+    }
     if (UI.isOpen()) { if (!p.mounted) p.move(0, 0, dt); else if (this.horse) this.horse.spd *= 0.9; return; }
     if (Mini.cur && Mini.update(dt)) return;
     if (this.duel && this.duel.phase !== 'fight' && this.duel.phase !== 'over') { p.move(0, 0, dt); Systems.duelInput(); return; }
@@ -5054,6 +5079,7 @@ const Systems = {
     const p = G.player; let best = null, bd = 9;
     G.assassin = assassinTarget();
     if (p.mounted) { G.interact = { kind: 'dismount', label: 'Dismount' }; UI.prompt(G.interact.label, G.assassin); return; }
+    if (G.sleeping) { G.interact = { kind: 'wake', label: 'Wake' }; UI.prompt(G.interact.label); return; }
     for (const a of G.actors) {
       if (a === p || a.dead || a.dummy) continue;
       const d = dist(p.x, p.y, a.x, a.y); if (d > 1.7 || d >= bd) continue;
@@ -5065,7 +5091,11 @@ const Systems = {
       if (mark || a.talk || a.rosterKey) { bd = d; best = { kind: 'npc', actor: a, label: mark === '?' ? 'Talk to ' + a.name : mark === '!' ? a.name + ' needs help' : a.talk && a.talk.label ? a.talk.label : 'Talk to ' + (a.name || 'them') }; }
     }
     if (!best && !p.mounted) best = Wildlife.interact(p);
-    if (G.horse && Horse.canMount() && !best) { bd = dist(p.x, p.y, G.horse.x, G.horse.y); best = { kind: 'mount', label: 'Mount ' + G.horse.name }; }
+    if (Horse.canMount() && !best) { const h = Horse.mountTarget(); bd = dist(p.x, p.y, h.x, h.y); best = { kind: 'mount', label: Horse.mountLabel() }; }
+    if (G.mp && typeof MpCamp !== 'undefined') {
+      const site = MpCamp.near(p.x, p.y);
+      if (site && site.d < bd) { bd = site.d; best = site.it; }
+    }
     if (!best) {
       const tx = Math.floor(p.x), ty = Math.floor(p.y);
       for (let j = ty - 3; j <= ty + 3; j++) for (let i = tx - 3; i <= tx + 3; i++) {
@@ -5101,6 +5131,13 @@ const Systems = {
     switch (it.kind) {
       case 'dismount': Horse.dismount(); break;
       case 'mount': Horse.mount(); break;
+      case 'wake': G.sleeping = false; G.player.pose = 'idle'; UI.toast('You wake.'); break;
+      case 'sleep': G.sleeping = true; G.player.pose = 'sleep'; UI.toast('Sleeping · a little health returns each breath'); break;
+      case 'clothes': Creator.open(true); Creator.mpFree = true; break;
+      case 'campBuy': if (typeof Net !== 'undefined') Net.campBuy(it.key); break;
+      case 'campUp': if (typeof Net !== 'undefined') Net.campUp(it.key); break;
+      case 'horseBuy': if (typeof Net !== 'undefined') Net.buyHorse(it.tier); break;
+      case 'map': UI.open('map'); break;
       case 'yielded': this.spare(it.actor); break;
       case 'beast': Wildlife.use(it); break;
       case 'help': { const a = it.actor; a.downed = false; a.yielded = false; a.state = 'idle'; a.hp = Math.max(a.hp, a.maxHp * 0.4); FX.text(a.x, a.y, 'Thank you.', '#7ab8ff'); break; }
@@ -5220,6 +5257,11 @@ const Systems = {
   },
   travelSpots() {
     const p = G.profile, out = [];
+    if (G.mp) {
+      const c = World.spots.mpCamp || (Net.slot && [Net.slot.x, Net.slot.y + 2]);
+      if (c) out.push({ id: 'mpCamp', name: 'Gang camp', jp: '陣', x: c[0], y: c[1], camp: true });
+      return out;
+    }
     for (const pl of PLACES) if ((pl.safe || pl.kind === 'home') && p.discovered[pl.id]) out.push({ id: pl.id, name: pl.name, jp: pl.jp, x: pl.id === 'hideout' ? World.spots.hideout[0] : pl.x, y: pl.id === 'hideout' ? World.spots.hideout[1] : pl.y });
     for (const t of World.towers) if (p.towers[t.towerId]) out.push({ id: 'tw_' + t.towerId, name: t.tname && t.tname.startsWith('Watchtower') ? t.tname : 'Watchtower · ' + (t.tname || t.towerId), jp: '望', x: t.cx + 1, y: t.cy + 1 });
     return out;
@@ -5229,13 +5271,27 @@ const Systems = {
     if (G.profile.flags.siege && sp.id === 'castle') { UI.toast('The castle guard would cut you down at the gate', 'shame'); return; }
     const q = World.randomWalkable(sp.x, sp.y, 0, 3, 80) || [sp.x, sp.y];
     const p = G.player; p.x = q[0]; p.y = q[1];
-    if (G.horse) { const r = World.randomWalkable(q[0], q[1], 1.2, 2.5) || q; if (p.mounted) { G.horse.x = q[0]; G.horse.y = q[1]; } else { G.horse.x = r[0]; G.horse.y = r[1]; } G.horse.spd = 0; }
+    if (G.horse) {
+      const hitch = (G.mp && World.spots.mpStable) ? World.spots.mpStable : null;
+      const r = hitch || World.randomWalkable(q[0], q[1], 1.2, 2.5) || q;
+      if (p.mounted && !hitch) { G.horse.x = q[0]; G.horse.y = q[1]; } else { G.horse.x = r[0]; G.horse.y = r[1]; p.mounted = hitch ? false : p.mounted; }
+      G.horse.spd = 0;
+    }
     for (const m of G.gang) { const r = World.randomWalkable(q[0], q[1], 0.8, 2) || q; m.x = r[0]; m.y = r[1]; if (m.mount) { m.mount.x = m.x; m.mount.y = m.y; m.mount.spd = 0; } }
     GangRide.loose = []; Wildlife.reset(); Bamboo.reset();
     G.tod = (G.tod + 0.04) % 1; Camera.snap = true; UI.fade(); World.streamAll(q[0], q[1]);
     G.actors = G.actors.filter(a => a.persistent || a.isP);
   },
-  save() { if (G.profile) { G.profile.tod = G.tod; if (G.fog) G.profile.fog = this.fogString(); if (G.player && !G.player.dead) G.profile.pos = [+G.player.x.toFixed(1), +G.player.y.toFixed(1)]; store('crimson_ronin_v2', G.profile); } },
+  save() {
+    if (!G.profile) return;
+    G.profile.tod = G.tod;
+    if (G.fog) G.profile.fog = this.fogString();
+    if (G.player && !G.player.dead) G.profile.pos = [+G.player.x.toFixed(1), +G.player.y.toFixed(1)];
+    if (G.mp) {
+      store('crimson_ronin_mp', G.profile);
+      if (typeof Net !== 'undefined') Net.saveProfile();
+    } else store('crimson_ronin_v2', G.profile);
+  },
   load() {
     const s = store('crimson_ronin_v2'); if (!s || s.v !== 2) return null;
     // older saves carried a single blade: everyone now has a sidearm and a hotbar
@@ -5734,7 +5790,8 @@ const Panels = {
       cv.onwheel = e => { e.preventDefault(); V.z = clamp(V.z * (e.deltaY < 0 ? 2 : 0.5), 1, 64); draw(); };
     }, 0);
     const legend = '<span style="color:#ffcf4a">◆ objective</span> · <span style="color:#ffd24a">! quest</span> · <span style="color:#ffd24a">■ Blade</span> · <span style="color:#d8342a">✚ camp</span> · <span style="color:#ffd24a">▮ watchtower</span> · <span style="color:#b8762a">▬ chest</span> · <span style="color:#c8955a">▬ horse</span>';
-    return { title: 'Kurenai-jima', seal: '図', html: `<div class="btns" style="margin:0 0 6px"><button class="btn alt" data-act="zin">Zoom in</button><button class="btn alt" data-act="zout">Zoom out</button><button class="btn alt" data-act="me">Find me</button><span class="lede" style="font-size:11px;align-self:center">Drag to pan, wheel to zoom</span></div><canvas id="bigMap" width="${CW}" height="${CH}" style="width:100%;image-rendering:pixelated;background:#0b080b;border:1px solid #000;touch-action:none;cursor:grab"></canvas><p class="lede" style="font-size:11px">${legend}</p><p class="lede">Climb watchtowers to reveal the map. Fast travel to any town you have visited or tower you have climbed:</p><div class="btns">${travel || '<span class="lede">Nowhere yet. Explore!</span>'}</div>`, on(act, arg) { if (act === 'go') { UI.close(); Systems.fastTravel(spots[+arg]); return false; } if (act === 'zin') V.z = Math.min(64, V.z * 2); if (act === 'zout') V.z = Math.max(1, V.z / 2); if (act === 'me') V.follow = true; } };
+    const travelNote = G.mp ? 'Gang camp is the only fast-travel point. The island is already known to you.' : 'Climb watchtowers to reveal the map. Fast travel to any town you have visited or tower you have climbed:';
+    return { title: 'Kurenai-jima', seal: '図', html: `<div class="btns" style="margin:0 0 6px"><button class="btn alt" data-act="zin">Zoom in</button><button class="btn alt" data-act="zout">Zoom out</button><button class="btn alt" data-act="me">Find me</button><span class="lede" style="font-size:11px;align-self:center">Drag to pan, wheel to zoom</span></div><canvas id="bigMap" width="${CW}" height="${CH}" style="width:100%;image-rendering:pixelated;background:#0b080b;border:1px solid #000;touch-action:none;cursor:grab"></canvas><p class="lede" style="font-size:11px">${legend}</p><p class="lede">${travelNote}</p><div class="btns">${travel || '<span class="lede">Nowhere yet. Explore!</span>'}</div>`, on(act, arg) { if (act === 'go') { UI.close(); Systems.fastTravel(spots[+arg]); return false; } if (act === 'zin') V.z = Math.min(64, V.z * 2); if (act === 'zout') V.z = Math.max(1, V.z / 2); if (act === 'me') V.follow = true; } };
   },
   char(opt = {}) {
     const p = G.profile, stash = p.stash || [], full = p.weapons.filter(w => w !== 'fists').length >= G.WPN_SLOTS;
@@ -5768,7 +5825,13 @@ const Panels = {
     return { title: p.name, seal: '侍', html: `<div class="grid2"><div>${stats}</div><div style="display:grid;gap:6px;align-content:start">${p.pendingPerks ? '<button class="btn gold" data-act="perks">Learn a technique (' + p.pendingPerks + ')</button>' : ''}${perks}</div></div>${gear}`, on };
   },
   pause() {
-    return { title: 'Paused', seal: '休', html: `<div class="keys">${$('keysBox').innerHTML}</div><div class="btns"><button class="btn gold" data-act="resume">Resume</button><button class="btn alt" data-act="sound">Sound: ${Snd.on ? 'on' : 'off'}</button><button class="btn alt" data-act="controls">Controls: ${G.controls === 'classic' ? 'Classic' : 'Turn and walk'}</button><button class="btn alt" data-act="quit">Save and return to title</button></div>`, on(act) { if (act === 'resume') { UI.close(); return false; } if (act === 'sound') { Snd.on = !Snd.on; if (Snd.master) Snd.master.gain.value = Snd.on ? 0.7 : 0; }
+    const gang = G.mp ? `<p class="lede">Gang · ${esc((Net.gang && Net.gang.name) || 'Nameless')} · you are ${Net.id || '?'}${(Net.gang && Net.gang.leader === Net.id) ? ' · leader' : ''}</p>
+      <div class="row"><input id="invName" placeholder="Invite by name or id" style="flex:1;min-width:120px"><button class="btn" data-act="invite">Invite</button></div>
+      <p class="lede">${(Net.gang && Net.gang.members || []).map(id => esc(id) + (id === (Net.gang && Net.gang.leader) ? ' ★' : '')).join(' · ') || 'You ride alone until a friend accepts.'}</p>
+      ${(Net.invites || []).map(i => `<div class="row"><div class="grow"><span class="nm">${esc(i.name)}</span><span class="ds">wants you in ${esc(i.gang)}</span></div><button class="btn" data-act="accept" data-arg="${i.from}">Join their camp</button></div>`).join('')}` : '';
+    return { title: G.mp ? 'Gang · Paused' : 'Paused', seal: '休', html: `${gang}<div class="keys">${$('keysBox').innerHTML}</div><div class="btns"><button class="btn gold" data-act="resume">Resume</button><button class="btn alt" data-act="sound">Sound: ${Snd.on ? 'on' : 'off'}</button><button class="btn alt" data-act="controls">Controls: ${G.controls === 'classic' ? 'Classic' : 'Turn and walk'}</button><button class="btn alt" data-act="quit">Save and return to title</button></div>`, on(act, arg) { if (act === 'resume') { UI.close(); return false; } if (act === 'sound') { Snd.on = !Snd.on; if (Snd.master) Snd.master.gain.value = Snd.on ? 0.7 : 0; }
+      if (act === 'invite') { const n = ($('invName') && $('invName').value || '').trim(); if (n) Net.invite(n); UI.close(); UI.open('pause'); return false; }
+      if (act === 'accept') { Net.accept(arg); UI.close(); return false; }
       if (act === 'controls') { G.setControls(G.controls === 'classic' ? 'turn' : 'classic'); UI.toast(G.controls === 'classic' ? 'Classic controls: WASD moves Ren across the screen, he faces the mouse' : 'Turn and walk: W walks the way Ren faces, S steps back, A and D turn him', 'good'); UI.close(); UI.open('pause'); return false; } if (act === 'quit') { Systems.save(); location.reload(); } } };
   },
   barber() { UI.close(); Creator.open(true); return null; },
@@ -5805,13 +5868,22 @@ const Creator = {
   },
   confirm() {
     if (this.edit) {
-      if (!Systems.pay(25)) UI.toast('The barber wants 25 mon', 'shame');
+      if (this.mpFree || G.mp) { G.profile.look = Object.assign({}, this.look); G.applyStats(); this.mpFree = false; UI.toast('A fresh look', 'good'); }
+      else if (!Systems.pay(25)) UI.toast('The barber wants 25 mon', 'shame');
       else { G.profile.look = Object.assign({}, this.look); G.applyStats(); Snd.play('buy'); }
       $('create').hidden = true; G.state = 'play'; UI.showHUD(true); return;
     }
     $('create').hidden = true;
     this.pending = G.newProfile(Object.assign({}, this.look));
+    if (this.gangMode) { this.beginGang(this.pending); return; }
     $('intro').hidden = false;
+  },
+  beginGang(prof) {
+    prof.mp = true; prof.story = { n: 99, best: 99 }; prof.weapons = ['katana']; prof.wpn = 'katana'; prof.lastBlade = 'katana'; prof.stash = [];
+    prof.armors = [0]; prof.armor = 0; prof.gold = 240; prof.horse = { coat: 0, name: 'Scrag', spdMul: 0.55 };
+    prof.hideout = { barracks: 0, forge: 0, shrine: 0, dojo: 0, garden: 0, kura: 0, walls: 0 };
+    $('title').hidden = true; UI.showHUD(false);
+    Net.connect(prof, null, () => { G.start(prof, true); Systems.save(); }, err => { UI.toast(err || 'Could not reach the Gang world', 'shame'); $('title').hidden = false; });
   },
   begin(skip) { $('intro').hidden = true; const prof = this.pending; G.start(prof, skip); Systems.save(); }
 };
@@ -6120,14 +6192,18 @@ const Quests = {
   active() { return Object.keys(G.profile.quests).filter(id => QDEFS[id] && !G.profile.quests[id].done); },
   cur(id) { const s = this.st(id); return s && !s.done ? QDEFS[id].steps[s.s] : null; },
   start(id, quiet = false) {
-    if (this.st(id)) return;
-    const d = QDEFS[id]; G.profile.quests[id] = { s: 0, n: 0, done: false };
+    if (this.st(id) && !(G.mp && G.profile.quests[id].done)) return;
+    if (G.mp && this.st(id) && this.st(id).done) G.profile.quests[id] = { s: 0, n: 0, done: false };
+    if (this.st(id) && !G.mp) return;
+    if (!this.st(id)) { const d0 = QDEFS[id]; G.profile.quests[id] = { s: 0, n: 0, done: false }; }
+    const d = QDEFS[id];
     if (!quiet) UI.questBanner(d.kind === 'main' ? 'Story quest' : d.kind === 'activity' ? 'Activity' : 'New quest', d.title);
     if (d.kind === 'main' || !this.tracked()) G.profile.track = id;
     this.enterStep(id);
+    if (G.mp && !quiet && typeof Net !== 'undefined' && !Net.fromNet) Net.questStart(id);
   },
   enterStep(id) { const st = this.cur(id); if (!st) return; if (st.start) st.start(); const s = this.st(id); if (st.count) s.n = st.count(); this.checkSkip(id); },
-  checkSkip(id) { const st = this.cur(id); if (st && ((st.skipIf && st.skipIf()) || (st.check && st.check()) || (st.count && this.st(id).n >= (st.n || 1)))) this.advance(id, true); },
+  checkSkip(id) { const st = this.cur(id); if (!st) return; if (G.mp && st.skipIf) return; if ((st.skipIf && st.skipIf()) || (st.check && st.check()) || (st.count && this.st(id).n >= (st.n || 1))) this.advance(id, true); },
   advance(id, quiet = false) {
     const s = this.st(id), d = QDEFS[id]; if (!s || s.done) return;
     s.s++; s.n = 0;
@@ -6151,6 +6227,7 @@ const Quests = {
     if (d.next) setTimeout(() => { if (G.profile) this.start(d.next); }, 1800);
     if (!this.tracked()) { const nxt = this.active()[0]; if (nxt) G.profile.track = nxt; }
     Systems.save();
+    if (G.mp && typeof Net !== 'undefined' && !Net.fromNet) Net.questEnd(id);
   },
   emit(ev, data) {
     if (!G.profile) return;
@@ -6206,7 +6283,7 @@ const Story = {
   spawnRaiders() { for (let i = 0; i < 4; i++) { const q = World.randomWalkable(156, 138, 0, 3, 60) || [154, 140]; G.actors.push(makeNPC('pirate', q[0], q[1], { tag: 'raider', persistent: true, wanderR: 3 })); } },
 };
 // the open world (side quests, bounties, Blades, camps) opens once Ren has a dog, a horse and a stolen map
-const storyFree = () => !!(G.profile && G.profile.story && G.profile.story.n > 10);
+const storyFree = () => !!(G.mp || (G.profile && G.profile.story && G.profile.story.n > 10));
 // ============================================================ STORY GUIDE: name cards, documents, the story so far
 // The story itself lives in the missions (24_missions.js and the act files). This keeps the player oriented: a name card
 // the first time someone important speaks, the documents Ren finds shown as the documents themselves with a plain
@@ -6280,7 +6357,7 @@ const COATS = [
   { name: 'Old Grey', c: ['#aaa69e', '#86827c', '#cecac2'], mane: '#d2cec8', sock: '#e8e4dc' },
 ];
 const Horse = {
-  make(x, y, coat = 2) { return { x, y, face: PI * 0.25, spd: 0, walk: 0, r: 0.36, coat, called: false, idleT: 0, head: 0, hoofT: 0, name: 'Kumo' }; },
+  make(x, y, coat = 2, extra = {}) { return Object.assign({ x, y, face: PI * 0.25, spd: 0, walk: 0, r: 0.36, coat, called: false, idleT: 0, head: 0, hoofT: 0, name: extra.name || 'Kumo', spdMul: extra.spdMul || 1, seats: [null, null] }, extra); },
   whistle() {
     const p = G.player, h = G.horse;
     if (!h) { UI.toast('You have no horse yet', 'shame'); return; }
@@ -6292,15 +6369,33 @@ const Horse = {
     h.called = true; h.goto = null; h.nav = null; setTimeout(() => Snd.play('neigh', 0.6), 500);
   },
   reachable(h) { return !blockedCircle(h.x, h.y, h.r) && !Buildings.at(h.x, h.y); },
-  canMount() { const p = G.player, h = G.horse; return h && !p.mounted && dist(p.x, p.y, h.x, h.y) < 1.7 && p.canAct(); },
+  canMount() { const p = G.player, h = this.mountTarget(); return h && !p.mounted && dist(p.x, p.y, h.x, h.y) < 1.7 && p.canAct(); },
+  mountTarget() {
+    if (G.horse && dist(G.player.x, G.player.y, G.horse.x, G.horse.y) < 1.7) return G.horse;
+    if (G.mp && typeof Net !== 'undefined') return Net.nearHorse();
+    return G.horse;
+  },
+  mountLabel() {
+    const h = this.mountTarget(); if (!h) return 'Mount';
+    const saddle = h.seats && h.seats[0];
+    if (saddle && saddle !== (Net && Net.id)) return 'Mount behind';
+    return 'Mount ' + (h.name || 'the horse');
+  },
   mount() {
-    const p = G.player, h = G.horse;
-    p.mounted = true; p.crouch = false; p.state = 'idle'; p.x = h.x; p.y = h.y; h.called = false; h.spd = 0;
+    const p = G.player, h = this.mountTarget(); if (!h) return;
+    const owner = h.ownerId || (G.horse === h ? (Net && Net.id) : h.ownerId);
+    let seat = 0;
+    if (h.seats && h.seats[0] && h.seats[0] !== (Net && Net.id)) seat = 1;
+    p.mounted = true; p.crouch = false; p.state = 'idle'; p.x = h.x; p.y = h.y; p.mpSeat = seat; p.mpMount = h;
+    h.called = false; h.spd = 0; h.seats = h.seats || [null, null]; h.seats[seat] = (Net && Net.id) || 'local';
     Snd.play('neigh', 0.5); Snd.play('roll', 0.4); Quests.emit('mount');
+    if (G.mp && typeof Net !== 'undefined') Net.send({ t: 'mount', owner: owner || Net.id, seat });
   },
   dismount(knocked = false) {
-    const p = G.player, h = G.horse; if (!p.mounted) return;
-    p.mounted = false;
+    const p = G.player, h = p.mpMount || G.horse; if (!p.mounted) return;
+    p.mounted = false; p.mpSeat = 0; p.mpMount = null;
+    if (h && h.seats) { const id = (Net && Net.id) || 'local'; if (h.seats[0] === id) h.seats[0] = null; if (h.seats[1] === id) h.seats[1] = null; }
+    if (G.mp && typeof Net !== 'undefined') Net.send({ t: 'dismount' });
     const side = h.face + PI / 2;
     for (const off of [0, PI, PI / 2, -PI / 2]) { const x = h.x + Math.cos(side + off) * 0.9, y = h.y + Math.sin(side + off) * 0.9; if (!blockedCircle(x, y, p.r)) { p.x = x; p.y = y; break; } }
     h.spd = 0;
@@ -6315,12 +6410,15 @@ const Horse = {
       if (dist(ox, oy, h.x, h.y) < dt * 0.3) { if ((h.autoStuck = (h.autoStuck || 0) + dt) > 1.5) { h.auto = null; h.autoStuck = 0; } } else h.autoStuck = 0;
       return; }
     if (h.locked) { h.spd *= Math.pow(0.05, dt); p.moving = false; return; }
-    const target = moving ? (p.state === 'atk' ? 5.4 : 8.6) : 0;
-    if (moving) h.face = turnTo(h.face, Math.atan2(my, mx), dt * (h.spd > 5 ? 3.6 : 6.5));
-    h.spd = lerp(h.spd, target, 1 - Math.pow(target > h.spd ? 0.25 : 0.02, dt));
-    if (h.spd < 0.05) h.spd = 0;
-    this.move(h, dt);
-    p.x = h.x; p.y = h.y; p.moving = h.spd > 0.3;
+    if (p.mpSeat === 1) { const mh = p.mpMount || G.horse; if (mh) { p.x = mh.x; p.y = mh.y; p.face = mh.face; p.moving = mh.spd > 0.3; } return; }
+    const hRide = p.mpMount || h;
+    const mul = (hRide.spdMul || 1) * (G.mp && Net.gang && Net.gang.buildings ? (1 + (Net.gang.buildings.stables || 0) * 0.12) : 1);
+    const target = moving ? (p.state === 'atk' ? 5.4 : 8.6) * mul : 0;
+    if (moving) hRide.face = turnTo(hRide.face, Math.atan2(my, mx), dt * (hRide.spd > 5 ? 3.6 : 6.5));
+    hRide.spd = lerp(hRide.spd, target, 1 - Math.pow(target > hRide.spd ? 0.25 : 0.02, dt));
+    if (hRide.spd < 0.05) hRide.spd = 0;
+    this.move(hRide, dt);
+    p.x = hRide.x; p.y = hRide.y; p.moving = hRide.spd > 0.3;
     // bystanders leap clear of a galloping horse; only enemies get ridden down
     if (h.spd > 3) for (const a of G.actors) {
       if (a.dead || a.isP || a.dummy || a.hostileToP()) continue;
@@ -6415,7 +6513,7 @@ function drawHorse(ctx, X, Y, h, t, K = c => c) {
   if (h.saddle !== false) { const s0 = P(-0.9, 0, 19.5 + bob), s1 = P(1, 0, 19.5 + bob); pline(ctx, s0[0], s0[1], s1[0], s1[1], K('#7a1f1c'), 4); pline(ctx, s0[0], s0[1] + 3, s1[0], s1[1] + 3, K('#5a1410'), 2); ctx.fillStyle = K('#d9a441'); ctx.fillRect(Math.round(s0[0]), Math.round(s0[1]) + 2, 1, 1); ctx.fillRect(Math.round(s1[0]), Math.round(s1[1]) + 2, 1, 1); }
   if (!headFar) drawHead();
   drawLeg(legs[2]); drawLeg(legs[3]);
-  return P(0, 0, 16 + bob);
+  return [P(0, 0, 16 + bob), P(-2.4, 0, 16 + bob)];
 }
 // ============================================================ GANG ON HORSEBACK: when you ride, your followers fetch their own horses
 // Mount up and each follower walks off out of sight, comes back in the saddle and rides hard to catch up, then keeps
@@ -6688,7 +6786,13 @@ Object.assign(World, {
 
 function hallLevel() { return G.profile ? Math.min(3, Math.floor(Object.values(G.profile.hideout).reduce((s, v) => s + v, 0) / 5)) : 0; }
 // re-dress the hideout after an upgrade
-Buildings.refreshHideout = function () { for (const b of this.list) if (b.hk) { const L = b.hk === 'hall' ? hallLevel() : G.profile.hideout[b.hk]; if (L !== b.lvl) { b.lvl = L; this.furnish(b); } } };
+Buildings.refreshHideout = function () {
+  const mp = G.mp && Net && Net.gang && Net.gang.buildings;
+  for (const b of this.list) if (b.hk) {
+    const L = mp ? (mp[b.hk] || 0) : (b.hk === 'hall' ? hallLevel() : (G.profile.hideout[b.hk] || 0));
+    if (L !== b.lvl) { b.lvl = L; this.furnish(b); }
+  }
+};
 // ============================================================ ARCHITECTURE KIT: Japanese roofs, timber walls, stonework
 // Roofs are drawn in a building-local frame: u runs along the ridge, v across it, in tiles from the footprint centre;
 // +u and +v both face the viewer. z is height in pixels (about 16 px to the metre). Slopes are curved (sori: they sag
@@ -7549,9 +7653,10 @@ const Interiors = {
   },
   quarters(b, U, V) {
     const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex);
+    const mp = G.mp && b.hk === 'quarters';
     b.zone = () => 'tatami'; b.decor = [{ wall: 'N', t: 0.5, w: 0.12, kind: 'scroll' }];
-    for (let k = 0; k < Math.floor((U - 1) / 1.6); k++) P('futon', 0.5 + k * 1.6, V - 2.3, 1.0, 2.0, { solid: false });
-    P('tansu', U - 1.6, 0.4, 1.3, 0.5);
+    for (let k = 0; k < Math.floor((U - 1) / 1.6); k++) P('futon', 0.5 + k * 1.6, V - 2.3, 1.0, 2.0, { solid: false, interact: mp ? { kind: 'sleep', label: 'Sleep (heals a little each breath)' } : undefined });
+    P('tansu', U - 1.6, 0.4, 1.3, 0.5, mp ? { interact: { kind: 'clothes', label: 'Change clothes' } } : {});
   },
   tent(b, U, V) {
     const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex);
@@ -10522,7 +10627,7 @@ const Missions = {
   leavers: [], lingering: [], lingerObjs: [], lingerSwaps: [], cuts: [],
   def(n) { return MISSIONS[n - 1]; },
   get n() { return G.profile && G.profile.story ? G.profile.story.n : 1; },
-  nextDef() { return this.cur ? null : this.def(this.n); },
+  nextDef() { if (G.mp) return null; return this.cur ? null : this.def(this.n); },
   startAt() { const d = this.nextDef(); return d ? StoryMap.at(d.at) : null; },
   // ---- every frame
   update(dt) {
@@ -10553,6 +10658,7 @@ const Missions = {
   },
   // walk into the marker to begin
   trigger() {
+    if (G.mp) return;
     const d = this.nextDef(); if (!d || this.pending || this.restT > 0 || UI.isOpen() || G.duel || Mini.cur || G.danger > 0) return;
     const p = StoryMap.at(d.at), P = G.player; if (!p || !P || P.dead) return;
     // a chained mission picks up where Ren is; only a real change of place (a later day, far away) is a cut
@@ -10896,7 +11002,7 @@ const Missions = {
       for (const o of m.st.pts || []) { if (!o || o.used || dist(o.cx, o.cy, P.x, P.y) > 22) continue; const [x, y] = toS(o.cx, o.cy, 18 + Math.sin(t * 4) * 2); label('◆', x, y, '#ffcf4a', 14, 'Shippori Mincho B1'); }
       for (const a of m.actors) { if (!a.watch || a.dead || !(a.aware > 0.04) || dist(a.x, a.y, P.x, P.y) > 24) continue; const [x, y] = toS(a.x, a.y, 42), k = clamp(a.aware, 0, 1); octx.globalAlpha = 0.5 + k * 0.5; label(k > 0.95 ? '!' : '?', x, y, k > 0.6 ? '#ff7a3a' : '#ffe08a', 16 + k * 8, 'Shippori Mincho B1'); octx.globalAlpha = 1; }
       if (m.step && m.step.t === 'pursuit' && m.st.gap !== undefined) { const k = clamp(1 - m.st.gap / 50, 0, 1); octx.fillStyle = `rgba(200,40,30,${0.12 + k * 0.4})`; octx.fillRect(0, 0, ov.width, 8 * DPR); octx.fillRect(0, ov.height - 8 * DPR, ov.width, 8 * DPR); }
-    } else if (!m) {
+    } else if (!m && !G.mp) {
       const d = this.nextDef(), p = d && StoryMap.at(d.at);
       if (p && dist(p[0], p[1], P.x, P.y) < 30) {
         const [x, y] = toS(p[0], p[1], 0), [, y1] = toS(p[0], p[1], 80);
@@ -10908,6 +11014,7 @@ const Missions = {
   },
   letter(d) { return (d.giver && d.giver !== 'ren' ? castName(d.giver) : 'Ren')[0]; },
   drawMapMarker(g, toS, full) {
+    if (G.mp) return;
     const d = this.nextDef(); if (!d) return; const p = StoryMap.at(d.at); if (!p) return;
     const [sx, sy] = toS(p[0], p[1]), r = full ? 7 : 5;
     g.fillStyle = '#000'; g.beginPath(); g.arc(sx, sy, r + 1.5, 0, TAU); g.fill(); g.fillStyle = '#ffd24a'; g.beginPath(); g.arc(sx, sy, r, 0, TAU); g.fill();
@@ -13132,7 +13239,11 @@ const Render = {
     else if (o.t === 'flag' || o.t === 'bedroll') extra = o.col || '';
     else if (o.t === 'bamboo' && o.cutMask) extra = 'C' + o.cutMask;
     else if (o.sun || o.offering) extra = (o.sun ? 'S' : '') + (o.offering ? 'O' : '');
-    else if (o.hk) { o.lvl = o.hk === 'hall' ? Math.min(3, Math.floor(Object.values(G.profile ? G.profile.hideout : {}).reduce((s, v) => s + v, 0) / 5)) : (G.profile ? G.profile.hideout[o.hk] : 0); extra = 'L' + o.lvl; }
+    else if (o.hk) {
+      const src = (G.mp && Net && Net.gang && Net.gang.buildings) || (G.profile && G.profile.hideout) || {};
+      o.lvl = (!G.mp && o.hk === 'hall') ? Math.min(3, Math.floor(Object.values(G.profile ? G.profile.hideout : {}).reduce((s, v) => s + v, 0) / 5)) : (src[o.hk] || 0);
+      extra = 'L' + o.lvl;
+    }
     const s = Props.sprite(o, extra);
     if (s) o.smokeAt = s.smoke ? -s.smoke[1] : (o.t === 'smith' ? 36 : 0);
     return s;
@@ -13197,8 +13308,15 @@ const Render = {
         ctx.globalAlpha = 1;
         const L = o.indoor && o.indoor.open < 0.5 ? null : this.lightOf(o); if (L) lights.push([sx, sy - (o.t === 'lantern' ? 15 : o.t === 'stonelantern' || o.t === 'h_lamp' ? 15 : o.t === 'castle' ? 60 : o.t === 'campfire' ? 5 : 10), L]);
         if (s.lamps) for (const [lx] of s.lamps) lights.push([sx + (lx - 0.3) * 30, sy - 8, { r: 26, c: '255,140,80' }]);
-      } else if (d.a) { if (!(d.a === P && P.mounted)) drawActor(ctx, d.a, Math.round(d.sx), Math.round(d.sy), t); }
-      else if (d.h) { const seat = drawHorse(ctx, Math.round(d.sx), Math.round(d.sy), d.h, t); if (d.rider) drawActor(ctx, d.rider, Math.round(seat[0]), Math.round(seat[1] + 10), t, true); else if (!d.loose && P && P.mounted && !P.dead) drawActor(ctx, P, Math.round(seat[0]), Math.round(seat[1] + 10), t, true); }
+      } else if (d.a) { if (!d.a.mounted) drawActor(ctx, d.a, Math.round(d.sx), Math.round(d.sy), t); }
+      else if (d.h) {
+        const seats = drawHorse(ctx, Math.round(d.sx), Math.round(d.sy), d.h, t);
+        const saddle = seats[0], rump = seats[1] || [saddle[0] - 6, saddle[1] + 3];
+        const drawOn = (a, seat) => { if (a && !a.dead) drawActor(ctx, a, Math.round(seat[0]), Math.round(seat[1] + 10), t, true); };
+        if (d.rider) drawOn(d.rider, (d.rider.mpSeat === 1) ? rump : saddle);
+        if (P && P.mounted && !P.dead && !d.loose && (P.mpMount === d.h || G.horse === d.h) && d.rider !== P) drawOn(P, P.mpSeat === 1 ? rump : saddle);
+        if (typeof Net !== 'undefined') for (const a of Net.ridersOn(d.h)) if (a !== d.rider && a !== P) drawOn(a, a.mpSeat === 1 ? rump : saddle);
+      }
       else if (d.g) FX.drawGib(ctx, d.g, camX, camY);
       else if (d.chop) Bamboo.draw(ctx, d.chop, camX, camY);
       else if (d.beast) Wildlife.draw(ctx, d.beast, Math.round(d.sx), Math.round(d.sy), t);
@@ -13491,6 +13609,334 @@ const DevKit = {
   }
 };
 
+// ============================================================ GANG / MULTIPLAYER
+// Legal camp slots on Kurenai-jima. Max fully-upgraded camp AABB is 26×21 tiles
+// around the slot centre: [cx-13, cy-10] → [cx+13, cy+11]. Trees (only) are stripped
+// in that footprint plus 5 tiles of padding on every side. Terrain, biomes, rivers,
+// roads and rocks are never edited. Kuroba-dera (63,132) is not an MP spawn.
+//   kusamura  108,128  near Kusamura Village (86,101)
+//   hanaori    56,162  near Hanaori Shrine (34,145)
+//   isonami   126,162  near Isonami Harbor (150,145)
+//   yukimura   78,78   near Yukimura pass (60,56)
+//   hanamachi 154,70   near Hanamachi (152,36)
+const MpCamp = {
+  SLOTS: [
+    { id: 'kusamura', name: 'Kusamura Ridge', near: 'village', x: 108, y: 128 },
+    { id: 'hanaori', name: 'Hanaori Fold', near: 'shrine', x: 56, y: 162 },
+    { id: 'isonami', name: 'Isonami Backshore', near: 'coast', x: 126, y: 162 },
+    { id: 'yukimura', name: 'Yukimura Gatefield', near: 'pass', x: 78, y: 78 },
+    { id: 'hanamachi', name: 'Hanamachi South Pasture', near: 'castle', x: 154, y: 70 }
+  ],
+  BUILD: {
+    quarters: { name: 'Sleeping room', costs: [80, 220, 520], bonus: ['Heal 1 HP/s asleep', 'Heal 2 HP/s · clothes chest', 'Heal 4 HP/s · clothes chest'] },
+    forge: { name: 'Forge', costs: [120, 320, 800], bonus: ['+8% damage', '+16% damage', '+24% damage'] },
+    shrine: { name: 'Shrine', costs: [80, 240, 600], bonus: ['+10 max health', '+25 max health', '+40 max health'] },
+    dojo: { name: 'Dojo', costs: [100, 280, 700], bonus: ['+10 stamina', '+25 stamina', '+40 stamina'] },
+    barracks: { name: 'Barracks', costs: [150, 400, 900], bonus: ['Room for 1 sworn blade', 'Room for 2', 'Room for 5'] },
+    kura: { name: 'Treasury', costs: [100, 300, 700], bonus: ['Store mon', '4% a day', '12% a day'] },
+    garden: { name: 'Herb garden', costs: [80, 220, 550], bonus: ['+1 bandage on rest', '+2 bandages', '+3 bandages, +1 sake'] },
+    walls: { name: 'Walls & lanterns', costs: [80, 250, 650], bonus: ['Stakes', 'Fence, +1 honor on rest', 'Palissade, +2 honor'] },
+    stables: { name: 'Stables', costs: [200, 600, 1500], bonus: ['Hitching posts (2 horses)', 'Small shed (4 horses, +12% speed)', 'Full stable (6 horses, +28% speed)'] }
+  },
+  HORSES: [
+    { id: 'nag', name: 'Nag', cost: 180, coat: 1, spdMul: 0.78, blurb: 'A tired brown nag. Faster than Scrag.' },
+    { id: 'road', name: 'Road horse', cost: 420, coat: 2, spdMul: 1.0, blurb: 'A sound road horse.' },
+    { id: 'fine', name: 'Fine mount', cost: 900, coat: 4, spdMul: 1.18, blurb: 'A fine grey. Costs a fortune.' }
+  ],
+  TREEISH: null, plots: [], built: [], ready: false, slot: null,
+  pad(s) { return { x0: s.x - 18, y0: s.y - 15, x1: s.x + 18, y1: s.y + 16 }; },
+  layout(cx, cy) {
+    return {
+      quarters: { key: 'quarters', x: cx - 12, y: cy - 9, w: 10, h: 7, kind: 'quarters', name: 'Sleeping room' },
+      forge: { key: 'forge', x: cx + 2, y: cy - 9, w: 6, h: 5, kind: 'h_forge', door: 'E', name: 'Forge' },
+      shrine: { key: 'shrine', x: cx + 9, y: cy - 9, w: 1, h: 1, deco: 'h_shrine', name: 'Shrine' },
+      garden: { key: 'garden', x: cx + 9, y: cy - 5, w: 4, h: 4, deco: 'h_garden', name: 'Herb garden' },
+      dojo: { key: 'dojo', x: cx - 12, y: cy - 1, w: 8, h: 6, kind: 'h_dojo', door: 'E', name: 'Dojo' },
+      barracks: { key: 'barracks', x: cx - 3, y: cy - 1, w: 8, h: 5, kind: 'h_barracks', name: 'Barracks' },
+      kura: { key: 'kura', x: cx + 6, y: cy - 1, w: 5, h: 4, kind: 'h_kura', name: 'Treasury' },
+      stables: { key: 'stables', x: cx - 8, y: cy + 6, w: 14, h: 5, name: 'Stables' },
+      walls: { key: 'walls', ring: true, name: 'Walls & lanterns' },
+      ft: { x: cx, y: cy + 3 }, spawn: { x: cx, y: cy + 2 }
+    };
+  },
+  ensure() {
+    if (this.ready) return;
+    this.TREEISH = this.TREEISH || new Set([...TREES, 'bush', 'stump']);
+    for (const s of this.SLOTS) {
+      const p = this.pad(s);
+      for (let j = p.y0; j <= p.y1; j++) for (let i = p.x0; i <= p.x1; i++) if (World.in(i, j)) World.setClear(i, j);
+      for (let j = p.y0; j <= p.y1; j++) for (let i = p.x0; i <= p.x1; i++) {
+        if (!World.in(i, j)) continue;
+        for (const o of World.at(i, j).slice()) {
+          if (o.indoor || o.keep || o.chestId || o.towerId) continue;
+          if (!this.TREEISH.has(o.t)) continue;
+          World.removeObj(o);
+          World.subRect(o.x, o.y, o.x + o.w, o.y + o.h, 0);
+          if (World.solidAt(Math.floor(o.x), Math.floor(o.y)) === 1) World.setSolid(Math.floor(o.x), Math.floor(o.y), 0);
+        }
+      }
+    }
+    this.ready = true;
+  },
+  apply(gang) {
+    for (const o of this.plots) World.removeObj(o);
+    this.plots = [];
+    for (const b of this.built) {
+      for (const it of b.items || []) World.removeObj(it);
+      Buildings.list = Buildings.list.filter(x => x !== b);
+    }
+    this.built = [];
+    const slot = this.SLOTS[(gang && gang.slot) | 0] || this.SLOTS[0];
+    this.slot = slot; Net.slot = slot;
+    const L = this.layout(slot.x, slot.y), lv = (gang && gang.buildings) || {};
+    World.spots.mpCamp = [L.spawn.x, L.spawn.y];
+    World.spots.mpStable = [L.stables.x + 2, L.stables.y + 2.5];
+    let pl = PLACES.find(p => p.id === 'mpCamp');
+    if (!pl) { pl = { id: 'mpCamp', name: 'Gang camp', jp: '陣', x: slot.x, y: slot.y, r: 16, b: B.PLAINS, kind: 'home', safe: true }; PLACES.push(pl); }
+    pl.x = slot.x; pl.y = slot.y; pl.name = (gang && gang.name) || slot.name;
+    const ft = World.deco('sign', L.ft.x, L.ft.y, 1, 1, { mpKeep: true, interact: { kind: 'map', label: 'Fast travel post · Gang camp' } });
+    this.plots.push(ft);
+    World.lamp(L.ft.x + 1, L.ft.y, 'stonelantern');
+    for (const key of Object.keys(this.BUILD)) {
+      const spec = L[key], n = lv[key] | 0, def = this.BUILD[key];
+      if (!spec) continue;
+      if (n <= 0) {
+        const x = spec.x, y = spec.y;
+        const mark = World.deco('sign', (spec.ring ? slot.x + 4 : x), (spec.ring ? slot.y + 4 : y), 1, 1, { mpKeep: true, interact: { kind: 'campBuy', key, label: 'Buy damaged ' + def.name + ' · ' + def.costs[0] + ' mon · ' + def.bonus[0] } });
+        this.plots.push(mark);
+        continue;
+      }
+      if (spec.kind) {
+        const b = Buildings.create(spec.kind, spec.x, spec.y, spec.w, spec.h, { hk: key, name: spec.name, door: spec.door });
+        b.lvl = n; Buildings.furnish(b); this.built.push(b);
+      } else if (spec.deco) {
+        this.plots.push(World.deco(spec.deco, spec.x, spec.y, spec.w || 1, spec.h || 1, { hk: key, mpKeep: true, solid: spec.deco !== 'h_garden' }));
+      } else if (key === 'stables') this.stampStables(spec, n);
+      else if (key === 'walls') this.stampWalls(slot, n);
+      if (n > 0 && n < 3 && spec.kind) {
+        const up = World.deco('sign', spec.x, spec.y + spec.h, 1, 1, { mpKeep: true, interact: { kind: 'campUp', key, label: 'Upgrade ' + def.name + ' · ' + def.costs[n] + ' mon · ' + def.bonus[n] } });
+        this.plots.push(up);
+      }
+    }
+    if ((lv.stables | 0) > 0) {
+      const shop = World.deco('sign', L.stables.x + 6, L.stables.y + 5, 1, 1, { mpKeep: true, interact: { kind: 'horseBuy', tier: 'nag', label: 'Buy a better horse (Nag 180 · Road 420 · Fine 900)' } });
+      this.plots.push(shop);
+    }
+    G.applyStats();
+  },
+  stampStables(spec, n) {
+    const x = spec.x, y = spec.y;
+    this.plots.push(World.deco('fence', x, y, 1, 1, { mpKeep: true, solid: true, dir: 0 }));
+    this.plots.push(World.deco('fence', x + 3, y, 1, 1, { mpKeep: true, solid: true, dir: 0 }));
+    if (n >= 2) { const b = Buildings.create('hut', x + 5, y, 6, 4, { name: 'Stable shed' }); this.built.push(b); }
+    if (n >= 3) { const b = Buildings.create('h_barracks', x + 5, y, 8, 5, { name: 'Full stable' }); this.built.push(b); }
+  },
+  stampWalls(slot, n) {
+    const r = 12 + n;
+    World.ring(slot.x, slot.y, r, 40, (x, y) => { if (!World.bAt(x, y)) this.plots.push(World.deco(n >= 3 ? 'h_wall' : 'fence', x, y, 1, 1, { hk: 'walls', mpKeep: true, solid: false })); });
+    if (n >= 2) { this.plots.push(World.deco('h_lamp', slot.x - 4, slot.y + 4, 1, 1, { hk: 'walls', mpKeep: true, solid: false })); this.plots.push(World.deco('h_lamp', slot.x + 4, slot.y + 4, 1, 1, { hk: 'walls', mpKeep: true, solid: false })); }
+  },
+  near(x, y) {
+    let best = null, bd = 1.4;
+    for (const o of this.plots) {
+      if (!o.interact) continue;
+      const d = dist(x, y, o.cx, o.cy);
+      if (d < bd) { bd = d; best = { d, it: Object.assign({ obj: o }, o.interact) }; }
+    }
+    return best;
+  }
+};
+const Net = {
+  ws: null, id: null, token: null, gang: null, slot: null, remotes: new Map(), horses: new Map(), invites: [], fromNet: false, sendT: 0, questRet: null, onOk: null, onErr: null,
+  url() {
+    if (location.protocol === 'file:') return 'ws://127.0.0.1:8091/ws';
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const path = location.pathname.indexOf('/crimson-ronin') >= 0 ? '/crimson-ronin/ws' : '/ws';
+    return proto + '//' + location.host + path;
+  },
+  send(m) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); },
+  connect(prof, token, ok, err) {
+    this.onOk = ok; this.onErr = err; this.pendingProf = prof;
+    let ws;
+    try { ws = new WebSocket(this.url()); } catch (e) { if (err) err('Could not open a socket to the Gang world.'); return; }
+    this.ws = ws;
+    ws.onopen = () => {
+      const tok = token || store('crimson_ronin_mp_token');
+      this.send({ t: 'hello', token: tok || undefined, name: prof.name, look: prof.look });
+    };
+    ws.onerror = () => { if (this.onErr) { this.onErr('The Gang world is not running.'); this.onErr = null; } };
+    ws.onclose = () => { if (G.mp && G.state === 'play') UI.toast('Lost the Gang world · your camp is saved', 'shame'); };
+    ws.onmessage = ev => { try { this.handle(JSON.parse(ev.data)); } catch (e) {} };
+  },
+  handle(m) {
+    if (m.t === 'welcome') {
+      this.id = m.id; this.token = m.token; this.gang = m.gang; this.slot = (m.slots || MpCamp.SLOTS)[(m.gang && m.gang.slot) | 0];
+      store('crimson_ronin_mp_token', m.token);
+      const prof = G.profile || this.pendingProf;
+      if (m.you && prof) {
+        const y = m.you;
+        prof.gold = y.gold; prof.bank = y.bank; prof.honor = y.honor; prof.xp = y.xp; prof.level = y.level;
+        prof.perks = y.perks || prof.perks; prof.weapons = y.weapons || ['katana']; prof.wpn = y.wpn || 'katana';
+        prof.horse = y.horse; prof.pos = [y.x, y.y]; prof.name = y.name || prof.name;
+        if (y.look) prof.look = y.look;
+        prof.mp = true;
+      }
+      if (this.onOk) { const fn = this.onOk; this.onOk = null; fn(); }
+      return;
+    }
+    if (m.t === 'err') { UI.toast(m.msg, 'shame'); if (this.onErr) { this.onErr(m.msg); this.onErr = null; } return; }
+    if (m.t === 'ok') { UI.toast(m.msg, 'good'); return; }
+    if (m.t === 'players') { for (const p of m.list || []) this.upsert(p); return; }
+    if (m.t === 'player') { this.upsert(m.p); return; }
+    if (m.t === 'leave') { this.drop(m.id); return; }
+    if (m.t === 'state') { this.ghost(m); return; }
+    if (m.t === 'invite') { this.invites.push(m); UI.toast(m.name + ' invites you to ' + m.gang + ' (Esc to join)', 'good'); return; }
+    if (m.t === 'joined') {
+      this.gang = m.gang; MpCamp.apply(m.gang);
+      if (G.player) { G.player.x = m.x; G.player.y = m.y; Camera.snap = true; World.streamAll(m.x, m.y); }
+      UI.toast('You joined ' + m.gang.name + '. Same camp, same fire.', 'good');
+      return;
+    }
+    if (m.t === 'gang' || m.t === 'camp') {
+      this.gang = m.gang; MpCamp.apply(m.gang);
+      if (m.gold !== undefined && G.profile && m.who === this.id) { G.profile.gold = m.gold; G.profile.bank = m.bank; }
+      if (m.key) UI.toast((MpCamp.BUILD[m.key] || {}).name + ' now stands.', 'good');
+      return;
+    }
+    if (m.t === 'paid') { if (G.profile) { G.profile.gold = m.gold; G.profile.bank = m.bank; } return; }
+    if (m.t === 'horse') {
+      if (G.profile) { G.profile.gold = m.gold; G.profile.bank = m.bank; G.profile.horse = m.horse; }
+      if (G.horse && m.horse) { G.horse.coat = m.horse.coat; G.horse.name = m.horse.name; G.horse.spdMul = m.horse.spdMul; }
+      UI.toast('A new horse: ' + m.horse.name, 'good'); return;
+    }
+    if (m.t === 'questGo') {
+      if (m.by === this.id) { this.questRet = m.ret; return; }
+      const p = G.player; if (!p) return;
+      if (dist(p.x, p.y, m.at[0], m.at[1]) > 56 && dist(p.x, p.y, this.slot ? this.slot.x : p.x, this.slot ? this.slot.y : p.y) > 56) {
+        if (dist(p.x, p.y, (this.gangMateNear && this.gangMateNear()) || 999, 0) > 56) { /* still join if any remote gangmate is near us */ }
+      }
+      let near = false;
+      for (const [, r] of this.remotes) if (r.actor && r.actor.gangId === (this.gang && this.gang.id) && dist(p.x, p.y, r.actor.x, r.actor.y) < 48) near = true;
+      if (this.gang && this.gang.members && this.gang.members.includes(m.by) && dist(p.x, p.y, m.at[0], m.at[1]) < 80) near = true;
+      if (!near && dist(p.x, p.y, m.at[0], m.at[1]) > 48) return;
+      this.questRet = [p.x, p.y];
+      p.x = m.at[0]; p.y = m.at[1]; Camera.snap = true; World.streamAll(p.x, p.y);
+      this.fromNet = true; try { Quests.start(m.id); } finally { this.fromNet = false; }
+      UI.toast('The gang rides together: ' + (m.title || m.id), 'good');
+      return;
+    }
+    if (m.t === 'questEnd') {
+      const ret = m.ret || this.questRet || World.spots.mpCamp;
+      this.fromNet = true; try { if (Quests.st(m.id) && !Quests.st(m.id).done) Quests.complete(m.id); } finally { this.fromNet = false; }
+      if (ret && G.player) { G.player.x = ret[0]; G.player.y = ret[1]; Camera.snap = true; World.streamAll(ret[0], ret[1]); }
+      this.questRet = null;
+      return;
+    }
+    if (m.t === 'mount') {
+      const r = this.remotes.get(m.id); if (r && r.actor) { r.actor.mounted = true; r.actor.mpSeat = m.seat | 0; r.actor.mountOf = m.owner; }
+      if (m.owner === this.id && G.horse) { G.horse.seats = G.horse.seats || [null, null]; G.horse.seats[m.seat | 0] = m.id; }
+      return;
+    }
+    if (m.t === 'dismount') {
+      const r = this.remotes.get(m.id); if (r && r.actor) { r.actor.mounted = false; r.actor.mpSeat = 0; r.actor.mpMount = null; r.actor.mount = null; }
+      if (G.horse && G.horse.seats) { if (G.horse.seats[0] === m.id) G.horse.seats[0] = null; if (G.horse.seats[1] === m.id) G.horse.seats[1] = null; }
+      if (G.player && G.player.mpMount && G.player.mountOf === m.id) Horse.dismount();
+      return;
+    }
+    if (m.t === 'kill') {
+      let best = null, bd = 2.4;
+      for (const a of G.actors) {
+        if (a.dead || a.isP || a.remote) continue;
+        const d = dist(a.x, a.y, m.x, m.y); if (d < bd) { bd = d; best = a; }
+      }
+      if (best) { best._mpKill = true; best.die(G.player, {}); }
+    }
+  },
+  upsert(p) {
+    if (!p || p.id === this.id) return;
+    let r = this.remotes.get(p.id);
+    if (!r) {
+      const a = new Actor({ x: p.x, y: p.y, faction: 'player', name: p.name, look: p.look || {}, wpn: p.wpn || 'katana', hp: p.hp || 100, maxHp: p.maxHp || 100, persistent: true, remote: true, gangId: p.gangId });
+      a.remote = true; G.actors.push(a);
+      r = { actor: a, horse: null }; this.remotes.set(p.id, r);
+    }
+    const a = r.actor;
+    a.tx = p.x; a.ty = p.y; a.tface = p.face || 0; a.name = p.name; a.look = p.look || a.look; a.wpn = p.wpn || a.wpn; a.hp = p.hp; a.maxHp = p.maxHp;
+    a.mounted = !!p.mounted; a.mpSeat = p.seat | 0; a.mountOf = p.mountOf; a.gangId = p.gangId;
+    if (p.horse) {
+      if (!r.horse) r.horse = Horse.make(p.horse.x || p.x, p.horse.y || p.y, p.horse.coat || 0, p.horse);
+      Object.assign(r.horse, p.horse); r.horse.ownerId = p.id;
+      if (p.mounted && p.seat === 0) a.mount = r.horse;
+      else if (p.mountOf === this.id) { a.mpMount = G.horse; a.mount = null; }
+      else if (p.mounted && p.seat === 1) {
+        const own = this.remotes.get(p.mountOf); a.mpMount = (own && own.horse) || r.horse; a.mount = null;
+      }
+    }
+  },
+  ghost(m) {
+    const r = this.remotes.get(m.id); if (!r) { this.upsert({ id: m.id, x: m.x, y: m.y, face: m.face, hp: m.hp, maxHp: m.maxHp, wpn: m.wpn, look: {}, mounted: m.mounted, seat: m.seat, mountOf: m.mountOf, horse: m.horse, name: 'Ronin' }); return; }
+    this.upsert(Object.assign({ id: m.id, name: r.actor.name, look: r.actor.look, gangId: r.actor.gangId }, m));
+  },
+  drop(id) {
+    const r = this.remotes.get(id); if (!r) return;
+    G.actors = G.actors.filter(a => a !== r.actor); this.remotes.delete(id);
+  },
+  nearHorse() {
+    const p = G.player; let best = null, bd = 1.7;
+    for (const [, r] of this.remotes) {
+      const h = r.horse; if (!h) continue;
+      const d = dist(p.x, p.y, h.x, h.y); if (d < bd) { bd = d; best = h; }
+    }
+    return best;
+  },
+  ridersOn(h) {
+    const out = [];
+    for (const [, r] of this.remotes) if (r.actor && r.actor.mounted && (r.actor.mount === h || r.actor.mpMount === h)) out.push(r.actor);
+    return out;
+  },
+  onStart() {
+    if (this.gang) MpCamp.apply(this.gang);
+    if (G.player && this.slot) {
+      if (!G.profile.pos) { G.player.x = this.slot.x; G.player.y = this.slot.y + 2; }
+    }
+  },
+  tick(dt) {
+    this.sendT += dt;
+    if (this.sendT > 0.08 && G.player) {
+      this.sendT = 0;
+      const p = G.player, h = (p.mpSeat === 0 ? (p.mpMount || G.horse) : G.horse);
+      this.send({
+        t: 'state', x: +p.x.toFixed(2), y: +p.y.toFixed(2), face: +p.face.toFixed(3),
+        hp: p.hp, maxHp: p.maxHp, wpn: p.wpn, armor: G.profile.armor, pose: p.state,
+        mounted: !!p.mounted, seat: p.mpSeat || 0, mountOf: (p.mpMount && p.mpMount.ownerId) || (p.mounted ? this.id : null),
+        horse: h ? { x: h.x, y: h.y, face: h.face, spd: h.spd, coat: h.coat, name: h.name, spdMul: h.spdMul, seats: h.seats } : null
+      });
+    }
+    const k = 1 - Math.pow(0.0008, dt);
+    for (const [, r] of this.remotes) {
+      const a = r.actor; if (!a) continue;
+      if (a.tx !== undefined) { a.x = lerp(a.x, a.tx, k); a.y = lerp(a.y, a.ty, k); a.face = a.tface; }
+      if (r.horse && a.mounted && a.mpSeat === 0) { r.horse.x = a.x; r.horse.y = a.y; r.horse.face = a.face; a.mount = r.horse; }
+      if (a.mounted && a.mpMount) { a.x = a.mpMount.x; a.y = a.mpMount.y; a.face = a.mpMount.face; }
+    }
+    if (G.player && G.player.mounted && G.player.mpSeat === 1 && G.player.mpMount) {
+      G.player.x = G.player.mpMount.x; G.player.y = G.player.mpMount.y; G.player.face = G.player.mpMount.face;
+    }
+  },
+  saveProfile() { if (G.profile) this.send({ t: 'save', profile: G.profile }); },
+  invite(to) { this.send({ t: 'invite', to }); },
+  accept(from) { this.send({ t: 'accept', from }); },
+  campBuy(key) { this.send({ t: 'campBuy', key }); },
+  campUp(key) { this.send({ t: 'campUp', key }); },
+  buyHorse(id) { this.send({ t: 'horseBuy', id: id || 'nag' }); },
+  questStart(id) {
+    const d = QDEFS[id], at = G.player ? [G.player.x, G.player.y] : World.spots.mpCamp;
+    this.questRet = at;
+    this.send({ t: 'questStart', id, at, title: d ? d.title : id });
+  },
+  questEnd(id) { this.send({ t: 'questEnd', id, ret: this.questRet || World.spots.mpCamp }); }
+};
+
 // ---- boot
 function boot() {
   FX.init(); Input.init(cv);
@@ -13504,7 +13950,16 @@ function boot() {
   $('btnContinue').onclick = () => { Snd.init(); $('title').hidden = true; G.start(Systems.load()); };
   $('btnBegin').onclick = () => { Snd.init(); Creator.begin(false); };
   $('btnSkip').onclick = () => { Snd.init(); Creator.begin(true); };
-  $('btnNew').onclick = () => { Snd.init(); Creator.open(false); };
+  $('btnNew').onclick = () => { Snd.init(); Creator.gangMode = false; Creator.open(false); };
+  $('btnGang').onclick = () => { Snd.init(); Creator.gangMode = true; Creator.open(false); $('create').querySelector('.lede').textContent = 'Shape your look. You spawn at your gang camp on the shared island of Kurenai-jima. No story — side quests, camp, and friends.'; };
+  const mpSave = store('crimson_ronin_mp'), mpTok = store('crimson_ronin_mp_token');
+  if (mpSave && mpTok) { $('btnGangCont').hidden = false; $('btnGangCont').textContent = 'Continue the Gang · ' + (mpSave.name || 'Ren'); }
+  $('btnGangCont').onclick = () => {
+    Snd.init(); $('title').hidden = true;
+    const prof = store('crimson_ronin_mp'); if (!prof) return;
+    prof.mp = true;
+    Net.connect(prof, mpTok, () => { G.start(prof, true); }, err => { UI.toast(err || 'Could not reach the Gang world', 'shame'); $('title').hidden = false; });
+  };
   $('btnQuick').onclick = () => { Snd.init(); $('title').hidden = true; const look = Sprites.randomLook(); look.hat = pick([0, 0, 1, 2]); look.coat = pick(COATC.slice(1)); G.start(G.newProfile(look), false); Systems.save(); };
   $('btnKeys').onclick = () => { $('keysBox').hidden = !$('keysBox').hidden; };
   $('btnControls').onclick = () => { G.setControls(G.controls === 'classic' ? 'turn' : 'classic'); $('keysBox').hidden = false; };
