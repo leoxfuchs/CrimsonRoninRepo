@@ -510,7 +510,12 @@ const Snd = {
       const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
       this.ctx = new C();
       this.master = this.ctx.createGain(); this.master.gain.value = 0.7; this.master.connect(this.ctx.destination);
-      this.sfxBus = this.ctx.createGain(); this.sfxBus.gain.value = 0.9; this.sfxBus.connect(this.master);
+      this.sfxBus = this.ctx.createGain(); this.sfxBus.gain.value = 0.95;
+      const sfxDry = this.ctx.createGain(); sfxDry.gain.value = 0.84;
+      const sfxWet = this.ctx.createGain(); sfxWet.gain.value = 0.18;
+      const sfxConv = this.ctx.createConvolver(); sfxConv.buffer = this._sfxIr();
+      this.sfxBus.connect(sfxDry); sfxDry.connect(this.master);
+      this.sfxBus.connect(sfxConv); sfxConv.connect(sfxWet); sfxWet.connect(this.master);
       this.music = this.ctx.createGain(); this.music.gain.value = 0.0001;
       const dry = this.ctx.createGain(); dry.gain.value = 0.62;
       const wet = this.ctx.createGain(); wet.gain.value = 0.48;
@@ -538,6 +543,18 @@ const Snd = {
     }
     return buf;
   },
+  _sfxIr() {
+    const sr = this.ctx.sampleRate, n = Math.floor(sr * 0.13);
+    const buf = this.ctx.createBuffer(2, n, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < n; i++) {
+        const t = i / sr, env = Math.exp(-t * 32) * (t < 0.0016 ? t / 0.0016 : 1);
+        d[i] = (Math.random() * 2 - 1) * env * (c ? 0.86 : 1);
+      }
+    }
+    return buf;
+  },
   env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); },
   noise(t, dur, type, freq, q, peak, dest, sweepTo) {
     const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.playbackRate.value = rnd(0.8, 1.2);
@@ -552,62 +569,354 @@ const Snd = {
     const g = this.ctx.createGain(); this.env(g, t, attack, peak, dur);
     o.connect(g); g.connect(dest || this.sfxBus); o.start(t); o.stop(t + dur + attack + 0.05);
   },
+  jit(n, amt = 0.06) { return n * (1 + (Math.random() * 2 - 1) * amt); },
+  // oscillator through a resonator — the whistle trick, for steel, wood, and throats
+  res(t, freq, dur, peak, opts = {}) {
+    if (!this.ctx) return;
+    const o = this.ctx.createOscillator(); o.type = opts.type || 'sine';
+    const f0 = this.jit(Math.max(30, freq), opts.jit ?? 0.035);
+    o.frequency.setValueAtTime(f0, t);
+    const slide = opts.slide != null ? Math.max(25, opts.slide) : 0;
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+    const bp = this.ctx.createBiquadFilter(); bp.type = opts.filt || 'bandpass'; bp.Q.value = opts.q || 8;
+    bp.frequency.setValueAtTime(f0, t); if (slide) bp.frequency.exponentialRampToValueAtTime(slide, t + dur);
+    const g = this.ctx.createGain(), atk = opts.attack || 0.003;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + atk + dur);
+    o.connect(bp); bp.connect(g); g.connect(opts.dest || this.sfxBus);
+    o.start(t); o.stop(t + dur + atk + 0.05);
+  },
+  whoosh(t, dur, f0, f1, peak, q = 1.05) {
+    const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.playbackRate.value = rnd(0.82, 1.18);
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q;
+    f.frequency.setValueAtTime(this.jit(f0, 0.08), t); f.frequency.exponentialRampToValueAtTime(Math.max(50, f1), t + dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + dur * 0.22);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(this.sfxBus); s.start(t, rnd(0, 1)); s.stop(t + dur + 0.04);
+  },
+  scrape(t, dur, f0, f1, peak, q = 3.2) {
+    this.noise(t, dur, 'bandpass', this.jit(f0, 0.07), q, peak, null, f1);
+    this.noise(t, dur * 0.62, 'highpass', f0 * 1.8, 1.1, peak * 0.42, null, f1 * 1.35);
+  },
+  metal(t, f, peak, dur = 0.48) {
+    const fund = this.jit(f, 0.05);
+    [1, 2.14, 3.32, 4.61, 6.15].forEach((r, i) => this.res(t, fund * r, dur * (1 - i * 0.13), peak * [1, 0.52, 0.26, 0.13, 0.07][i], { q: 15 - i * 2.1, jit: 0.02 }));
+    this.noise(t, 0.016, 'highpass', 5200, 0.7, peak * 2.4);
+    this.noise(t, 0.04, 'bandpass', fund * 3.4, 6, peak * 0.7);
+  },
+  wood(t, f, peak) {
+    this.res(t, f, 0.1, peak, { type: 'triangle', q: 5.5, slide: f * 0.7, jit: 0.05 });
+    this.res(t, f * 1.62, 0.055, peak * 0.32, { q: 8 });
+    this.noise(t, 0.022, 'bandpass', f * 2.8, 1.8, peak * 0.7);
+  },
+  tick(t, peak) {
+    this.noise(t, 0.011, 'highpass', 5400, 0.7, peak);
+    this.res(t, rnd(1700, 2600), 0.028, peak * 0.35, { q: 11, type: 'triangle' });
+  },
+  voice(t, f, dur, peak, formants, slide) {
+    const o = this.ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(this.jit(f, 0.04), t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, slide), t + dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + 0.028);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    for (const [ff, q, amt] of formants) {
+      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = ff; bp.Q.value = q;
+      const gg = this.ctx.createGain(); gg.gain.value = amt;
+      o.connect(bp); bp.connect(gg); gg.connect(g);
+    }
+    g.connect(this.sfxBus); o.start(t); o.stop(t + dur + 0.05);
+    this.noise(t, Math.min(0.12, dur * 0.45), 'bandpass', formants[0][0], 3.5, peak * 0.45);
+  },
   play(name, vol = 1) {
     if (!this.ctx || !this.on) return; const t = this.ctx.currentTime, v = vol;
     switch (name) {
-      case 'swing': this.noise(t, 0.16, 'bandpass', 1800, 1.2, 0.35 * v, null, 600); break;
-      case 'gun': this.noise(t, 0.09, 'highpass', 900, 0.8, 0.9 * v); this.noise(t, 0.5, 'lowpass', 700, 1, 0.6 * v, null, 120); this.tone(t, 120, 0.25, 'sine', 0.4 * v, null, 40); break;
-      case 'cannon': this.noise(t, 1.4, 'lowpass', 400, 1, 1 * v, null, 40); this.tone(t, 70, 0.9, 'sine', 0.8 * v, null, 25); this.noise(t + 0.05, 0.4, 'bandpass', 1200, 1, 0.3 * v, null, 300); break;
-      case 'boom': this.noise(t, 1.1, 'lowpass', 220, 1, 0.5 * v, null, 50); this.tone(t, 55, 0.8, 'sine', 0.35 * v, null, 30); break;
-      case 'click': this.tone(t, 2200, 0.04, 'square', 0.06 * v); this.tone(t + 0.06, 1500, 0.04, 'square', 0.05 * v); break;
-      case 'crackle': for (let i = 0; i < 6; i++) this.noise(t + Math.random() * 0.5, 0.03, 'highpass', 2500, 1, 0.12 * v); break;
-      case 'heavy': this.noise(t, 0.3, 'bandpass', 900, 1, 0.5 * v, null, 250); break;
-      case 'draw': this.noise(t, 0.35, 'highpass', 5000, 2, 0.18 * v); this.tone(t, 2400, 0.4, 'sine', 0.04 * v, null, 3200); break;
-      case 'clang': this.tone(t, 1250, 0.5, 'square', 0.08 * v); this.tone(t, 1870, 0.42, 'sine', 0.12 * v); this.tone(t, 3130, 0.25, 'sine', 0.07 * v); this.noise(t, 0.08, 'highpass', 3000, 1, 0.4 * v); break;
-      case 'block': this.tone(t, 620, 0.18, 'triangle', 0.15 * v); this.noise(t, 0.06, 'bandpass', 2400, 2, 0.3 * v); break;
-      case 'hit': this.noise(t, 0.14, 'lowpass', 1400, 1, 0.7 * v, null, 300); this.tone(t, 160, 0.12, 'sine', 0.3 * v, null, 60); break;
-      case 'gore': this.noise(t, 0.35, 'lowpass', 700, 3, 0.8 * v, null, 120); this.noise(t + 0.05, 0.5, 'bandpass', 400, 4, 0.4 * v); this.tone(t, 90, 0.3, 'sine', 0.4 * v, null, 40); break;
-      case 'spurt': this.noise(t, 0.22, 'bandpass', 600, 5, 0.25 * v, null, 300); break;
-      // a blade through bamboo: a crisp hollow tok; the culm groaning as it goes over; hollow wood clattering down
-      case 'chop': this.noise(t, 0.05, 'highpass', 3600, 1, 0.5 * v); this.tone(t, 840, 0.09, 'triangle', 0.24 * v, null, 560); this.tone(t + 0.008, 1680, 0.05, 'sine', 0.08 * v); break;
-      case 'creak': this.tone(t, rnd(150, 190), 0.6, 'sawtooth', 0.03 * v, null, 92); this.noise(t, 0.55, 'bandpass', 700, 6, 0.07 * v, null, 380); break;
-      case 'clack': this.tone(t, rnd(380, 460), 0.12, 'triangle', 0.26 * v, null, 300); this.tone(t + 0.07, rnd(500, 600), 0.08, 'triangle', 0.14 * v); this.tone(t + 0.13, rnd(420, 520), 0.06, 'triangle', 0.08 * v); this.noise(t, 0.5, 'highpass', 2600, 0.7, 0.18 * v, null, 5000); this.tone(t, 95, 0.18, 'sine', 0.25 * v, null, 50); break;
-      case 'thud': this.tone(t, 110, 0.25, 'sine', 0.45 * v, null, 45); this.noise(t, 0.1, 'lowpass', 400, 1, 0.3 * v); break;
-      case 'grunt': this.tone(t, rnd(130, 190), 0.16, 'sawtooth', 0.08 * v, null, 90); break;
-      case 'scream': { const f = rnd(380, 620); this.tone(t, f, 0.5, 'sawtooth', 0.06 * v, null, f * 0.55); this.noise(t, 0.4, 'bandpass', f * 2, 3, 0.1 * v); break; }
-      case 'roll': this.noise(t, 0.25, 'lowpass', 500, 1, 0.3 * v); break;
-      case 'step': this.noise(t, 0.04, 'lowpass', rnd(500, 900), 1, 0.06 * v); break;
-      case 'coin': this.tone(t, 1900, 0.12, 'square', 0.04 * v); this.tone(t + 0.06, 2500, 0.18, 'square', 0.04 * v); break;
-      case 'ui': this.tone(t, 880, 0.06, 'triangle', 0.08 * v); break;
-      case 'buy': this.tone(t, 660, 0.1, 'triangle', 0.1 * v); this.tone(t + 0.08, 990, 0.16, 'triangle', 0.1 * v); this.play('coin'); break;
-      case 'honorUp': [0, 0.1, 0.2].forEach((d, i) => this.tone(t + d, [587, 784, 880][i], 0.5, 'sine', 0.1 * v)); break;
-      case 'honorDown': [0, 0.14].forEach((d, i) => this.tone(t + d, [311, 233][i], 0.6, 'sawtooth', 0.05 * v)); break;
-      case 'gong': this.tone(t, 98, 3, 'sine', 0.35 * v); this.tone(t, 147, 2.4, 'sine', 0.18 * v); this.tone(t, 262, 1.4, 'triangle', 0.05 * v); this.noise(t, 0.3, 'lowpass', 300, 1, 0.2 * v); break;
-      case 'taiko': this.tone(t, 72, 0.5, 'sine', 0.7 * v, null, 45); this.noise(t, 0.08, 'lowpass', 250, 1, 0.4 * v); break;
-      case 'flash': this.noise(t, 0.6, 'highpass', 4000, 1, 0.25 * v); this.tone(t, 3000, 0.7, 'sine', 0.06 * v, null, 1500); break;
-      case 'level': [0, 0.12, 0.24, 0.36].forEach((d, i) => this.tone(t + d, [440, 587, 659, 880][i], 0.7, 'triangle', 0.09 * v)); break;
-      case 'heart': this.tone(t, 55, 0.18, 'sine', 0.5 * v, null, 40); this.tone(t + 0.22, 50, 0.16, 'sine', 0.35 * v, null, 38); break;
-      case 'bird': this.tone(t, 2600, 0.1, 'sine', 0.05 * v, null, 3400); this.tone(t + 0.14, 2900, 0.12, 'sine', 0.05 * v, null, 2200); break;
-      case 'bandage': this.noise(t, 0.4, 'highpass', 2500, 1, 0.1 * v); break;
-      case 'drink': [0, 0.15, 0.3].forEach(d => this.noise(t + d, 0.1, 'bandpass', 500, 6, 0.2 * v)); break;
-      case 'bow': this.noise(t, 0.3, 'lowpass', 600, 1, 0.12 * v); break;
-      case 'hoof': this.tone(t, rnd(90, 120), 0.07, 'sine', 0.22 * v, null, 50); this.noise(t, 0.05, 'lowpass', 900, 1, 0.12 * v); this.tone(t + 0.09, rnd(80, 110), 0.06, 'sine', 0.16 * v, null, 45); break;
+      case 'swing': {
+        const hi = rnd(2100, 3200);
+        this.whoosh(t, rnd(0.11, 0.16), hi, rnd(380, 620), 0.32 * v, 1.15);
+        this.whoosh(t, rnd(0.07, 0.1), hi * 1.7, 1100, 0.14 * v, 0.8);
+        this.noise(t, 0.03, 'highpass', 7000, 0.6, 0.08 * v);
+        break;
+      }
+      case 'heavy':
+        this.whoosh(t, 0.28, rnd(1400, 1900), 180, 0.48 * v, 0.95);
+        this.whoosh(t, 0.18, 900, 140, 0.22 * v, 0.8);
+        this.noise(t, 0.08, 'lowpass', 220, 1, 0.18 * v);
+        this.res(t + 0.04, rnd(1800, 2400), 0.12, 0.03 * v, { q: 10, slide: 900 });
+        break;
+      case 'draw':
+        this.scrape(t, 0.07, 4200, 2800, 0.1 * v, 2.4);
+        this.wood(t, rnd(240, 320), 0.05 * v);
+        this.scrape(t + 0.05, 0.32, 2100, 3900, 0.16 * v, 3.6);
+        this.scrape(t + 0.08, 0.22, 1400, 2200, 0.07 * v, 2.2);
+        this.res(t + 0.3, rnd(2200, 2800), 0.22, 0.045 * v, { q: 14, slide: 3400 });
+        this.whoosh(t + 0.26, 0.12, 2600, 700, 0.08 * v);
+        break;
+      case 'sheathe':
+        this.scrape(t, 0.3, 3600, 1500, 0.14 * v, 3.4);
+        this.scrape(t + 0.1, 0.22, 1900, 800, 0.07 * v, 2.4);
+        this.whoosh(t, 0.18, 1800, 500, 0.05 * v);
+        this.tick(t + 0.34, 0.22 * v);
+        this.wood(t + 0.37, rnd(260, 340), 0.16 * v);
+        this.res(t + 0.37, 90, 0.12, 0.12 * v, { filt: 'lowpass', q: 0.7, slide: 48 });
+        break;
+      case 'clang':
+        this.metal(t, rnd(1080, 1380), 0.11 * v, 0.55);
+        this.metal(t + rnd(0.004, 0.012), rnd(1600, 2100), 0.05 * v, 0.28);
+        this.noise(t, 0.03, 'highpass', 8000, 0.5, 0.35 * v);
+        break;
+      case 'block':
+        this.wood(t, rnd(480, 640), 0.16 * v);
+        this.res(t, rnd(1400, 1900), 0.14, 0.06 * v, { q: 10, slide: 900 });
+        this.noise(t, 0.05, 'bandpass', 2600, 1.8, 0.28 * v);
+        this.noise(t, 0.04, 'highpass', 5000, 0.7, 0.16 * v);
+        break;
+      case 'hit':
+        this.res(t, rnd(70, 110), 0.16, 0.38 * v, { filt: 'lowpass', q: 0.8, slide: 38, attack: 0.002 });
+        this.noise(t, 0.07, 'lowpass', 900, 1, 0.42 * v, null, 220);
+        this.noise(t, 0.09, 'bandpass', rnd(380, 620), 3.2, 0.28 * v, null, 180);
+        this.noise(t, 0.018, 'highpass', 3200, 0.8, 0.22 * v);
+        break;
+      case 'gore':
+        this.noise(t, 0.28, 'lowpass', 520, 2.4, 0.55 * v, null, 90);
+        this.noise(t + 0.04, 0.38, 'bandpass', rnd(280, 420), 5, 0.32 * v, null, 140);
+        this.noise(t + 0.09, 0.22, 'bandpass', 180, 7, 0.18 * v);
+        this.res(t, 72, 0.28, 0.28 * v, { filt: 'lowpass', q: 0.7, slide: 32 });
+        this.noise(t + 0.02, 0.08, 'highpass', 2400, 1, 0.12 * v);
+        break;
+      case 'spurt':
+        this.noise(t, 0.2, 'bandpass', rnd(480, 720), 6, 0.22 * v, null, 220);
+        this.noise(t, 0.12, 'lowpass', 300, 1, 0.12 * v, null, 80);
+        break;
+      case 'chop':
+        this.noise(t, 0.04, 'highpass', 4200, 0.9, 0.42 * v);
+        this.res(t, rnd(760, 920), 0.11, 0.2 * v, { type: 'triangle', q: 6, slide: 480 });
+        this.res(t, rnd(1520, 1840), 0.06, 0.07 * v, { q: 10 });
+        this.res(t, 110, 0.14, 0.14 * v, { filt: 'lowpass', q: 0.8, slide: 55 });
+        break;
+      case 'creak':
+        this.res(t, rnd(140, 190), 0.62, 0.045 * v, { type: 'sawtooth', q: 7, slide: 88, jit: 0.08 });
+        this.scrape(t, 0.55, 720, 340, 0.07 * v, 5.5);
+        break;
+      case 'clack':
+        this.wood(t, rnd(360, 460), 0.22 * v);
+        this.wood(t + 0.07, rnd(480, 600), 0.12 * v);
+        this.wood(t + 0.14, rnd(400, 520), 0.07 * v);
+        this.noise(t, 0.35, 'highpass', 2400, 0.7, 0.14 * v, null, 4800);
+        this.res(t, 88, 0.16, 0.18 * v, { filt: 'lowpass', q: 0.7, slide: 42 });
+        break;
+      case 'thud':
+        this.res(t, rnd(58, 88), 0.28, 0.42 * v, { filt: 'lowpass', q: 0.7, slide: 32, attack: 0.004 });
+        this.noise(t, 0.12, 'lowpass', 280, 1, 0.28 * v, null, 80);
+        this.noise(t, 0.08, 'bandpass', 700, 1.4, 0.1 * v);
+        break;
+      case 'grunt':
+        this.voice(t, rnd(105, 155), rnd(0.14, 0.2), 0.05 * v, [[420, 6, 1], [980, 4.5, 0.45], [2100, 3, 0.12]], rnd(70, 100));
+        break;
+      case 'scream': {
+        const f = rnd(280, 420);
+        this.voice(t, f, 0.55, 0.055 * v, [[640, 5, 1], [1180, 4, 0.55], [2400, 3.5, 0.22]], f * 0.52);
+        this.noise(t, 0.4, 'bandpass', f * 3.2, 2.4, 0.08 * v);
+        break;
+      }
+      case 'roll':
+        this.whoosh(t, 0.22, 900, 220, 0.2 * v, 0.9);
+        this.noise(t, 0.18, 'highpass', 1800, 0.8, 0.1 * v);
+        this.noise(t, 0.12, 'lowpass', 350, 1, 0.16 * v);
+        break;
+      case 'step': {
+        const p = typeof G !== 'undefined' && G.player;
+        const b = (p && typeof World !== 'undefined' && World.biomeAt) ? World.biomeAt(p.x, p.y) : 0;
+        if (typeof B !== 'undefined' && b === B.SNOW) {
+          this.noise(t, 0.07, 'highpass', rnd(1500, 2300), 1.1, 0.09 * v);
+          this.noise(t, 0.05, 'bandpass', rnd(620, 920), 2, 0.07 * v);
+          this.res(t, rnd(170, 230), 0.06, 0.04 * v, { q: 4, slide: 80 });
+        } else if (typeof B !== 'undefined' && b === B.MARSH) {
+          this.noise(t, 0.1, 'lowpass', 480, 1, 0.1 * v);
+          this.noise(t, 0.06, 'bandpass', 300, 4.5, 0.08 * v, null, 140);
+        } else if (typeof B !== 'undefined' && b === B.CASTLE) {
+          this.wood(t, rnd(210, 290), 0.065 * v);
+          this.noise(t, 0.03, 'highpass', 2200, 1, 0.035 * v);
+        } else {
+          this.noise(t, 0.045, 'lowpass', rnd(260, 500), 1, 0.07 * v);
+          this.noise(t, 0.03, 'bandpass', rnd(680, 1100), 1.3, 0.045 * v);
+          this.res(t, rnd(68, 92), 0.055, 0.045 * v, { slide: 36, q: 3, filt: 'lowpass' });
+        }
+        break;
+      }
+      case 'coin':
+        this.res(t, this.jit(2100, 0.08), 0.22, 0.055 * v, { q: 16, type: 'triangle' });
+        this.res(t, this.jit(3180, 0.08), 0.16, 0.03 * v, { q: 14 });
+        this.res(t + 0.055, this.jit(2480, 0.1), 0.28, 0.05 * v, { q: 18 });
+        this.noise(t, 0.02, 'highpass', 6000, 0.8, 0.08 * v);
+        break;
+      case 'ui':
+        this.tick(t, 0.12 * v);
+        this.res(t, 1240, 0.045, 0.03 * v, { q: 9, type: 'triangle' });
+        break;
+      case 'buy':
+        this.play('coin', v);
+        this.noise(t, 0.08, 'highpass', 1800, 1, 0.06 * v);
+        break;
+      case 'honorUp':
+        [0, 0.11, 0.22].forEach((d, i) => this.res(t + d, [523, 659, 784][i], 0.7, 0.07 * v, { q: 12 }));
+        break;
+      case 'honorDown':
+        [0, 0.16].forEach((d, i) => this.res(t + d, [311, 196][i], 0.7, 0.06 * v, { q: 8, type: 'sine', slide: [233, 147][i] }));
+        break;
+      case 'gong':
+        this.noise(t, 0.08, 'lowpass', 400, 1, 0.22 * v);
+        [1, 2.76, 5.41, 8.93, 13.4].forEach((m, i) => this.res(t, 92 * m, 3.1 - i * 0.42, v * [0.22, 0.12, 0.055, 0.028, 0.012][i], { q: 18 - i, attack: 0.004 }));
+        break;
+      case 'taiko':
+        this.noise(t, 0.045, 'lowpass', 280, 1, 0.38 * v);
+        this.res(t, 68, 0.55, 0.55 * v, { filt: 'lowpass', q: 0.8, slide: 38, attack: 0.003 });
+        this.res(t, 168, 0.22, 0.12 * v, { q: 6, slide: 90 });
+        this.noise(t, 0.03, 'highpass', 1800, 0.8, 0.1 * v);
+        break;
+      case 'flash':
+        this.scrape(t, 0.12, 5200, 2400, 0.2 * v, 2.8);
+        this.whoosh(t, 0.22, 3800, 600, 0.18 * v);
+        this.res(t + 0.05, 2800, 0.35, 0.05 * v, { q: 14, slide: 1600 });
+        this.metal(t + 0.08, 1900, 0.04 * v, 0.3);
+        break;
+      case 'level':
+        [0, 0.13, 0.26, 0.4].forEach((d, i) => this.res(t + d, [392, 523, 659, 784][i], 0.85, 0.07 * v, { q: 11 }));
+        break;
+      case 'heart':
+        this.res(t, 48, 0.2, 0.42 * v, { filt: 'lowpass', q: 0.7, slide: 32, attack: 0.006 });
+        this.noise(t, 0.06, 'lowpass', 180, 1, 0.16 * v);
+        this.res(t + 0.24, 44, 0.18, 0.3 * v, { filt: 'lowpass', q: 0.7, slide: 30, attack: 0.008 });
+        this.noise(t + 0.24, 0.05, 'lowpass', 160, 1, 0.1 * v);
+        break;
+      case 'bird':
+        this.res(t, 2680, 0.09, 0.05 * v, { q: 14, slide: 3400, attack: 0.012 });
+        this.res(t + 0.13, 2920, 0.12, 0.048 * v, { q: 13, slide: 2100, attack: 0.01 });
+        this.noise(t, 0.04, 'bandpass', 3000, 8, 0.02 * v);
+        break;
+      case 'bandage':
+        this.scrape(t, 0.18, 2800, 1600, 0.08 * v, 1.6);
+        this.scrape(t + 0.16, 0.16, 2200, 1100, 0.07 * v, 1.8);
+        this.noise(t + 0.3, 0.12, 'highpass', 2400, 1, 0.05 * v);
+        break;
+      case 'drink':
+        this.noise(t, 0.08, 'bandpass', 1400, 4, 0.08 * v);
+        [0.08, 0.22, 0.36].forEach(d => this.noise(t + d, 0.09, 'bandpass', rnd(380, 560), 7, 0.16 * v));
+        this.res(t + 0.42, 220, 0.18, 0.04 * v, { q: 5, slide: 140 });
+        break;
+      case 'bow':
+        this.noise(t, 0.22, 'lowpass', 480, 1, 0.1 * v);
+        this.scrape(t, 0.18, 900, 400, 0.06 * v, 2);
+        this.wood(t + 0.12, 180, 0.05 * v);
+        break;
+      case 'hoof': {
+        const f = rnd(78, 108);
+        this.res(t, f, 0.08, 0.2 * v, { filt: 'lowpass', q: 0.8, slide: 42, attack: 0.003 });
+        this.noise(t, 0.05, 'lowpass', rnd(500, 820), 1, 0.12 * v);
+        this.noise(t, 0.03, 'highpass', 1600, 0.8, 0.05 * v);
+        this.res(t + 0.085, f * 0.88, 0.07, 0.14 * v, { filt: 'lowpass', q: 0.8, slide: 38 });
+        this.noise(t + 0.085, 0.04, 'lowpass', 700, 1, 0.08 * v);
+        break;
+      }
       case 'whistle': this.whistleChirp(t, 1860, 0.22, 0.1 * v); this.whistleChirp(t + 0.24, 2280, 0.28, 0.09 * v, 1680); break;
-      case 'neigh': { const o = this.ctx.createOscillator(), g = this.ctx.createGain(), l = this.ctx.createOscillator(), lg = this.ctx.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(700, t); o.frequency.exponentialRampToValueAtTime(380, t + 0.7); l.frequency.value = 22; lg.gain.value = 60; l.connect(lg); lg.connect(o.frequency); this.env(g, t, 0.05, 0.05 * v, 0.7); const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 1.5; o.connect(f); f.connect(g); g.connect(this.sfxBus); o.start(t); l.start(t); o.stop(t + 0.9); l.stop(t + 0.9); break; }
-      case 'sheathe': this.noise(t, 0.22, 'bandpass', 3200, 2, 0.12 * v, null, 1800); this.tone(t + 0.2, 900, 0.06, 'square', 0.05 * v); this.noise(t + 0.2, 0.05, 'lowpass', 1200, 1, 0.25 * v); break;
-      case 'deer': this.tone(t, 1700, 0.32, 'sine', 0.05 * v, null, 2500, 0.05); this.tone(t + 0.3, 2400, 0.4, 'sine', 0.04 * v, null, 1400, 0.03); break;
-      case 'kon': this.tone(t, 950, 0.07, 'square', 0.035 * v, null, 620); this.tone(t + 0.13, 900, 0.07, 'square', 0.03 * v, null, 600); break;
-      case 'chatter': for (let i = 0; i < 4; i++) this.tone(t + i * 0.08, rnd(1100, 1700), 0.05, 'triangle', 0.035 * v, null, rnd(800, 1300)); break;
-      case 'howl': { const o = this.ctx.createOscillator(), g = this.ctx.createGain(), l = this.ctx.createOscillator(), lg = this.ctx.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(330, t); o.frequency.exponentialRampToValueAtTime(560, t + 0.9); o.frequency.setValueAtTime(560, t + 1.6); o.frequency.exponentialRampToValueAtTime(300, t + 2.6); l.frequency.value = 5; lg.gain.value = 9; l.connect(lg); lg.connect(o.frequency); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07 * v + 0.0001, t + 0.5); g.gain.setValueAtTime(0.07 * v + 0.0001, t + 1.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.7); o.connect(g); g.connect(this.sfxBus); o.start(t); l.start(t); o.stop(t + 2.8); l.stop(t + 2.8); break; }
-      case 'pon': this.tone(t, 150, 0.16, 'sine', 0.32 * v, null, 85); this.noise(t, 0.06, 'lowpass', 300, 1, 0.2 * v); break;
-      case 'meow': this.tone(t, 620, 0.14, 'triangle', 0.04 * v, null, 950, 0.03); this.tone(t + 0.14, 950, 0.26, 'triangle', 0.04 * v, null, 520); break;
-      case 'hiss': this.noise(t, 0.5, 'highpass', 3500, 1, 0.22 * v); break;
-      case 'puff': this.noise(t, 0.35, 'lowpass', 900, 1, 0.3 * v, null, 300); this.tone(t, 1400, 0.3, 'sine', 0.025 * v, null, 2400); break;
-      case 'eagle': this.tone(t, 2200, 0.6, 'sine', 0.08 * v, null, 1400); this.tone(t + 0.05, 3300, 0.5, 'sine', 0.03 * v, null, 2000); this.noise(t, 0.6, 'bandpass', 2600, 6, 0.04 * v); break;
+      case 'neigh': {
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain(), l = this.ctx.createOscillator(), lg = this.ctx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(this.jit(640, 0.08), t); o.frequency.exponentialRampToValueAtTime(340, t + 0.72);
+        l.frequency.value = 18; lg.gain.value = 48; l.connect(lg); lg.connect(o.frequency);
+        this.env(g, t, 0.05, 0.055 * v, 0.72);
+        [[900, 2.2, 1], [1600, 1.8, 0.45], [2400, 1.4, 0.15]].forEach(([ff, q, amt]) => {
+          const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = ff; bp.Q.value = q;
+          const gg = this.ctx.createGain(); gg.gain.value = amt; o.connect(bp); bp.connect(gg); gg.connect(g);
+        });
+        g.connect(this.sfxBus); o.start(t); l.start(t); o.stop(t + 0.9); l.stop(t + 0.9);
+        this.noise(t, 0.2, 'bandpass', 1400, 2, 0.03 * v);
+        break;
+      }
+      case 'deer':
+        this.voice(t, rnd(280, 340), 0.28, 0.04 * v, [[900, 6, 1], [1800, 4, 0.35]], rnd(420, 520));
+        this.voice(t + 0.26, rnd(360, 440), 0.34, 0.035 * v, [[1100, 5, 1], [2100, 4, 0.3]], rnd(220, 280));
+        break;
+      case 'kon':
+        this.voice(t, rnd(280, 340), 0.09, 0.045 * v, [[820, 6, 1], [1600, 4, 0.3]], 180);
+        this.voice(t + 0.12, rnd(260, 320), 0.1, 0.038 * v, [[780, 6, 1], [1500, 4, 0.28]], 170);
+        break;
+      case 'chatter':
+        for (let i = 0; i < 5; i++) this.voice(t + i * 0.07, rnd(420, 620), 0.055, 0.032 * v, [[1400, 5, 1], [2400, 3, 0.3]], rnd(280, 480));
+        break;
+      case 'howl': {
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain(), l = this.ctx.createOscillator(), lg = this.ctx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(290, t); o.frequency.exponentialRampToValueAtTime(520, t + 0.95);
+        o.frequency.setValueAtTime(520, t + 1.55); o.frequency.exponentialRampToValueAtTime(250, t + 2.55);
+        l.frequency.value = 4.6; lg.gain.value = 8; l.connect(lg); lg.connect(o.frequency);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05 * v + 0.0001, t + 0.45);
+        g.gain.setValueAtTime(0.05 * v + 0.0001, t + 1.7); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.65);
+        [[520, 4.5, 1], [980, 3.2, 0.5], [1800, 2.4, 0.18]].forEach(([ff, q, amt]) => {
+          const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = ff; bp.Q.value = q;
+          const gg = this.ctx.createGain(); gg.gain.value = amt; o.connect(bp); bp.connect(gg); gg.connect(g);
+        });
+        g.connect(this.sfxBus); o.start(t); l.start(t); o.stop(t + 2.8); l.stop(t + 2.8);
+        this.noise(t + 0.3, 1.8, 'bandpass', 700, 2, 0.03 * v);
+        break;
+      }
+      case 'pon':
+        this.res(t, 92, 0.2, 0.28 * v, { filt: 'lowpass', q: 0.8, slide: 48 });
+        this.noise(t, 0.07, 'lowpass', 260, 1, 0.18 * v);
+        this.noise(t, 0.03, 'bandpass', 700, 2, 0.08 * v);
+        break;
+      case 'meow':
+        this.voice(t, 320, 0.14, 0.038 * v, [[780, 7, 1], [1600, 5, 0.4]], 480);
+        this.voice(t + 0.12, 420, 0.28, 0.036 * v, [[900, 6, 1], [1900, 4, 0.3]], 240);
+        break;
+      case 'hiss':
+        this.noise(t, 0.48, 'highpass', 4200, 0.7, 0.18 * v);
+        this.noise(t, 0.48, 'bandpass', 6800, 1.4, 0.1 * v);
+        break;
+      case 'puff':
+        this.whoosh(t, 0.32, 1100, 240, 0.22 * v, 0.7);
+        this.noise(t, 0.28, 'lowpass', 500, 1, 0.14 * v, null, 120);
+        this.res(t, 1600, 0.22, 0.02 * v, { q: 8, slide: 2400 });
+        break;
+      case 'eagle':
+        this.voice(t, 420, 0.55, 0.05 * v, [[1800, 6, 1], [2800, 4.5, 0.4], [3600, 3, 0.15]], 260);
+        this.res(t + 0.04, 2400, 0.48, 0.03 * v, { q: 10, slide: 1400 });
+        this.noise(t, 0.5, 'bandpass', 2500, 5, 0.035 * v);
+        break;
+      case 'gun':
+        this.noise(t, 0.035, 'highpass', 5000, 0.6, 0.7 * v);
+        this.noise(t, 0.08, 'bandpass', 1800, 1.2, 0.45 * v, null, 500);
+        this.noise(t, 0.42, 'lowpass', 480, 1, 0.5 * v, null, 70);
+        this.res(t, 95, 0.28, 0.32 * v, { filt: 'lowpass', q: 0.7, slide: 32 });
+        this.tick(t + 0.09, 0.12 * v);
+        break;
+      case 'cannon':
+        this.noise(t, 0.06, 'highpass', 2800, 0.6, 0.45 * v);
+        this.noise(t, 1.3, 'lowpass', 320, 1, 0.85 * v, null, 36);
+        this.res(t, 58, 0.95, 0.65 * v, { filt: 'lowpass', q: 0.6, slide: 22 });
+        this.noise(t + 0.06, 0.45, 'bandpass', 1100, 1, 0.22 * v, null, 220);
+        this.noise(t + 0.2, 0.8, 'highpass', 2400, 0.5, 0.08 * v);
+        break;
+      case 'boom':
+        this.noise(t, 0.05, 'highpass', 2200, 0.7, 0.28 * v);
+        this.noise(t, 1.0, 'lowpass', 200, 1, 0.42 * v, null, 40);
+        this.res(t, 48, 0.85, 0.32 * v, { filt: 'lowpass', q: 0.6, slide: 22 });
+        break;
+      case 'click':
+        this.tick(t, 0.18 * v);
+        this.wood(t + 0.045, rnd(900, 1200), 0.06 * v);
+        this.tick(t + 0.055, 0.12 * v);
+        break;
+      case 'crackle':
+        for (let i = 0; i < 7; i++) this.noise(t + Math.random() * 0.55, rnd(0.018, 0.04), 'highpass', rnd(1800, 4200), 1.1, rnd(0.06, 0.13) * v);
+        break;
     }
   },
-  // one typed letter of dialogue; every speaker has their own pitch
-  blip(f, vol = 1) { if (!this.ctx || !this.on) return; const t = this.ctx.currentTime; this.tone(t, f, 0.04, 'square', 0.03 * vol); this.tone(t, f * 2, 0.025, 'triangle', 0.015 * vol); },
+  blip(f, vol = 1) {
+    if (!this.ctx || !this.on) return;
+    const t = this.ctx.currentTime;
+    this.res(t, f, 0.038, 0.028 * vol, { q: 7, type: 'triangle', attack: 0.004 });
+    this.res(t, f * 2.02, 0.022, 0.01 * vol, { q: 9 });
+  },
   startWind() {
     const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true;
     const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 0.7;
@@ -711,42 +1020,68 @@ const Music = {
     miyako: [146.83, 155.56, 196.00, 220.00, 233.08],
     iwato: [146.83, 155.56, 196.00, 207.65, 261.63],
     ryo: [146.83, 164.81, 184.99, 220.00, 246.94],
-    kumo: [130.81, 138.59, 174.61, 196.00, 207.65]
+    kumo: [130.81, 138.59, 174.61, 196.00, 207.65],
+    yo: [146.83, 164.81, 196.00, 220.00, 261.63]
   },
   VEL: { koto: 0.74, shami: 0.52, biwa: 0.6, flute: 0.84, drone: 0.5, harm: 0.42, kane: 0.72, taiko: 0.78, hyo: 0.48, tsu: 0.55, wind: 0.7, ghost: 0.62, pulse: 0.8 },
   URGENT: new Set(['blood', 'duel', 'dread', 'throne', 'hollow', 'omen', 'ending_ash', 'ending_rain', 'ending_hope']),
   tracks: [
-    { id: 'white_sun', name: 'Shadows of the White Sun', jp: '白日の影', kind: 'Title', new: true, bpm: 56, scale: 'miyako', bars: 8,
-      desc: 'The telling opens. A koto finds the road; a shakuhachi answers from far off.',
+    { id: 'white_sun', name: 'Shadows of the White Sun', jp: '白日の影', kind: 'Title', new: true, bpm: 58, scale: 'miyako', bars: 16,
+      desc: 'The telling opens. A koto finds the road; a shakuhachi answers, then takes a second breath.',
       parts: [
-        { inst: 'drone', notes: '0:16 0:16' },
-        { inst: 'biwa', notes: '0:4 2:4 0:4 4:4 0:4 2:4 0:4 .:4' },
-        { inst: 'koto', notes: '7:2 5:1 4:1 2:2 .:1 5:1 7:2 8:1 9:1 8:2 7:1 5:1 4:2 2:1 0:1 5:2 7:2 8:2 7:1 5:1 4:2 2:1 0:1' },
-        { inst: 'flute', notes: '.:8 7:4 8:2 9:2 8:2 7:2 6:2 5:2 4:4 2:2 0:2' },
-        { inst: 'kane', notes: '.:28 0:4' }
+        { inst: 'drone', notes: '0:32:0.4 2:32:0.35' },
+        { inst: 'biwa', notes: '0:8 2:8 4:8 2:8 0:8 5:8 2:8 0:8' },
+        { inst: 'koto', notes: '7:2 5:1 4:1 2:2 0:1 2:1 4:2 5:1 7:1 5:2 4:1 2:1 9:2 8:1 7:1 8:2 5:2 7:1 8:1 9:2 8:1 7:1 5:2 5:1 4:1 2:2 5:2 7:2 8:1 7:1 5:2 4:2 2:1 0:1 7:2 9:2 8:2 7:1 5:1 4:2 2:2 0:4' },
+        { inst: 'flute', notes: '.:8 7:4 8:2 9:2 8:2 7:2 5:2 4:2 7:4 5:2 4:2 2:4 0:4 4:4 2:4 0:8 7:8' },
+        { inst: 'kane', notes: '.:28 0:4 .:28 0:4' }
       ] },
-    { id: 'old_road', name: 'The Old Road', jp: '旧道', kind: 'Feudal · plains', new: true, bpm: 76, scale: 'miyako', bars: 8,
-      desc: 'A walking piece. Shamisen keeps the step; the koto talks above it like a traveller.',
+    { id: 'old_road', name: 'The Old Road', jp: '旧道', kind: 'Feudal · plains', new: true, bpm: 72, scale: 'miyako', bars: 16,
+      desc: 'A walking piece. The shamisen changes its step every few bars; the koto tells a whole road, not four notes.',
       parts: [
-        { inst: 'shami', ost: '0:0.5 2:0.5 0:0.5 4:0.5' },
-        { inst: 'biwa', notes: '0:8 2:8 0:8 4:8' },
-        { inst: 'koto', notes: '5:1 7:1 8:1 7:1 5:1 4:1 2:2 5:1 7:1 9:1 8:1 7:2 5:2 4:1 5:1 7:1 5:1 4:1 2:1 0:2 2:1 4:1 5:2 4:2 2:1 0:1' },
-        { inst: 'flute', notes: '.:8 7:2 8:2 7:4 .:4 5:4 4:2 2:2 .:4' }
+        { inst: 'shami', notes: '0:1 2:1 4:1 2:1 0:1 2:1 5:1 4:1 0:1 4:1 2:1 0:1 2:1 4:1 5:1 2:1 0:1 2:1 4:1 5:1 4:1 2:1 0:1 2:1 0:1 2:1 4:1 2:1 5:1 4:1 2:1 0:1 2:1 4:1 5:1 4:1 2:1 0:1 2:1 4:1 0:1 5:1 4:1 2:1 0:1 2:1 4:1 0:1 2:1 4:1 7:1 5:1 4:1 2:1 0:1 2:1 4:1 2:1 0:1 2:1 5:1 4:1 2:1 0:1' },
+        { inst: 'biwa', notes: '0:8 2:8 4:8 0:8 2:8 5:8 4:8 0:8' },
+        { inst: 'koto', notes: '5:1 7:1 8:1 7:1 5:1 4:1 2:2 5:1 7:1 9:1 8:1 7:2 5:2 4:1 5:1 7:1 8:1 9:1 8:1 7:1 5:1 4:2 2:1 4:1 5:2 7:2 8:2 5:1 4:1 2:1 0:1 2:2 4:1 5:1 7:1 8:1 7:2 5:1 4:1 2:2 0:2 5:2 4:2 2:1 0:1' },
+        { inst: 'flute', notes: '.:8 7:2 8:2 7:4 5:2 4:2 2:4 .:4 5:4 7:2 8:2 9:4 8:2 7:2 5:4 4:2 2:2 0:8' }
       ] },
-    { id: 'court', name: 'Court of Lacquer', jp: '漆の間', kind: 'Feudal · castle', new: true, bpm: 64, scale: 'ryo', bars: 8,
-      desc: 'Ritsu court music: koto figures in fifths, a high flute, two wooden claps at the gate.',
+    { id: 'morning', name: 'First Light', jp: '東雲', kind: 'Hopeful · dawn', new: true, bpm: 70, scale: 'yo', bars: 16,
+      desc: 'Open yo-scale walking music. Flute in the sun, koto answering, no grit in it.',
       parts: [
-        { inst: 'drone', notes: '0:32' },
-        { inst: 'hyo', notes: '0:1 .:15 0:1 .:15' },
-        { inst: 'koto', notes: '5:0.5 7:0.5 9:0.5 7:0.5 5:1 3:1 5:0.5 7:0.5 9:0.5 10:0.5 9:1 7:1 8:2 7:1 5:1 3:2 5:2 7:0.5 9:0.5 10:1 9:1 7:1 5:2 3:2 2:2 0:2 3:4' },
-        { inst: 'flute', notes: '.:8 9:4 8:2 7:2 5:4 7:4 8:4 5:4' }
+        { inst: 'drone', notes: '0:32:0.28 3:32:0.22' },
+        { inst: 'koto', notes: '2:2 3:1 4:1 5:2 3:1 2:1 0:2 2:1 3:1 5:2 7:2 5:1 3:1 2:2 0:2 3:2 5:1 7:1 8:2 7:1 5:1 3:2 2:1 0:1 2:2 3:2 5:4 7:2 5:1 3:1 2:2 3:1 5:1 7:2 5:2 3:2 2:2 0:6' },
+        { inst: 'flute', notes: '.:4 5:4 7:2 8:2 7:4 5:2 3:2 2:4 0:4 3:4 5:2 7:2 8:4 7:2 5:2 3:4 2:2 0:2 2:8 5:4' },
+        { inst: 'biwa', notes: '0:8 2:8 0:8 4:8 2:8 5:8 3:8 0:8' },
+        { inst: 'kane', notes: '.:32 0:8 .:24' }
       ] },
-    { id: 'petals', name: 'Petals on Water', jp: '水面の花', kind: 'Feudal · sakura', new: true, bpm: 60, scale: 'miyako', bars: 8,
-      desc: 'High, unhurried. The flute carries; the koto falls like blossom.',
+    { id: 'village', name: 'Market Morning', jp: '朝市', kind: 'Hopeful · town', new: true, bpm: 84, scale: 'yo', bars: 16,
+      desc: 'Busy without being grim. Shamisen talks, koto laughs back, a clap at the gate.',
       parts: [
-        { inst: 'drone', notes: '5:16 4:16' },
-        { inst: 'flute', notes: '9:4 8:2 7:2 8:4 5:4 7:2 8:2 9:4 8:2 7:2 5:4' },
-        { inst: 'koto', notes: '.:2 7:1 5:1 .:2 4:1 2:1 .:2 8:1 7:1 .:2 5:1 4:1 .:2 7:1 8:1 .:2 5:1 7:1 .:2 4:1 5:1 .:2 2:1 0:1' }
+        { inst: 'shami', notes: '0:1 2:1 4:1 5:1 4:1 2:1 0:1 2:1 4:1 2:1 0:1 2:1 5:1 4:1 2:1 0:1 2:1 4:1 7:1 5:1 4:1 2:1 0:1 2:1 0:1 2:1 4:1 2:1 5:1 7:1 5:1 4:1 2:1 4:1 5:1 7:1 5:1 4:1 2:1 0:1 0:1 2:1 4:1 5:1 4:1 2:1 0:1 2:1 4:1 2:1 0:1 4:1 5:1 4:1 2:1 0:1 2:1 0:1 2:1 4:1 2:1 0:1 2:1 0:1' },
+        { inst: 'koto', notes: '5:1 7:1 8:1 7:1 5:2 3:1 2:1 5:1 7:1 9:1 8:1 7:2 5:2 8:1 7:1 5:1 3:1 2:2 0:2 5:2 7:2 8:2 5:1 3:1 2:1 0:1 2:2 3:2 5:4 7:2 8:2 7:1 5:1 3:2 2:2 0:2 5:2 7:2 5:2 3:2 2:2' },
+        { inst: 'flute', notes: '.:8 7:2 8:2 7:2 5:2 3:4 2:2 0:2 .:4 5:4 7:4 8:2 7:2 5:4 3:4 2:8' },
+        { inst: 'hyo', notes: '0:1 .:7 0:1 .:7 0:1 .:15 0:1 .:15 0:1 .:15' }
+      ] },
+    { id: 'high_road', name: 'The High Road', jp: '峠道', kind: 'Hopeful · ride', new: true, bpm: 78, scale: 'ryo', bars: 16,
+      desc: 'Ritsu in the open. A long flute line over a koto that keeps finding new ground.',
+      parts: [
+        { inst: 'drone', notes: '0:32:0.26 2:32:0.22' },
+        { inst: 'koto', notes: '3:2 5:1 7:1 8:2 7:1 5:1 3:2 2:1 0:1 2:2 3:2 5:1 7:1 8:2 10:2 9:1 8:1 7:2 5:2 3:1 5:1 7:2 5:1 3:1 2:2 0:2 3:2 5:2 7:4 8:2 7:1 5:1 3:2 2:1 0:1 2:4 0:4' },
+        { inst: 'flute', notes: '.:8 7:4 8:2 10:2 8:4 7:2 5:2 3:4 2:2 0:2 5:4 7:2 8:2 10:4 8:2 7:2 5:4 3:4 2:8' },
+        { inst: 'biwa', notes: '0:8 3:8 2:8 0:8 3:8 5:8 2:8 0:8' }
+      ] },
+    { id: 'court', name: 'Court of Lacquer', jp: '漆の間', kind: 'Feudal · castle', new: true, bpm: 64, scale: 'ryo', bars: 16,
+      desc: 'Ritsu court music: koto figures that climb, a high flute, claps that do not land on the same bar twice.',
+      parts: [
+        { inst: 'drone', notes: '0:32:0.32 3:32:0.28' },
+        { inst: 'hyo', notes: '0:1 .:15 0:1 .:7 0:1 .:7 0:1 .:15 0:1 .:15' },
+        { inst: 'koto', notes: '5:1 7:1 9:1 7:1 5:2 3:2 5:1 7:1 9:1 10:1 9:2 7:2 8:2 7:1 5:1 3:2 5:2 7:1 9:1 10:2 9:1 7:1 5:2 3:2 2:2 0:2 3:2 5:1 7:1 8:2 7:2 5:1 3:1 2:2 0:2 3:4' },
+        { inst: 'flute', notes: '.:8 9:4 8:2 7:2 5:4 7:4 8:4 10:4 9:2 8:2 7:4 5:4 3:4 5:8' }
+      ] },
+    { id: 'petals', name: 'Petals on Water', jp: '水面の花', kind: 'Hopeful · sakura', new: true, bpm: 62, scale: 'yo', bars: 16,
+      desc: 'High, unhurried. The flute carries a whole verse; the koto falls like blossom, then finds another tree.',
+      parts: [
+        { inst: 'drone', notes: '5:32:0.24 4:32:0.2' },
+        { inst: 'flute', notes: '9:4 8:2 7:2 8:4 5:4 7:2 8:2 9:4 8:2 7:2 5:2 3:2 2:4 0:4 5:4 7:2 8:2 9:4 7:4 5:4 2:4' },
+        { inst: 'koto', notes: '.:2 7:1 5:1 .:2 4:1 2:1 .:2 8:1 7:1 .:2 5:1 4:1 .:2 7:1 8:1 .:2 9:1 8:1 .:2 5:1 7:1 .:2 4:1 5:1 .:2 2:1 3:1 .:2 0:1 2:1 .:4 5:2 7:2 5:2 3:2 2:4' }
       ] },
     { id: 'night', name: 'Night Without Stars', jp: '星無き夜', kind: 'Eerie · night', new: true, bpm: 46, scale: 'iwato', bars: 16,
       desc: 'Iwato scale, long breath, a temple bowl far away. The island after the lamps go out.',
@@ -757,13 +1092,13 @@ const Music = {
         { inst: 'kane', notes: '.:24 0:8 .:24 0:8' },
         { inst: 'harm', notes: '.:20 10:8 .:20 9:8 .:8' }
       ] },
-    { id: 'bamboo', name: 'The Bamboo Sea', jp: '竹海', kind: 'Eerie · grove', new: true, bpm: 52, scale: 'iwato', bars: 8,
-      desc: 'A four-note ostinato that never quite resolves. Wind in the culms.',
+    { id: 'bamboo', name: 'The Bamboo Sea', jp: '竹海', kind: 'Hopeful · grove', new: true, bpm: 68, scale: 'yo', bars: 16,
+      desc: 'Sun through the culms. A long koto phrase that keeps finding new ground; the flute answers once, then again differently.',
       parts: [
-        { inst: 'drone', notes: '0:32' },
-        { inst: 'koto', ost: '1:1 2:1 3:1 2:1' },
-        { inst: 'biwa', notes: '0:8 1:8 0:8 3:8' },
-        { inst: 'flute', notes: '.:8 6:8 3:4 1:4 2:4 1:4' }
+        { inst: 'drone', notes: '0:32:0.26 2:32:0.2' },
+        { inst: 'koto', notes: '2:2 3:1 5:1 3:2 2:1 0:1 2:2 5:2 7:1 5:1 3:2 2:2 0:2 3:1 5:1 7:2 5:1 3:1 2:2 0:2 5:2 7:1 8:1 7:2 5:2 3:1 2:1 0:2 2:1 3:1 5:2 3:2 2:2 0:4 3:2 5:2 7:2 5:2 0:2' },
+        { inst: 'biwa', notes: '0:8 2:8 3:8 0:8 2:8 5:8 3:8 0:8' },
+        { inst: 'flute', notes: '.:8 5:4 7:2 8:2 7:4 5:2 3:2 2:4 0:4 3:4 5:2 7:2 8:4 5:4 3:4 2:8' }
       ] },
     { id: 'ash', name: 'Ash and Cinder', jp: '灰と焔', kind: 'Eerie · ashlands', new: true, bpm: 44, scale: 'iwato', bars: 8,
       desc: 'Hollow ground. A drone that will not leave, and koto like something still burning.',
@@ -780,28 +1115,29 @@ const Music = {
         { inst: 'koto', notes: '.:4 9:1 8:1 7:2 .:4 8:1 7:1 5:2 .:4 7:2 5:2 3:4 0:4' },
         { inst: 'flute', notes: '.:8 8:8 7:8 5:8' }
       ] },
-    { id: 'temple', name: 'Temple at Dusk', jp: '黄昏の社', kind: 'Feudal · shrine', new: true, bpm: 48, scale: 'miyako', bars: 8,
+    { id: 'temple', name: 'Temple at Dusk', jp: '黄昏の社', kind: 'Feudal · shrine', new: true, bpm: 50, scale: 'ryo', bars: 16,
       desc: 'Clap, bow, the bowl sings. Prayer music for the hour when the mountain turns gold.',
       parts: [
-        { inst: 'drone', notes: '0:32' },
-        { inst: 'kane', notes: '0:8 .:8 0:8 .:8' },
-        { inst: 'koto', notes: '5:2 7:2 5:2 4:2 2:4 0:4 5:2 4:2 2:2 0:2 2:4 0:4' },
-        { inst: 'flute', notes: '.:8 7:8 5:8 4:8' }
+        { inst: 'drone', notes: '0:32:0.3 3:32:0.24' },
+        { inst: 'kane', notes: '0:8 .:8 0:16 .:8 0:8 .:16' },
+        { inst: 'hyo', notes: '0:1 .:15 0:1 .:7 0:1 .:7 0:1 .:15 0:1 .:15' },
+        { inst: 'koto', notes: '5:2 7:2 5:2 3:2 2:4 0:4 5:2 3:2 2:2 0:2 2:4 0:4 3:2 5:2 7:2 8:2 7:4 5:4 3:2 5:2 2:2 0:2 2:4 0:4' },
+        { inst: 'flute', notes: '.:8 7:8 5:4 3:4 2:8 5:8 7:4 8:4 5:8 3:8' }
       ] },
-    { id: 'fire', name: 'By the Fire', jp: '焚火', kind: 'Feudal · camp', new: true, bpm: 66, scale: 'miyako', bars: 8,
-      desc: 'Close and low. Biwa and koto as if someone were playing across the coals.',
+    { id: 'fire', name: 'By the Fire', jp: '焚火', kind: 'Feudal · camp', new: true, bpm: 64, scale: 'yo', bars: 16,
+      desc: 'Close and low. Biwa and koto as if someone were playing a whole song across the coals.',
       parts: [
-        { inst: 'biwa', notes: '0:4 2:4 4:4 2:4 0:4 2:4 0:4 4:4' },
-        { inst: 'koto', notes: '5:1 4:1 2:2 5:2 7:2 8:1 7:1 5:2 4:2 2:2 0:2 2:2 4:2 5:2 7:2 5:2 4:1 2:1 0:2' },
-        { inst: 'flute', notes: '.:16 7:4 5:4 4:8' }
+        { inst: 'biwa', notes: '0:4 2:4 3:4 2:4 0:4 5:4 3:4 0:4 2:4 3:4 5:4 3:4 2:4 0:4 2:4 0:4' },
+        { inst: 'koto', notes: '5:1 3:1 2:2 5:2 7:2 8:1 7:1 5:2 3:2 2:2 0:2 2:2 3:2 5:2 7:2 5:2 3:1 2:1 0:2 5:2 7:1 8:1 7:2 5:1 3:1 2:2 0:2 3:2 5:2 7:4 5:2 3:2 2:4' },
+        { inst: 'flute', notes: '.:16 7:4 5:4 3:4 2:4 0:8 5:8 3:8 2:8' }
       ] },
-    { id: 'blood', name: 'Blood on the Road', jp: '路上の血', kind: 'Battle', new: true, bpm: 108, scale: 'iwato', bars: 8,
-      desc: 'Taiko under the feet, koto in a hurry. Not a fanfare — a chase.',
+    { id: 'blood', name: 'Blood on the Road', jp: '路上の血', kind: 'Battle', new: true, bpm: 108, scale: 'iwato', bars: 16,
+      desc: 'Taiko under the feet, koto in a hurry. A chase that keeps changing its footing.',
       parts: [
-        { inst: 'drone', notes: '0:32' },
-        { inst: 'taiko', ost: '0:1 1:0.5 0:0.5' },
-        { inst: 'koto', notes: '7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:0.5 6:0.5 4:0.5 3:0.5 7:1 4:1 3:1 1:1 7:1 4:1 3:1 1:1 7:1 4:1 3:1 1:1 7:1 4:1 3:1 1:1' },
-        { inst: 'flute', notes: '.:8 8:2 6:2 4:4 3:4 1:4 4:8' }
+        { inst: 'drone', notes: '0:32:0.45 1:32:0.35' },
+        { inst: 'taiko', notes: '0:1 1:0.5 0:0.5 0:1 .:0.5 1:0.5 0:1 1:1 0:1 .:1 0:0.5 1:0.5 0:1 0:1 1:0.5 0:0.5 0:2 0:2 1:1 0:1 0:1 1:0.5 .:0.5 0:2 0:1 1:0.5 0:0.5 0:1 1:1 0:2 .:2 0:1 1:1 0:1 .:1 0:1 1:0.5 0:0.5 0:1 .:1 0:2 1:1 0:1 0:1 1:0.5 0:0.5 0:1 .:1 0:1 1:0.5 0:0.5 0:2 1:1 0:1 0:1 .:1 0:2 0:2 1:1 0:1 .:4' },
+        { inst: 'koto', notes: '7:0.5 6:0.5 4:1 8:0.5 6:0.5 4:0.5 3:0.5 7:1 4:0.5 3:0.5 1:1 6:0.5 4:0.5 3:1 8:1 6:0.5 4:0.5 3:0.5 1:0.5 7:0.5 8:0.5 6:1 4:1 3:0.5 1:0.5 0:1 7:1 6:0.5 8:0.5 4:1 3:1 1:0.5 3:0.5 4:1 6:1 8:0.5 6:0.5 4:0.5 3:0.5 1:1 0:1 3:1 4:0.5 6:0.5 8:1 6:1 4:1 1:1 7:1 8:1 6:2 4:1 3:1 1:2 0:2 7:1 8:1 6:1 4:1 3:2 1:2 8:2 6:1 4:1 3:1 1:1 0:4 4:2' },
+        { inst: 'flute', notes: '.:8 8:2 6:2 4:4 3:2 1:2 4:4 6:4 8:2 6:2 3:4 1:4 0:8 4:8' }
       ] },
     { id: 'duel', name: 'Before the Cut', jp: '斬の前', kind: 'Duel', new: true, bpm: 48, scale: 'iwato', bars: 8,
       desc: 'A heartbeat on the drum, one flute that will not finish its phrase. The standoff.',
@@ -827,21 +1163,21 @@ const Music = {
       parts: [
         { inst: 'drone', notes: '0:32 3:32' },
         { inst: 'wind', notes: '0:16 .:16 0:32' },
-        { inst: 'pulse', ost: '0:4 .:4' },
+        { inst: 'pulse', notes: '0:4 .:4 0:8 .:4 0:4 .:8 0:4 .:12 0:8 .:8' },
         { inst: 'kane', notes: '0:8 .:24 0:8 .:24' },
         { inst: 'flute', notes: '.:8 1:12 .:12 6:10 .:22' },
         { inst: 'koto', notes: '.:12 6:2 .:18 3:1 .:15 1:2 .:14' },
         { inst: 'ghost', notes: '.:20 11:8 .:20 10:8 .:8' }
       ] },
-    { id: 'dread', name: 'The Ground Remembers', jp: '土は覚えている', kind: 'Eerie · battle', new: true, bpm: 66, scale: 'iwato', bars: 8,
-      desc: 'Not a chase. Irregular taiko, a koto that will not resolve, the air gone thin.',
+    { id: 'dread', name: 'The Ground Remembers', jp: '土は覚えている', kind: 'Eerie · battle', new: true, bpm: 66, scale: 'iwato', bars: 16,
+      desc: 'Not a chase. Irregular taiko, a koto that keeps turning a corner, the air gone thin.',
       parts: [
-        { inst: 'drone', notes: '0:32' },
-        { inst: 'pulse', ost: '0:2 .:2' },
-        { inst: 'taiko', ost: '0:1 .:1 1:0.5 .:1.5' },
-        { inst: 'koto', ost: '6:0.5 3:0.5 1:0.5 0:0.5' },
-        { inst: 'biwa', notes: '0:8 1:8 0:8 3:8' },
-        { inst: 'flute', notes: '.:8 8:2 6:2 3:4 .:4 6:4 1:8' }
+        { inst: 'drone', notes: '0:32:0.4 1:32:0.32' },
+        { inst: 'pulse', notes: '0:2 .:2 0:4 .:2 0:2 .:4 0:2 .:2 0:4 .:4 0:2 .:6 0:4 .:8 0:4' },
+        { inst: 'taiko', notes: '0:1 .:1 1:0.5 .:1.5 0:2 1:1 .:1 0:1 .:3 1:0.5 0:0.5 .:2 0:1 1:1 0:2 .:2 0:1 .:1 1:2 .:2 0:2 1:0.5 .:1.5 0:1 .:3 0:2' },
+        { inst: 'koto', notes: '6:1 3:1 1:2 8:1 6:1 3:1 1:1 0:2 3:1 1:1 6:2 8:1 6:1 4:1 3:1 1:2 0:2 6:2 3:1 1:1 8:2 6:1 4:1 3:2 1:2 0:4 3:2 1:2 6:4 4:2 3:2 1:4 0:4 1:2 0:4' },
+        { inst: 'biwa', notes: '0:8 1:8 3:8 1:8 0:8 6:8 3:8 0:8' },
+        { inst: 'flute', notes: '.:8 8:4 6:2 3:2 .:4 6:4 1:8 3:4 1:4 0:8 6:8' }
       ] },
     { id: 'throne', name: 'Beside the Throne', jp: '玉座の傍', kind: 'Eerie · climax', new: true, bpm: 42, scale: 'iwato', bars: 8,
       desc: 'Court music that has gone wrong. Gold leaf, a cold hall, one man who will not kneel.',
@@ -860,7 +1196,7 @@ const Music = {
       parts: [
         { inst: 'drone', notes: '0:32 3:32' },
         { inst: 'wind', notes: '0:32 0:32' },
-        { inst: 'pulse', ost: '0:4 .:4' },
+        { inst: 'pulse', notes: '0:4 .:12 0:8 .:8 0:4 .:12 0:8 .:8' },
         { inst: 'koto', notes: '.:16 1:2 .:14 0:2 .:14 3:1 .:15' },
         { inst: 'ghost', notes: '.:24 11:8 .:24 10:8' },
         { inst: 'kane', notes: '0:8 .:56' }
@@ -961,7 +1297,7 @@ const Music = {
     const tr = this.track(id); if (!tr || !Snd.ctx) return;
     this.compile(tr);
     this.cur = id; this.gen = !!tr.gen; this.events = tr._ev || []; this.len = tr._len || 24;
-    this.origin = Snd.ctx.currentTime + 0.06; this.i = 0; this.since = 0; this.hold = (id === 'blood' || id === 'duel' || id === 'dread' || id === 'throne') ? 8 : (id === 'omen' || id === 'hollow') ? 14 : 22;
+    this.origin = Snd.ctx.currentTime + 0.06; this.i = 0; this.since = 0; this._pass = 0; this.hold = (id === 'blood' || id === 'duel' || id === 'dread' || id === 'throne') ? 8 : (id === 'omen' || id === 'hollow') ? 14 : 28;
     this.fadeTo(this.level(), 0.7);
     this._swap = null;
   },
@@ -994,15 +1330,26 @@ const Music = {
     const p = typeof G !== 'undefined' && G.player;
     const biome = (p && World.biomeAt) ? World.biomeAt(p.x, p.y) : 0;
     const pl = (p && World.placeAt) ? World.placeAt(p.x, p.y) : null;
+    const tod = (typeof G !== 'undefined' && G.tod) || 0.5;
+    const dawn = !night && tod >= 0.22 && tod < 0.42;
     if (pl && (pl.kind === 'shrine' || /shrine|tera|ji$|sha/i.test(pl.id || '') || /shrine|temple/i.test(pl.name || ''))) return 'temple';
     if (biome === B.ASH) return 'ash';
     if (biome === B.SNOW) return 'snow';
-    if (biome === B.BAMBOO || biome === B.FOREST) return 'bamboo';
+    if (night || wanted >= 3) return 'night';
+    if (pl && (pl.kind === 'town' || pl.kind === 'home')) return 'village';
+    if (p && World.sites) {
+      for (const s of World.sites) {
+        if (s.kind === 'town' && dist(p.x, p.y, s.x, s.y) < (s.r || 16)) return 'village';
+      }
+    }
     if (biome === B.HIDEOUT) return 'fire';
     if (biome === B.CASTLE) return 'court';
-    if (biome === B.SAKURA) return night ? 'night' : 'petals';
-    if (biome === B.MARSH || night || wanted >= 3) return 'night';
-    return 'old_road';
+    if (biome === B.SAKURA) return 'petals';
+    if (biome === B.BAMBOO) return 'bamboo';
+    if (biome === B.FOREST || biome === B.MAPLE) return 'high_road';
+    if (dawn) return 'morning';
+    if (biome === B.COAST || biome === B.PLAINS) return (p && p.mounted) ? 'high_road' : 'morning';
+    return 'morning';
   },
   tick(dt, mood) {
     if (!Snd.ctx || !Snd.on) return;
@@ -1017,7 +1364,7 @@ const Music = {
     let n = 0;
     while (n++ < 48) {
       if (this.i >= this.events.length) {
-        if (ctxT + 0.45 > this.origin + this.len) { this.origin += this.len; this.i = 0; continue; }
+        if (ctxT + 0.45 > this.origin + this.len) { this.origin += this.len; this.i = 0; this._pass = (this._pass || 0) + 1; continue; }
         break;
       }
       const ev = this.events[this.i], when = this.origin + ev.at;
@@ -1027,7 +1374,22 @@ const Music = {
     }
   },
   sound(t, ev) {
-    const f = this.hz(ev.scale, ev.deg), v = ev.vel, d = ev.dur, dest = Snd.music;
+    let deg = ev.deg, v = ev.vel;
+    const form = (this._pass || 0) % 4;
+    if (form === 1) {
+      if (ev.inst === 'koto') { deg += 2; v *= 0.8; }
+      else if (ev.inst === 'shami') deg += 5;
+      else if (ev.inst === 'flute') deg += 2;
+    } else if (form === 2) {
+      if (ev.inst === 'koto' && ev.dur < 0.55) return;
+      if (ev.inst === 'shami') return;
+      if (ev.inst === 'flute') v *= 1.1;
+    } else if (form === 3) {
+      if (ev.inst === 'flute') return;
+      if (ev.inst === 'koto') deg = Math.max(0, deg - 2);
+      else if (ev.inst === 'biwa') deg += 5;
+    }
+    const f = this.hz(ev.scale, deg), d = ev.dur, dest = Snd.music;
     if (ev.inst === 'koto') this.pluck(t, f, Math.max(1.1, d * 1.6), v, 'koto');
     else if (ev.inst === 'shami') this.pluck(t, f, Math.max(0.28, d * 0.85), v, 'shami');
     else if (ev.inst === 'biwa') this.pluck(t, f * 0.5, Math.max(1.4, d * 1.3), v, 'biwa');
