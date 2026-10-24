@@ -191,6 +191,14 @@ em.kw{font-style:normal;color:#ffd24a;}
 .title-sub{max-width:52ch;color:var(--paper-dim);line-height:1.7;margin:0;}
 .title-btns{display:grid;gap:10px;width:min(280px,100%);}
 .title-btns .btn{padding:11px;font-size:15px;}
+#devPick{background:radial-gradient(ellipse at 50% 100%,#3a0c10dd,transparent 60%),linear-gradient(#0f0b10f2,#0f0b10fa);align-content:start;}
+.dev-wrap{width:min(560px,100%);display:grid;gap:14px;justify-items:stretch;text-align:left;}
+.dev-wrap h2{font-family:var(--f-display);font-weight:800;font-size:clamp(26px,5vw,40px);margin:0;letter-spacing:.06em;}
+.dev-wrap .lede{margin:0;}
+#devList{display:grid;gap:4px;max-height:min(62vh,560px);overflow-y:auto;padding-right:4px;}
+#devList .act{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin:10px 0 2px;}
+#devList .row{width:100%;text-align:left;cursor:pointer;background:#0006;border:1px solid #ffffff14;}
+#devList .row:hover{border-color:var(--gold);filter:none;}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12px;text-align:left;color:var(--paper-dim);}
 .keys kbd{font-family:var(--f-ui);color:var(--paper);background:#ffffff14;padding:0 6px;border:1px solid #ffffff22;justify-self:start;}
 #create{background:linear-gradient(#0f0b10ee,#170f13f6);}
@@ -317,6 +325,7 @@ body.talking #mObj,body.talking #mSubs{display:none;}
         <button class="btn alt" id="btnNew">New Game · shape Ren's look</button>
         <button class="btn alt" id="btnKeys">How to Fight</button>
         <button class="btn alt" id="btnControls">Controls: Turn and walk</button>
+        <button class="btn gold" id="btnDev" hidden>Dev Kit · jump to a mission</button>
       </div>
       <div class="keys" id="keysBox" hidden>
         <kbd>WASD</kbd><span id="keysMove">W walks the way Ren faces, S steps back, A and D turn him · on Kumo W rides, A and D steer, S reins in · the mouse aims your blade</span>
@@ -346,6 +355,16 @@ body.talking #mObj,body.talking #mSubs{display:none;}
         <div id="optList" class="opts"></div>
         <div class="btns" style="margin-top:6px"><button class="btn alt" id="lookRnd">Randomize Look</button><button class="btn gold" id="btnStart">Continue</button></div>
       </div>
+    </div>
+  </div>
+
+  <div id="devPick" class="screen" hidden>
+    <div class="dev-wrap">
+      <div class="speaker">Dev kit · maxed Ren</div>
+      <h2>Pick a Story Mission</h2>
+      <p class="lede">Every technique, Masamune in hand, Ō-yoroi, a rebuilt hideout, and a full purse. Nine weapons on the belt; the rest wait on the forge rack. Does not overwrite your save until you rest. Childhood missions keep Ren a boy; later missions start him as a man with Kumo.</p>
+      <div id="devList"></div>
+      <div class="btns"><button class="btn alt" id="btnDevBack">Back to the title</button></div>
     </div>
   </div>
 
@@ -3255,6 +3274,8 @@ function poseOf(F) {
     case 'block': hand = [3.4, -0.6, 19]; yaw = -1.45; el = 0.25; lean = -0.3; break;
     case 'stagger': hand = [0.6, 2.4, 13]; yaw = 1.1; el = 1.0 + Math.sin(t * 30) * 0.25; lean = -1.6; break;
     case 'kneel': hand = [3, 1.6, 2.5]; yaw = -1.3; el = -0.04; drop = 5; lean = 0.6; break;
+    case 'sit': hand = [1.6, 1.2, 8]; yaw = -0.45; el = 0.12; drop = 5.5; lean = 0.35; break;
+    case 'sleep': hand = [4.2, 0.4, 3]; yaw = 0.15; el = 0.04; drop = 9; lean = 2.8; break;
     case 'bow': hand = [1.5, 2.4, 11]; yaw = 0.35; el = -1.1; lean = 2.4; drop = 2; break;
     case 'idleArmed': break;
   }
@@ -3272,7 +3293,7 @@ function drawFigure(ctx, X, Y, F) {
   if (F.crouch && F.pose !== 'kneel') { drop += 3; lean += 1; }
   const skin = SKIN[L.skin], top = CLOTH[L.top], bot = CLOTH[L.bottom], sash = CLOTH[L.sash], hairc = HAIRC[L.hairCol];
   const bw = Math.round((4 + 4 * Math.abs(fz)) * Sb), half = bw / 2, th = Math.round(9 * S), sleeve = L.coat || top;
-  const wp = F.walk || 0, mv = F.moving ? 1 : 0;
+  const wp = F.walk || 0, mv = F.moving && F.pose !== 'sleep' && F.pose !== 'sit' && F.pose !== 'kneel' ? 1 : 0;
   const bob = F.moving ? Math.abs(Math.sin(wp * TAU)) * 1 : 0;
   // shadow
   if (!F.sil && !F.noShadow) { ctx.fillStyle = 'rgba(8,6,12,0.35)'; ctx.fillRect(Math.round(X - 5), Math.round(Y - 1), 11, 3); ctx.fillRect(Math.round(X - 3), Math.round(Y - 2), 7, 5); }
@@ -3282,6 +3303,8 @@ function drawFigure(ctx, X, Y, F) {
   const legs = [-1.8, 1.8].map((b, i) => {
     const sw = mv * Math.sin(wp * TAU + i * PI) * 2.6, lift = mv * Math.max(0, Math.cos(wp * TAU + i * PI)) * 1.2;
     if (F.pose === 'kneel') { const hip = P(0.5, b, 5), knee = P(2.6, b, 1), foot = P(-1.5, b, 0); return { hip, knee, foot, d: hip[2] }; }
+    if (F.pose === 'sit') { const hip = P(0.3, b, 6), knee = P(2.4, b * 1.5, 2.2), foot = P(0.4, b * 1.3, 0.2); return { hip, knee, foot, d: hip[2] }; }
+    if (F.pose === 'sleep') { const hip = P(0.5, b * 0.5, 3), knee = P(3.2, b * 0.35, 2), foot = P(6.2, b * 0.15, 1); return { hip, knee, foot, d: hip[2] }; }
     if (F.riding) { const hip = P(0, b, 10), knee = P(1.6, b * 1.9, 7), foot = P(0.6, b * 2, 2.5); return { hip, knee, foot, d: hip[2] }; }
     if (F.crouch) { const hip = P(0, b, 10 - drop), knee = P(1.8 + sw * 0.4, b * 1.2, 4), foot = P(sw * 0.8, b * 1.2, lift); return { hip, knee, foot, d: hip[2] }; }
     const hip = P(0, b, 10 - drop), foot = P(sw, b, lift);
@@ -3304,6 +3327,8 @@ function drawFigure(ctx, X, Y, F) {
     if (F.pose === 'swing' || F.pose === 'windup') hands[1] = P(F.pose === 'swing' ? 4.5 : -1, 2.5, 14);
     if (F.pose === 'block') { hands[0] = P(2.5, -1.5, 18); hands[1] = P(2.5, 1.5, 18); }
     if (F.pose === 'bow') { hands = [P(2, -1.5, 9), P(2, 1.5, 9)]; }
+    if (F.pose === 'sit') { hands = [P(1.8, -2.2, 7), P(1.8, 2.2, 7)]; }
+    if (F.pose === 'sleep') { hands = [P(3.5, -1.2, 3), P(4.2, 1.4, 2.5)]; }
     if (F.carry) hands[1] = P(1.5, 3, 12);
   }
   const arms = [{ sh: shL, hd: armed ? hands[1] : hands[0], miss: F.noArmL }, { sh: shR, hd: hands[armed ? 0 : 1], miss: F.noArmR }].sort((a, b) => a.sh[2] - b.sh[2]);
@@ -3363,7 +3388,14 @@ function drawFigure(ctx, X, Y, F) {
     if (fz > 0.15) { const cx = Math.round(X + ox + side * 1.2); ctx.fillStyle = K(top); ctx.fillRect(cx - 1, torsoTop, 2, th - 1); ctx.fillStyle = K(sash); ctx.fillRect(cx - 1, torsoTop + th - 3, 2, 2); }
   }
   // the white sun of the empire on the chest and back
-  if (L.crest && Math.abs(fz) > 0.2) { const c = Math.round(X + ox + side * 0.5); ctx.fillStyle = K(L.crest === 'sun' ? '#e2b445' : L.crest); ctx.fillRect(c - 1, torsoTop + 2, 3, 3); ctx.fillStyle = K('#fff3c0'); ctx.fillRect(c, torsoTop + 3, 1, 1); }
+  if (L.crest && Math.abs(fz) > 0.2) {
+    const c = Math.round(X + ox + side * 0.5), cy = torsoTop + 4;
+    if (L.crest === 'sun') {
+      ctx.fillStyle = K('#e2b445'); ctx.fillRect(c - 1, cy - 1, 3, 3);
+      ctx.fillRect(c, cy - 2, 1, 1); ctx.fillRect(c, cy + 2, 1, 1); ctx.fillRect(c - 2, cy, 1, 1); ctx.fillRect(c + 2, cy, 1, 1);
+      ctx.fillStyle = K('#fff3c0'); ctx.fillRect(c, cy, 1, 1);
+    } else { ctx.fillStyle = K(L.crest); ctx.fillRect(c - 1, torsoTop + 2, 3, 3); }
+  }
   // a cloak seen from behind covers the back; a satchel strap crosses the chest
   if (L.cloak && fz < 0.1) { ctx.fillStyle = K(L.cloak); ctx.fillRect(tx - 1, torsoTop - 1, bw + 2, th + 3); ctx.fillStyle = K(shade(L.cloak, -0.3)); ctx.fillRect(tx - 1, torsoTop + th + 1, bw + 2, 1); }
   else if (L.cloak) { ctx.fillStyle = K(L.cloak); ctx.fillRect(tx - 1, torsoTop - 1, bw + 2, 2); }
@@ -3373,7 +3405,7 @@ function drawFigure(ctx, X, Y, F) {
   if (F.sheath && !child) pline(ctx, X + ox - side * 2, torsoTop + th - 2, X + ox - side * 2 - fx * 6, torsoTop + th + 1, K('#1a1214'), 1);
   // head
   if (!F.noHead) {
-    const hp = P(lean * 1.1 + (F.pose === 'bow' ? 1.5 : 0) + (F.pose === 'kneel' ? 0.6 : 0), 0, 23 - drop - (F.pose === 'bow' ? 2 : 0) + bob * 0.5 - (F.pose === 'kneel' ? 0.5 : 0));
+    const hp = P(lean * 1.1 + (F.pose === 'bow' ? 1.5 : 0) + (F.pose === 'kneel' ? 0.6 : 0) + (F.pose === 'sleep' ? 2.4 : 0), F.pose === 'sleep' ? 1.2 : 0, 23 - drop - (F.pose === 'bow' ? 2 : 0) + bob * 0.5 - (F.pose === 'kneel' ? 0.5 : 0) - (F.pose === 'sleep' ? 4 : 0));
     drawHead(ctx, hp[0], hp[1], L, fz, side, K, child ? Object.assign({ child }, F) : F);
   } else {
     ctx.fillStyle = K('#8a0f14'); ctx.fillRect(Math.round(X + ox) - 2, torsoTop - 2, 4, 2); ctx.fillStyle = K('#e8d8c8'); ctx.fillRect(Math.round(X + ox), torsoTop - 2, 1, 1);
@@ -3416,6 +3448,14 @@ function drawWeapon(ctx, G, po, dirv, F, K) {
   } else if (g.type === 'sickle') {
     pline(ctx, G[0], G[1], G[0] + d[0] * 4, G[1] + d[1] * 4, K('#5a3a22'), 1);
     const perp = dirv(po.yaw + 1.4, po.el); pline(ctx, G[0] + d[0] * 4, G[1] + d[1] * 4, G[0] + d[0] * 4 + perp[0] * 4, G[1] + d[1] * 4 + perp[1] * 4, K(steel), 1);
+  } else if (g.type === 'gun') {
+    const bk = [G[0] - d[0] * (g.back || 4), G[1] - d[1] * (g.back || 4)];
+    pline(ctx, bk[0], bk[1], G[0] + d[0] * 5, G[1] + d[1] * 5, K('#5a3a22'), 2);
+    pline(ctx, G[0], G[1], tip[0], tip[1], K('#2a2420'), 2);
+    pline(ctx, G[0] + d[0], G[1] + d[1], tip[0], tip[1], K('#4a4a52'), 1);
+    ctx.fillStyle = K('#8a8890'); ctx.fillRect(Math.round(tip[0]) - 1, Math.round(tip[1]) - 1, 2, 2);
+    ctx.fillStyle = K('#c89a2a'); ctx.fillRect(Math.round(G[0]) - 1, Math.round(G[1]) - 1, 2, 2);
+    ctx.fillStyle = K('#1a1a1e'); ctx.fillRect(Math.round(bk[0]) - 1, Math.round(bk[1]) - 1, 3, 2);
   }
 }
 function drawHead(ctx, hx, hy, L, fz, side, K, F = {}) {
@@ -3496,7 +3536,7 @@ function drawHead(ctx, hx, hy, L, fz, side, K, F = {}) {
       break;
     }
     case 7: if (fz > -0.2) { ctx.fillStyle = K('#a8201a'); ctx.fillRect(hx - 3 + co, hy + 1, 6, 3); ctx.fillStyle = K('#f4ecd8'); ctx.fillRect(hx - 2 + co, hy + 2, 1, 1); ctx.fillRect(hx + co, hy + 2, 1, 1); ctx.fillRect(hx + 2 + co, hy + 2, 1, 1); ctx.fillStyle = K('#1a1214'); ctx.fillRect(hx - 3 + co, hy - 1, 6, 1); } break;
-    case 8: { poly(ctx, [[hx - 7, hy - 2], [hx + 7, hy - 2], [hx, hy - 6]], K('#ece6d8')); poly(ctx, [[hx, hy - 6], [hx + 7, hy - 2], [hx + 1, hy - 2]], K('#c8c2b4')); ctx.fillStyle = K('#8a8478'); ctx.fillRect(hx - 7, hy - 2, 14, 1); ctx.fillStyle = K('#e2b445'); ctx.fillRect(hx - 1 + co, hy - 4, 2, 2); break; }
+    case 8: { poly(ctx, [[hx - 7, hy - 2], [hx + 7, hy - 2], [hx, hy - 6]], K('#ece6d8')); poly(ctx, [[hx, hy - 6], [hx + 7, hy - 2], [hx + 1, hy - 2]], K('#c8c2b4')); ctx.fillStyle = K('#8a8478'); ctx.fillRect(hx - 7, hy - 2, 14, 1); const sc = hx + co; ctx.fillStyle = K('#e2b445'); ctx.fillRect(sc - 1, hy - 5, 3, 3); ctx.fillRect(sc, hy - 6, 1, 1); ctx.fillRect(sc, hy - 2, 1, 1); ctx.fillStyle = K('#fff3c0'); ctx.fillRect(sc, hy - 4, 1, 1); break; }
     case 9: { const c = L.cloak || '#3a4a32'; ctx.fillStyle = K(c); ctx.fillRect(hx - 4, hy - 4, 8, 3); ctx.fillRect(hx - 4, hy - 1, 1, 5); ctx.fillRect(hx + 3, hy - 1, 1, 5); if (fz < -0.3) ctx.fillRect(hx - 3, hy - 1, 6, 5); ctx.fillStyle = K(shade(c, 0.15)); ctx.fillRect(hx - 3, hy - 4, 4, 1); break; }
     case 10: { ctx.fillStyle = K('#141218'); ctx.fillRect(hx - 2, hy - 8, 4, 6); ctx.fillRect(hx - 3, hy - 3, 6, 1); ctx.fillStyle = K('#2e2a34'); ctx.fillRect(hx - 2, hy - 8, 1, 5); break; }
     case 11: { ctx.fillStyle = K('#8a6a1a'); ctx.fillRect(hx - 4, hy - 4, 8, 2); ctx.fillStyle = K('#e2b445'); ctx.fillRect(hx - 4, hy - 4, 8, 1); for (const dx of [-3, -1, 1, 3]) ctx.fillRect(hx + dx, hy - 6 - (dx === -1 || dx === 1 ? 1 : 0), 1, 2); ctx.fillStyle = K('#fff3c0'); ctx.fillRect(hx - 1 + co, hy - 6, 2, 2); break; }
@@ -3898,7 +3938,7 @@ function applyHit(a, b, info) {
   }
   if (b.essential) { if (b.sparring) { b.stagger(0.3); FX.text(b.x, b.y, pick(['Good.', 'Again.', 'Hm!']), '#efe3c8'); Snd.play('block', 0.6); return; } if (a === G.player) { G.crime(b, 'attack'); } b.flash = 0.1; Snd.play('grunt', 0.6); return; }
   if (b.stolen && a === G.player) { Rob.caught(b); return; }
-  if (b.sleeping) { b.sleeping = false; b.state = 'idle'; b.aware = 1; }
+  if (b.sleeping || b.lying) { b.sleeping = false; b.lying = false; b.sitting = false; b.state = 'idle'; b.aware = 1; }
   b.aware = 1;
   if (b.iframes > 0) { FX.text(b.x, b.y, 'evaded', '#b9ab8d'); return; }
   // provoking the innocent
@@ -4132,7 +4172,8 @@ function aiUpdate(a, dt) {
   // only Ren's riders ride: anyone who has left the party gets down, and the horse goes off on its own
   if (a.mount && !G.gang.includes(a)) GangRide.getDown(a);
   if (a.sparring) return Spar.ai(a, dt);
-  if (a.sleeping) { if (Math.random() < dt * 0.5) FX.addPart({ t: 'dust', x: a.x, y: a.y, z: 24, vx: 0.2, vy: -0.1, vz: 8, life: 1.2, max: 1.2, col: 'rgba(230,230,240,' }); return; }
+  if (a.sleeping) { if (Math.random() < dt * 0.45) FX.addPart({ t: 'dust', x: a.x + 0.3, y: a.y, z: 8, vx: 0.15, vy: -0.08, vz: 5, life: 1.2, max: 1.2, col: 'rgba(230,230,240,' }); if (Math.random() < dt * 0.08) FX.text(a.x + 0.5, a.y - 0.2, 'z', '#c8d0dc'); return; }
+  if (a.sitting || a.lying) { a.move(0, 0, dt); return; }
   const ai = a.ai; ai.t -= dt; ai.react = (ai.react || 0) - dt; a.alertT = Math.max(0, (a.alertT || 0) - dt);
   if (a.state === 'kneel') {
     // a companion knocked down gets up once the fight has moved off them, or Ren is leaving without them
@@ -4363,8 +4404,31 @@ const G = {
     a.hp = Math.min(a.hp, a.maxHp); a.st = Math.min(a.st, a.maxSt);
     for (const m of this.gang) m.dmgMult = (this.hasPerk('warlord') ? 1.25 : 1) * (1 + (m.level || 1) * 0.05);
   },
-  // hotbar: 0 = bare hands (blade sheathed, folk stay calm), 1-9 = carried weapons
-  hotbar() { return ['fists', ...this.profile.weapons.filter(w => w !== 'fists')]; },
+  // hotbar: 0 = bare hands (blade sheathed, folk stay calm), 1-9 = carried weapons. extras live in profile.stash
+  WPN_SLOTS: 9,
+  hotbar() { return ['fists', ...this.profile.weapons.filter(w => w !== 'fists').slice(0, this.WPN_SLOTS)]; },
+  ownsWeapon(w) { const p = this.profile; return !!(p && (p.weapons.includes(w) || (p.stash || []).includes(w))); },
+  gainWeapon(w) {
+    const p = this.profile; if (!p || !w || w === 'fists' || this.ownsWeapon(w) || !WEAPONS[w]) return false;
+    p.stash = p.stash || [];
+    if (p.weapons.filter(x => x !== 'fists').length < this.WPN_SLOTS) p.weapons.push(w);
+    else p.stash.push(w);
+    return true;
+  },
+  stashWeapon(w) {
+    const p = this.profile; if (!p || !w || w === 'fists') return false;
+    const i = p.weapons.indexOf(w); if (i < 0) return false;
+    p.stash = p.stash || []; p.weapons.splice(i, 1); p.stash.push(w);
+    if (p.wpn === w) { p.wpn = p.weapons[0] || 'fists'; if (p.wpn !== 'fists') p.lastBlade = p.wpn; this.applyStats(); }
+    if (UI) UI.hudT = 0; return true;
+  },
+  carryWeapon(w) {
+    const p = this.profile; if (!p || !w) return false;
+    p.stash = p.stash || [];
+    const i = p.stash.indexOf(w); if (i < 0) return false;
+    if (p.weapons.filter(x => x !== 'fists').length >= this.WPN_SLOTS) { UI.toast('Nine weapons on the belt. Stash one at the armory first.', 'shame'); return false; }
+    p.stash.splice(i, 1); p.weapons.push(w); if (UI) UI.hudT = 0; return true;
+  },
   setWeapon(w) {
     const p = this.player, pr = this.profile; if (!p || p.dead || w === pr.wpn) return;
     if (w !== 'fists' && !pr.weapons.includes(w)) return;
@@ -4388,7 +4452,7 @@ const G = {
   newProfile(look) {
     return {
       v: 2, name: 'Ren', look: fixLook(look), gold: 30, bank: 0, honor: 0, xp: 0, level: 1, perks: {}, pendingPerks: 0, story: { n: 1, best: 0 },
-      weapons: ['katana', 'tanto'], wpn: 'katana', lastBlade: 'katana', worldV: 7, minis: {}, armors: [0], armor: 0, bandages: 3, sake: 1, day: 1, tod: 0.3,
+      weapons: ['katana', 'tanto'], stash: [], wpn: 'katana', lastBlade: 'katana', worldV: 7, minis: {}, armors: [0], armor: 0, bandages: 3, sake: 1, day: 1, tod: 0.3,
       hideout: { barracks: 0, forge: 0, shrine: 0, dojo: 0, garden: 0, kura: 0, walls: 0 }, gang: [], blades: {}, bounties: [], bountyDay: 0,
       discovered: {}, kills: 0, severs: 0, deaths: 0, duelsWon: 0, prayed: 0, secondDay: 0, graves: [], innDay: 0, recruits: [], bestStreak: 0,
       quests: {}, track: null, flags: {}, chests: {}, towers: {}, camps: {}, fog: '', horse: null, pos: null, bonusHp: 0, assassinations: 0
@@ -4490,7 +4554,7 @@ const G = {
     this.danger = danger;
     Snd.update(dt, this.duel && this.duel.phase !== 'fight' ? 'duel' : danger ? 'danger' : 'calm', this.wind);
     if (p.hp < p.maxHp * 0.3 && (this._hb = (this._hb || 0) - dt) <= 0) { this._hb = 0.9; Snd.play('heart', 0.8); }
-    if ((this.saveT += dt) > 30) { this.saveT = 0; Systems.save(); }
+    if ((this.saveT += dt) > 30) { this.saveT = 0; if (!this.profile.dev) Systems.save(); }
   },
   // keyboard: W walks (or rides) the way Ren faces, S steps back (in the saddle, reins in), A and D turn him;
   // on a touch stick he goes the way the stick points on screen
@@ -4854,7 +4918,7 @@ const Systems = {
     if (how === 'spared') G.addHonor(8, 'spared ' + b.name); else if (G.duel && G.duel.foe === v) G.addHonor(-4, 'executed ' + b.name);
     UI.bigBanner(b.rank === 1 ? '剣聖' : '第' + '十九八七六五四三二一'[10 - b.rank] + '刃', b.name + ' defeated · ' + Object.keys(p.blades).length + ' of 10 Blades');
     Snd.play('gong', 1);
-    if (b.gives && !p.weapons.includes(b.gives)) { p.weapons.push(b.gives); UI.toast('You take up the ' + WEAPONS[b.gives].name + '. Equip it from the character screen (Tab).', 'good'); }
+    if (b.gives && G.gainWeapon(b.gives)) UI.toast(p.weapons.includes(b.gives) ? 'You take up the ' + WEAPONS[b.gives].name + '.' : 'Belt is full. The ' + WEAPONS[b.gives].name + ' waits on your armory rack.', 'good');
     v.blade = null; v.talk = null; v.dueling = false;
     this.endDuel();
     Quests.emit('bladeDown', b.id);
@@ -4896,7 +4960,7 @@ const Systems = {
       const mon = rndi(25, 95) * (p.inari === p.day ? 2 : 1); G.addGold(mon, o.cx, o.cy); const got = [mon + ' mon' + (p.inari === p.day ? ' (Inari\'s luck)' : '')];
       if (Math.random() < 0.4) { const n = rndi(1, 2); p.bandages += n; got.push(n + ' bandage' + (n > 1 ? 's' : '')); }
       if (Math.random() < 0.25) { p.sake++; got.push('sake'); }
-      if (Math.random() < 0.12) { const w = ['tanto', 'wakizashi', 'yari', 'katana', 'naginata'].find(w => !p.weapons.includes(w)); if (w) { p.weapons.push(w); got.push('a ' + WEAPONS[w].name + '!'); } }
+      if (Math.random() < 0.12) { const w = ['tanto', 'wakizashi', 'yari', 'katana', 'naginata'].find(w => !G.ownsWeapon(w)); if (w && G.gainWeapon(w)) got.push('a ' + WEAPONS[w].name + (p.weapons.includes(w) ? '!' : ' (left on the armory rack)')); }
       UI.toast('Chest: ' + got.join(', '), 'good');
     }
     Quests.emit('chest', id); G.addXP(5);
@@ -5176,7 +5240,9 @@ const Systems = {
     const s = store('crimson_ronin_v2'); if (!s || s.v !== 2) return null;
     // older saves carried a single blade: everyone now has a sidearm and a hotbar
     if (!s.minis) s.minis = {};
+    if (!s.stash) s.stash = [];
     if (s.weapons.length < 2) s.weapons.push(s.weapons.includes('tanto') ? 'wakizashi' : 'tanto');
+    while (s.weapons.filter(w => w !== 'fists').length > G.WPN_SLOTS) { const extra = s.weapons.pop(); if (extra && extra !== 'fists' && !s.stash.includes(extra)) s.stash.push(extra); }
     if (!s.lastBlade) s.lastBlade = s.wpn !== 'fists' ? s.wpn : s.weapons[0];
     // the island was redrawn (worldV 4: half the size, new towns; 5: hot springs moved, wider roads; 6: rivers redrawn): progress beyond Ashigawa starts afresh
     // Shadows of the White Sun: the old Ashigawa story is gone; everyone starts the new one from its first mission
@@ -5528,7 +5594,7 @@ const Panels = {
       if (it === 'bandage') { nm = 'Bandage'; ds = 'Stops all bleeding at once (Q).'; price = Math.round(12 * m); act = 'band'; }
       else if (it === 'sake') { nm = 'Sake'; ds = 'Heals 45 over a few seconds (R).'; price = Math.round(28 * m); act = 'sake'; }
       else if (it.startsWith('armor')) { const i = +it[5], Ar = ARMORS[i]; nm = Ar.name; ds = Ar.desc + ' Slows you ' + Math.round((1 - Ar.slow) * 100) + '%.'; price = Math.round(Ar.price * m); owned = p.armors.includes(i); eq = p.armor === i; act = 'armor'; }
-      else { const W = WEAPONS[it]; nm = W.name; ds = W.desc + ` <span style="color:var(--paper)">DMG ${W.dmg} · REACH ${W.reach} · BLEED ${W.bleed}</span>`; price = Math.round(W.price * m); owned = p.weapons.includes(it); eq = p.wpn === it; act = 'wpn'; }
+      else { const W = WEAPONS[it]; nm = W.name; ds = W.desc + ` <span style="color:var(--paper)">DMG ${W.dmg} · REACH ${W.reach} · BLEED ${W.bleed}</span>`; price = Math.round(W.price * m); owned = G.ownsWeapon(it); eq = p.wpn === it; act = 'wpn'; }
       const btn = owned ? (eq ? '<button class="btn alt" disabled>Equipped</button>' : `<button class="btn alt" data-act="equip-${act}" data-arg="${it}">Equip</button>`) : `<button class="btn" data-act="${act}" data-arg="${it}" ${p.gold + p.bank < price ? 'disabled' : ''}>Buy</button>`;
       return `<div class="row ${owned ? 'owned' : ''} ${eq ? 'equipped' : ''}"><div class="grow"><span class="nm">${nm}</span><span class="ds">${ds}</span></div>${owned ? '' : `<span class="px">${price} mon</span>`}${btn}</div>`;
     }).join('');
@@ -5538,9 +5604,9 @@ const Panels = {
         const m2 = priceMult(), buy = n => { if (!Systems.pay(n)) { UI.toast('Not enough mon', 'shame'); return false; } Snd.play('buy'); return true; };
         if (act === 'band') { if (buy(Math.round(12 * m2))) p.bandages++; }
         else if (act === 'sake') { if (buy(Math.round(28 * m2))) p.sake++; }
-        else if (act === 'wpn') { if (buy(Math.round(WEAPONS[arg].price * m2))) { p.weapons.push(arg); p.wpn = arg; p.lastBlade = arg; G.applyStats(); UI.toast('You draw the ' + WEAPONS[arg].name + ' · it sits on key ' + G.hotbar().indexOf(arg), 'good'); Snd.play('draw'); } }
+        else if (act === 'wpn') { if (buy(Math.round(WEAPONS[arg].price * m2))) { G.gainWeapon(arg); if (p.weapons.includes(arg)) { p.wpn = arg; p.lastBlade = arg; G.applyStats(); UI.toast('You draw the ' + WEAPONS[arg].name + ' · it sits on key ' + G.hotbar().indexOf(arg), 'good'); } else UI.toast('Belt is full. The ' + WEAPONS[arg].name + ' waits on your armory rack.', 'good'); Snd.play('draw'); } }
         else if (act === 'armor') { const i = +arg[5]; if (buy(Math.round(ARMORS[i].price * m2))) { p.armors.push(i); p.armor = i; G.applyStats(); } }
-        else if (act === 'equip-wpn') { p.wpn = arg; p.lastBlade = arg; G.applyStats(); Snd.play('draw'); }
+        else if (act === 'equip-wpn') { if (!p.weapons.includes(arg) && !G.carryWeapon(arg)) return; p.wpn = arg; p.lastBlade = arg; G.applyStats(); Snd.play('draw'); }
         else if (act === 'equip-armor') { p.armor = +arg[5]; G.applyStats(); }
       }
     };
@@ -5594,7 +5660,7 @@ const Panels = {
       <div class="btns"><button class="btn gold" data-act="rest">Rest until morning</button><button class="btn alt" data-act="withdraw">Withdraw 100 mon</button><button class="btn alt" data-act="deposit">Deposit all</button></div>`;
     if (tab === 'build') body = '<p class="lede">Every structure you rebuild changes the grounds and makes you stronger. Costs come from the treasury first, then your purse.</p>' + Object.entries(UPG).map(([k, u]) => { const L = p.hideout[k]; return `<div class="row"><span class="seal">${u.k}</span><div class="grow"><span class="nm">${u.name} <span class="pips">${'●'.repeat(L)}${'○'.repeat(3 - L)}</span></span><span class="ds">Now: ${u.lv[L]}${L < 3 ? ' · Next: ' + u.lv[L + 1] : ''}</span></div>${L < 3 ? `<span class="px">${u.costs[L]} mon</span><button class="btn" data-act="up" data-arg="${k}" ${p.gold + p.bank < u.costs[L] ? 'disabled' : ''}>Build</button>` : '<span class="px">Complete</span>'}</div>`; }).join('');
     if (tab === 'gang') body = `<p class="lede">Barracks hold ${p.gang.filter(m => m.alive).length} of ${G.gangCap()}. Hire swords at an inn, or spare one of the Ten Blades and accept their oath. Press G to make them hold or follow.</p>` + (p.gang.filter(m => m.alive).map(m => `<div class="row"><div class="grow"><span class="nm">${esc(m.name)}${m.title ? ' · ' + m.title : ''}</span><span class="ds">${WEAPONS[m.wpn].name} · Lv ${Math.floor(m.level || 1)} · ${m.kills || 0} kills · ${m.maxHp} health</span></div><button class="btn alt" data-act="dismiss" data-arg="${m.id}">Dismiss</button></div>`).join('') || '<p class="lede">You ride alone.</p>') + (p.graves.length ? `<p class="lede">Graves: ${p.graves.map(esc).join(', ')}</p>` : '');
-    if (tab === 'gear') body = Panels.char({ gearOnly: true }).html;
+    if (tab === 'gear') body = '<p class="lede">Nine weapons on the belt. Stash extras on the rack and take them up when you want them.</p>' + Panels.char({ gearOnly: true, armory: true }).html;
     return {
       title: 'Kuroba-dera', seal: '寺', html: `<div class="tabs">${tabs}</div>${body}`,
       on(act, arg) {
@@ -5604,7 +5670,7 @@ const Panels = {
         if (act === 'deposit') { p.bank += p.gold; p.gold = 0; Systems.save(); }
         if (act === 'up') Systems.upgrade(arg);
         if (act === 'dismiss') { const m = p.gang.find(g => g.id === arg); if (m) { m.alive = false; p.gang = p.gang.filter(g => g !== m); const a = G.gang.find(g => g.gid === arg); if (a) { G.gang.splice(G.gang.indexOf(a), 1); a.faction = 'ronin'; a.persistent = false; a.ai.mode = 'flee'; a.ai.from = G.player; } } }
-        if (act.startsWith('equip')) return Panels.char({}).on(act, arg);
+        if (act.startsWith('equip') || act === 'stash' || act === 'carry') return Panels.char({ armory: true }).on(act, arg);
       }
     };
   },
@@ -5671,11 +5737,30 @@ const Panels = {
     return { title: 'Kurenai-jima', seal: '図', html: `<div class="btns" style="margin:0 0 6px"><button class="btn alt" data-act="zin">Zoom in</button><button class="btn alt" data-act="zout">Zoom out</button><button class="btn alt" data-act="me">Find me</button><span class="lede" style="font-size:11px;align-self:center">Drag to pan, wheel to zoom</span></div><canvas id="bigMap" width="${CW}" height="${CH}" style="width:100%;image-rendering:pixelated;background:#0b080b;border:1px solid #000;touch-action:none;cursor:grab"></canvas><p class="lede" style="font-size:11px">${legend}</p><p class="lede">Climb watchtowers to reveal the map. Fast travel to any town you have visited or tower you have climbed:</p><div class="btns">${travel || '<span class="lede">Nowhere yet. Explore!</span>'}</div>`, on(act, arg) { if (act === 'go') { UI.close(); Systems.fastTravel(spots[+arg]); return false; } if (act === 'zin') V.z = Math.min(64, V.z * 2); if (act === 'zout') V.z = Math.max(1, V.z / 2); if (act === 'me') V.follow = true; } };
   },
   char(opt = {}) {
-    const p = G.profile;
-    const wrows = p.weapons.map(w => { const W = WEAPONS[w]; return `<div class="row ${p.wpn === w ? 'equipped' : ''}"><div class="grow"><span class="nm">${W.name}</span><span class="ds">DMG ${W.dmg} · REACH ${W.reach} · BLEED ${W.bleed}${W.sever ? ' · sever ' + Math.round(W.sever * 100) + '%' : ''}</span></div>${p.wpn === w ? '<span class="px">In hand</span>' : `<button class="btn alt" data-act="equip-wpn" data-arg="${w}">Equip</button>`}</div>`; }).join('');
+    const p = G.profile, stash = p.stash || [], full = p.weapons.filter(w => w !== 'fists').length >= G.WPN_SLOTS;
+    const wpnRow = (w, rack) => {
+      const W = WEAPONS[w]; if (!W) return '';
+      const stats = `DMG ${W.dmg} · REACH ${W.reach} · BLEED ${W.bleed}${W.sever ? ' · sever ' + Math.round(W.sever * 100) + '%' : ''}`;
+      let btns = '';
+      if (rack) btns = `<button class="btn" data-act="carry" data-arg="${w}" ${full ? 'disabled' : ''}>Take up</button>`;
+      else {
+        btns = p.wpn === w ? '<span class="px">In hand</span>' : `<button class="btn alt" data-act="equip-wpn" data-arg="${w}">Draw</button>`;
+        if (opt.armory) btns += `<button class="btn alt" data-act="stash" data-arg="${w}">Stash</button>`;
+      }
+      return `<div class="row ${p.wpn === w ? 'equipped' : ''}"><div class="grow"><span class="nm">${W.name}</span><span class="ds">${stats}</span></div>${btns}</div>`;
+    };
+    let wrows = p.weapons.map(w => wpnRow(w, false)).join('');
+    if (opt.armory) wrows += `<div class="speaker">On the rack</div>` + (stash.length ? stash.map(w => wpnRow(w, true)).join('') : '<p class="lede">The rack is empty.</p>');
+    else if (stash.length) wrows += `<p class="lede">${stash.length} more blade${stash.length > 1 ? 's' : ''} wait at your armory in the hall, or at the forge.</p>`;
     const arows = p.armors.map(i => `<div class="row ${p.armor === i ? 'equipped' : ''}"><div class="grow"><span class="nm">${ARMORS[i].name}</span><span class="ds">${ARMORS[i].desc}</span></div>${p.armor === i ? '<span class="px">Worn</span>' : `<button class="btn alt" data-act="equip-armor" data-arg="armor${i}">Wear</button>`}</div>`).join('');
-    const gear = `<div class="speaker">Weapons</div>${wrows}<div class="speaker">Armor</div>${arows}`;
-    const on = (act, arg) => { if (act === 'equip-wpn') { p.wpn = arg; p.lastBlade = arg; G.applyStats(); Snd.play('draw'); } if (act === 'equip-armor') { p.armor = +arg.slice(5); G.applyStats(); } if (act === 'perks') { UI.close(); UI.open('perk'); return false; } };
+    const gear = `<div class="speaker">On the belt · ${p.weapons.filter(w => w !== 'fists').length} / ${G.WPN_SLOTS}</div>${wrows}<div class="speaker">Armor</div>${arows}`;
+    const on = (act, arg) => {
+      if (act === 'equip-wpn') { if (!p.weapons.includes(arg) && !G.carryWeapon(arg)) return; p.wpn = arg; p.lastBlade = arg; G.applyStats(); Snd.play('draw'); }
+      if (act === 'equip-armor') { p.armor = +arg.slice(5); G.applyStats(); }
+      if (act === 'stash') { if (G.stashWeapon(arg)) Snd.play('sheathe', 0.7); }
+      if (act === 'carry') { if (G.carryWeapon(arg)) { p.wpn = arg; p.lastBlade = arg; G.applyStats(); Snd.play('draw'); } }
+      if (act === 'perks') { UI.close(); UI.open('perk'); return false; }
+    };
     if (opt.gearOnly) return { html: gear, on };
     const a = G.player;
     const stats = [['Title', G.honorTitle()], ['Honor', p.honor], ['Level', p.level + ' (' + p.xp + ' / ' + G.xpNeed() + ' xp)'], ['Health', Math.round(a.hp) + ' / ' + a.maxHp], ['Stamina', a.maxSt], ['Damage', '×' + a.dmgMult.toFixed(2)], ['Kills', p.kills], ['Assassinations', p.assassinations || 0], ['Severings', p.severs], ['Blades defeated', p.duelsWon + ' / 10'], ['Watchtowers', Object.keys(p.towers).length + ' / ' + World.towers.length], ['Camps freed', Object.keys(p.camps).length + ' / ' + PLACES.filter(q => q.kind === 'camp').length], ['Chests', Object.keys(p.chests).length + ' / ' + World.chests.length], ['Deaths', p.deaths]].map(([k, v]) => `<div class="stat"><span>${k}</span><span>${v}</span></div>`).join('');
@@ -7447,7 +7532,7 @@ const Interiors = {
   store(b, U, V) {
     const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex);
     b.zone = () => 'wood'; b.decor = [{ wall: 'N', t: 0.5, w: 0.4, kind: 'shelf' }];
-    P('ricebags', 0.3, V - 1.2, 1.4, 0.9); P('strongbox', U - 1.3, V - 1.0, 0.9, 0.6); P('barrels', U - 1.3, 0.4, 1.0, 0.9);
+    P('ricebags', 0.3, V - 1.2, 1.4, 0.9); P('crates', U / 2 - 0.7, V / 2 - 0.4, 1.4, 1.0); P('strongbox', U - 1.3, V - 1.0, 0.9, 0.6); P('barrels', U - 1.3, 0.4, 1.0, 0.9);
   },
   hut(b, U, V) {
     const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex);
@@ -7481,7 +7566,7 @@ const Interiors = {
     b.decor = L === 0 ? [] : [{ wall: 'N', t: 0.5, w: 0.2, kind: L >= 2 ? 'map' : 'scroll' }, { wall: 'W', t: 0.4, w: 0.25, kind: L >= 2 ? 'rack' : 'shelf' }].concat(L >= 2 ? [{ wall: 'N', t: 0.15, w: 0.1, kind: 'banner' }, { wall: 'N', t: 0.85, w: 0.1, kind: 'banner' }] : []).concat(L >= 3 ? [{ wall: 'W', t: 0.8, w: 0.2, kind: 'gold' }] : []);
     P('mapTable', U / 2 - 1.2, V / 2 - 0.6, 2.4, 1.4, { interact: { kind: 'hideout', label: 'Plan at the war table (rebuild, gang, treasury)' } });
     P('futon', U - 1.8, V - 2.6, 1.0, 2.0, { solid: false, interact: { kind: 'restHome', label: 'Sleep until morning (saves)' } });
-    P('wrack', 0.3, V - 3.0, 0.45, 2.4, { interact: { kind: 'char', label: 'Your armory (weapons and armor)' } });
+    P('wrack', 0.3, V - 3.0, 0.45, 2.4, { interact: { kind: 'hideout', tab: 'gear', label: 'Your armory (stash and take up blades)' } });
     if (L === 0) { P('rubble', 1.2, 1.4, 1.4, 1.0); P('rubble', U - 3, V - 1.4, 1.3, 0.9); }
     else { P('andon', 1, 2.5, 0.4, 0.4, { light: { r: 32, c: '255,190,120' } }); P('andon', U - 1.2, 2.5, 0.4, 0.4, { light: { r: 32, c: '255,190,120' } }); }
     if (L >= 2) P('altar', U / 2 - 1.2, V - 1.2, 2.4, 0.9, { light: { r: 30, c: '255,200,120' } });
@@ -7497,7 +7582,7 @@ const Interiors = {
   h_forge(b, U, V) {
     const P = (t, u, v, uw, vh, ex) => Buildings.place(b, t, u, v, uw, vh, ex), L = b.lvl;
     b.zone = () => L === 0 ? 'ruin' : 'earth'; b.decor = L >= 3 ? [{ wall: 'N', t: 0.5, w: 0.4, kind: 'rack' }] : [];
-    P('anvil', U / 2 - 0.4, V - 2.6, 0.8, 0.5);
+    P('anvil', U / 2 - 0.4, V - 2.6, 0.8, 0.5, { interact: { kind: 'hideout', tab: 'gear', label: 'The forge (stash and take up blades)' } });
     if (L >= 1) { P('forge', U / 2 - 1, V - 1.3, 2.0, 1.0, { light: { r: 54, c: '255,120,50' } }); P('tub', U - 1.4, V - 2.2, 0.9, 0.9); }
     else P('rubble', 0.6, 1.2, 1.3, 1.0);
   },
@@ -8550,6 +8635,7 @@ const Bamboo = {
 // Imperial troops wear undyed white with the golden sun on chest and back; officers add a white surcoat and a helmet.
 WEAPONS.bo = { name: 'Bō Staff', short: 'Staff', dmg: 22, reach: 1.9, arc: 1.9, wind: 0.14, act: 0.12, rec: 0.32, stam: 12, bleed: 0.2, price: 0, sever: 0, desc: 'A plain oak staff. Genjiro never needed more.' };
 WGFX.bo = { len: 17, back: 9, type: 'spear' };
+WGFX.arquebus = { len: 16, back: 4, type: 'gun' };
 const SUNL = { top: 4, bottom: 2, sash: 7, crest: 'sun', hat: 8 };
 Object.assign(ARCH, {
   imperial: () => ({ faction: 'imperial', role: 'soldier', label: 'White Sun Soldier', hp: 72, maxHp: 72, wpn: pick(['yari', 'yari', 'katana']), armor: 1, skill: rnd(0.3, 0.45), speed: 2.9, gold: rndi(6, 16), xp: 20, canYield: true, look: lk(Object.assign({ hair: pick([0, 1, 7]), face: pick([0, 0, 1, 3]) }, SUNL)) }),
@@ -8838,18 +8924,29 @@ Props.draw.sunbanner = (g, x, y, o) => {
   g.fillRect(x - 1, y - 38, 9, 1);
   // a tall white nobori, rippling, the golden sun near the top
   for (let j = 0; j < 26; j++) { const w = Math.round(Math.sin(j * 0.45) * 0.6); g.fillStyle = j % 6 === 5 ? '#d8d2c4' : '#f2eee4'; g.fillRect(x + 2 + w, y - 37 + j, 7, 1); }
-  g.fillStyle = '#c89a2a'; g.fillRect(x + 3, y - 33, 5, 5); g.fillStyle = '#e2b445'; g.fillRect(x + 4, y - 32, 3, 3); g.fillStyle = '#fff3c0'; g.fillRect(x + 5, y - 31, 1, 1);
+  g.fillStyle = '#c89a2a'; g.fillRect(x + 4, y - 33, 3, 3); g.fillRect(x + 5, y - 34, 1, 1); g.fillRect(x + 5, y - 30, 1, 1); g.fillRect(x + 3, y - 32, 1, 1); g.fillRect(x + 7, y - 32, 1, 1); g.fillStyle = '#e2b445'; g.fillRect(x + 4, y - 33, 3, 3); g.fillStyle = '#fff3c0'; g.fillRect(x + 5, y - 32, 1, 1);
   return { tall: true };
 };
 Props.draw.cannon = (g, x, y, o) => {
   shadowEllipse(g, x + 2, y + 1, 14, 5, 0.3);
   const d = o.dir ? -1 : 1;
-  // two spoked wheels, the trail resting on the ground, a long bronze-black barrel
-  for (const s of [-1, 1]) { const wx = x + s * 6 * d, wy = y + s * 3; g.fillStyle = '#3a2416'; g.beginPath(); g.ellipse(wx, wy - 5, 3, 5, 0, 0, TAU); g.fill(); g.strokeStyle = '#6a4a2a'; g.beginPath(); g.ellipse(wx, wy - 5, 2, 4, 0, 0, TAU); g.stroke(); g.fillStyle = '#8a8478'; g.fillRect(wx - 1, wy - 6, 2, 2); }
-  pline(g, x, y - 5, x - 11 * d, y + 1, '#5a3a20', 2);
-  pline(g, x - 1 * d, y - 7, x + 13 * d, y - 13, '#2a2a2e', 4); pline(g, x - 1 * d, y - 8, x + 13 * d, y - 14, '#4a4a52', 1);
-  g.fillStyle = '#1a1a1e'; g.fillRect(Math.round(x + 13 * d) - 2, y - 15, 3, 4);
-  g.fillStyle = '#c89a2a'; g.fillRect(Math.round(x + 4 * d), y - 11, 2, 2);
+  // two spoked wheels, a trail on the ground, a bronze-lined barrel with trunnions
+  for (const s of [-1, 1]) {
+    const wx = x + s * 6 * d, wy = y + s * 3;
+    g.fillStyle = '#3a2416'; g.beginPath(); g.ellipse(wx, wy - 5, 3.5, 5.5, 0, 0, TAU); g.fill();
+    g.strokeStyle = '#6a4a2a'; g.beginPath(); g.ellipse(wx, wy - 5, 2.4, 4.4, 0, 0, TAU); g.stroke();
+    g.fillStyle = '#8a8478'; g.fillRect(wx - 1, wy - 6, 2, 2);
+    g.fillStyle = '#5a3a20'; g.fillRect(wx, wy - 8, 1, 6); g.fillRect(wx - 2, wy - 5, 5, 1);
+  }
+  pline(g, x, y - 5, x - 12 * d, y + 1, '#5a3a20', 3);
+  pline(g, x - 8 * d, y - 1, x - 12 * d, y + 2, '#4a3020', 2);
+  pline(g, x - 1 * d, y - 7, x + 14 * d, y - 14, '#3a3228', 5);
+  pline(g, x - 1 * d, y - 8, x + 14 * d, y - 15, '#6a5a3a', 2);
+  pline(g, x + 2 * d, y - 9, x + 12 * d, y - 14, '#8a7a4a', 1);
+  g.fillStyle = '#2a2418'; g.fillRect(Math.round(x + 14 * d) - 2, y - 16, 4, 5);
+  g.fillStyle = '#8a8890'; g.fillRect(Math.round(x + 14 * d) - 1, y - 15, 2, 2);
+  g.fillStyle = '#c89a2a'; g.fillRect(Math.round(x + 3 * d), y - 11, 3, 2);
+  g.fillStyle = '#e2b445'; g.fillRect(Math.round(x - 6 * d), y - 3, 2, 2); g.fillRect(Math.round(x - 6 * d) + 1, y - 4, 1, 1);
 };
 Props.draw.wagon = (g, x, y, o, R) => {
   shadowEllipse(g, x + 2, y + 1, 16, 6, 0.28);
@@ -8860,7 +8957,7 @@ Props.draw.wagon = (g, x, y, o, R) => {
   poly(g, [P.left, P.bottom, [P.bottom[0], P.bottom[1] - 8], [P.left[0], P.left[1] - 8]], o.sun ? '#ece6d8' : '#c8bc9c');
   poly(g, [P.bottom, P.right, [P.right[0], P.right[1] - 8], [P.bottom[0], P.bottom[1] - 8]], o.sun ? '#ccc6b8' : '#a89c7c');
   poly(g, [[P.left[0], P.left[1] - 8], [P.bottom[0], P.bottom[1] - 8], [P.right[0], P.right[1] - 8], [P.top[0], P.top[1] - 8]], o.sun ? '#f4f0e6' : '#d8ccac');
-  if (o.sun) { const m = [lerp(P.left[0], P.bottom[0], 0.5), lerp(P.left[1], P.bottom[1], 0.5) - 5]; g.fillStyle = '#e2b445'; g.fillRect(Math.round(m[0]) - 1, Math.round(m[1]) - 1, 3, 3); }
+  if (o.sun) { const m = [lerp(P.left[0], P.bottom[0], 0.5), lerp(P.left[1], P.bottom[1], 0.5) - 5], mx = Math.round(m[0]), my = Math.round(m[1]); g.fillStyle = '#e2b445'; g.fillRect(mx - 1, my - 1, 3, 3); g.fillRect(mx, my - 2, 1, 1); g.fillRect(mx, my + 2, 1, 1); g.fillRect(mx - 2, my, 1, 1); g.fillRect(mx + 2, my, 1, 1); g.fillStyle = '#fff3c0'; g.fillRect(mx, my, 1, 1); }
   for (const s of [-1, 1]) { const wx = x + s * 9 * d, wy = y + s * 4.5; g.fillStyle = '#2a1a10'; g.beginPath(); g.ellipse(wx, wy - 3, 2.5, 4, 0, 0, TAU); g.fill(); g.fillStyle = '#6a4a2a'; g.fillRect(wx - 1, wy - 4, 1, 2); }
   pline(g, x + 12 * d, y - 4, x + 22 * d, y + 1, '#4a3020', 1);
 };
@@ -9497,6 +9594,7 @@ const LAYOUTS = {
       P.b('quarters', -13, 2, 8, 5, { name: 'Guardhouse', door: 'E' });
       P.b('kura', 8, 4, 6, 6, { name: 'Grain Store' });
       P.d('desk', 2, -2); P.spot('desk', 2.5, -0.5); P.d('ricesacks', -3, 10); P.d('ricesacks', 6, 12); P.d('wagon', -6, 13, 1, 1, { sun: true });
+      P.d('bedroll', -13, -11, 1, 1, { solid: false }); P.d('bedroll', -6, -12, 1, 1, { solid: false });
       P.d('watchtower', 14, 14, 1, 1); P.banners([[-2, 16], [3, 16], [-15, -15]]);
       P.lamp(-2, 18); P.lamp(3, 18); P.lamp(-14, -9);
       P.spot('hill', -30, -24); P.o('rock', -32, -26); P.o('rock', -28, -27);
@@ -9661,7 +9759,7 @@ const LAYOUTS = {
       P.trees(26, 8, 14, ['pine', 'sakura', 'bush'], [[0, 8, 3], [5, 6, 2], [-4, 6, 2]]); P.freeSpots();
     }
   },
-  stonebridge: { r: 22, name: 'Bridge of Broken Stones', jp: '崩れ石橋', crossing: true, stone: true, spur: ['endA', 'endB'], spots: {}, build(S, P) { this.crossBuild(S, P, ['reeds', 'willow', 'pine']); for (const [k, d] of [['camp1', -3], ['camp2', 3]]) { const q = S.spots[k]; if (q) { World.deco('bedroll', Math.floor(q[0]), Math.floor(q[1]), 1, 1, { solid: false }); } } P.freeSpots(); } },
+  stonebridge: { r: 22, name: 'Bridge of Broken Stones', jp: '崩れ石橋', crossing: true, stone: true, spur: ['endA', 'endB'], spots: {}, build(S, P) { this.crossBuild(S, P, ['reeds', 'willow', 'pine']); for (const k of ['camp1', 'camp2', 'underA']) { const q = S.spots[k]; if (q) World.deco('bedroll', Math.floor(q[0]), Math.floor(q[1]), 1, 1, { solid: false }); } P.freeSpots(); } },
   foundry: {
     r: 30, name: 'Kanaya Foundry', jp: '金屋鋳造所', spur: ['gateA'],
     spots: { approach: [0, 34], gateA: [0, 24], platform: [6, -12], cannon: [8, -14], workshop: [-8, -6], workIn: [-8, -9], desk: [-14, -2], tunnel: [-18, -16], powder: [14, 2], powderIn: [14, -1], workers: [-12, 10], gateB: [-22, 10], bell1: [-6, 18], bell2: [18, 16], loading: [10, 12], forest: [-30, 26], yard: [0, 6] },
@@ -10102,7 +10200,7 @@ class MCtx {
     }
     Object.assign(a, { faction: 'gang', comp: true, essential: false, canYield: false, watch: false, mEnemy: false, post: null, mPath: null, mArrive: false, dmgMult: 1.1 }); a.ai.mode = 'follow'; a.ai.target = null;
     // knocked to their knees (or sitting) before they joined: they get up and come
-    if (a.yielded || a.yieldLock || a.state === 'kneel' || a.state === 'sit') { a.yielded = a.yieldLock = a.sleeping = false; a.state = 'idle'; a.hp = Math.max(a.hp, a.maxHp * 0.5); }
+    if (a.yielded || a.yieldLock || a.state === 'kneel' || a.state === 'sit' || a.state === 'sleep' || a.sleeping || a.lying || a.sitting) { a.yielded = a.yieldLock = a.sleeping = a.lying = a.sitting = false; a.state = 'idle'; a.hp = Math.max(a.hp, a.maxHp * 0.5); }
     this.add(a, id); if (!G.gang.includes(a)) G.gang.push(a);
     return a;
   }
@@ -10140,7 +10238,7 @@ class MCtx {
   // the whole camp hears it: everyone watching is now fighting
   alarm(tag = 'watch', quiet) {
     let n = 0;
-    for (const a of this.actors) if (!a.dead && a.watch && (tag === '*' || a.tag === tag)) { a.watch = false; a.mEnemy = true; a.post = null; a.sleeping = false; if (a.state === 'kneel' && !a.yielded) a.state = 'idle'; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; a.alertT = 1; n++; }
+    for (const a of this.actors) if (!a.dead && a.watch && (tag === '*' || a.tag === tag)) { a.watch = false; a.mEnemy = true; a.post = null; a.sleeping = a.lying = a.sitting = false; if ((a.state === 'kneel' || a.state === 'sleep' || a.state === 'sit') && !a.yielded) a.state = 'idle'; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; a.alertT = 1; n++; }
     if (n && !quiet && !this.fast) { Snd.play('gong', 0.7); G.shake = Math.max(G.shake, 3); }
     return n;
   }
@@ -10225,7 +10323,7 @@ class MCtx {
   // lines that belong to a place: said once, when Ren gets within r of it
   talkNear(key, w, r, lines) { const p = this.at(w), P = G.player; if (!p || this.flags['tn_' + key] || dist(p[0], p[1], P.x, P.y) > r) return; this.flags['tn_' + key] = true; this.talk(lines); }
   // people walk a route (spots or points); `wait` stops them when Ren falls more than that far behind
-  walk(a, pts, o = {}) { if (!a) return; a.mPath = pts.map(w => this.at(w)).filter(Boolean).map(p => blockedCircle(p[0], p[1], 0.3) ? World.randomWalkable(p[0], p[1], 0, 3, 40) || p : p);
+  walk(a, pts, o = {}) { if (!a) return; a.sitting = a.sleeping = a.lying = false; a.mPath = pts.map(w => this.at(w)).filter(Boolean).map(p => blockedCircle(p[0], p[1], 0.3) ? World.randomWalkable(p[0], p[1], 0, 3, 40) || p : p);
     // a first waypoint clearly behind them (they are already most of the way to the next) is not walked back to
     const behind = (p, q) => dist(a.x, a.y, q[0], q[1]) + 2 < dist(p[0], p[1], q[0], q[1]) || (dist(a.x, a.y, p[0], p[1]) > 2 && Math.abs(angDiff(Math.atan2(p[1] - a.y, p[0] - a.x), Math.atan2(q[1] - p[1], q[0] - p[0]))) > 2.1);
     if (!o.exact && !o.loop) while (a.mPath.length > 1 && behind(a.mPath[0], a.mPath[1])) a.mPath.shift(); a.mPi = 0; a.mBest = 1e9; a.mProg = 0; a.mDone = !a.mPath.length; a.mRun = o.run || 0.75; a.mWait = o.wait || 0; a.mLoop = !!o.loop; a.mStuck = 0; a.post = null; }
@@ -10283,6 +10381,25 @@ class MCtx {
   face(id, w) { const a = this.get(id), p = this.at(w); if (a && p) { a.faceTo(p[0], p[1]); a.postFace = a.face; } }
   goTo(id, w, run = 0.8) { const a = this.get(id); if (a) this.walk(a, [w], { run }); }
   float(id, text, col = '#efe3c8') { const a = this.get(id); if (a && !this.fast) FX.text(a.x, a.y, text, col); }
+  doze(a) {
+    if (!a) return a;
+    a.sleeping = true; a.lying = false; a.sitting = false; a.aware = 0; a.alertT = 0; a.moving = false; a.aimAt = null; a.mPath = null;
+    a.state = 'idle';
+    if (a.ai) { a.ai.mode = 'idle'; a.ai.target = null; a.ai.aim = 0; }
+    return a;
+  }
+  wake(a) {
+    if (!a) return a;
+    a.sleeping = false; a.lying = false; a.sitting = false;
+    if (!a.yielded && (a.state === 'kneel' || a.state === 'sleep' || a.state === 'sit')) a.state = 'idle';
+    return a;
+  }
+  lie(a) {
+    if (!a) return a;
+    a.lying = true; a.sleeping = false; a.yieldLock = true; a.moving = false; a.state = 'idle';
+    if (a.ai) { a.ai.mode = 'idle'; a.ai.target = null; }
+    return a;
+  }
 }
 // a mistake in one line of a mission's script must never freeze the story: report it and carry on
 function mSafe(m, what, f) { try { return f(); } catch (e) { console.error('Mission ' + (m && m.def ? m.def.n + '.' + m.i : '?') + ' ' + what + ':', e && e.message); } }
@@ -10388,7 +10505,7 @@ const STEPS = {
     tick: m => m.st.ok
   },
   // time passes: rest by a fire, sleep in a shelter, wait for midnight
-  rest: { begin(m, s) { Card.black(true); m.st.T = s.dur || 2.2; Card.show(s.kicker || '', s.title || 'Later', s.sub || '', m.st.T, 'time'); }, tick(m, s, dt) { if ((m.st.T -= dt) > 0) return false; if (s.tod !== undefined) G.tod = s.tod; const P = G.player; P.hp = P.maxHp; P.bleed = 0; for (const a of G.gang) { a.hp = a.maxHp; a.downed = false; a.yielded = false; if (a.state === 'kneel') a.state = 'idle'; } if (s.then) s.then(m); Card.black(false); return true; } },
+  rest: { begin(m, s) { Card.black(true); m.st.T = s.dur || 2.2; Card.show(s.kicker || '', s.title || 'Later', s.sub || '', m.st.T, 'time'); }, tick(m, s, dt) { if ((m.st.T -= dt) > 0) return false; if (s.tod !== undefined) G.tod = s.tod; const P = G.player; P.hp = P.maxHp; P.bleed = 0; for (const a of G.gang) { a.hp = a.maxHp; a.downed = false; a.yielded = false; a.sitting = false; if (a.state === 'kneel') a.state = 'idle'; } if (s.then) s.then(m); Card.black(false); return true; } },
   event: { begin(m, s) { m.st.n = 0; if (s.start) s.start(m); }, tick(m, s) { return m.st.n >= (s.n || 1); }, end(m, s) { if (s.stop) s.stop(m); } },
   hold: {
     begin(m, s) { m.st.T = 0; m.st.w = 0; m.st.wt = 2; },
@@ -10729,7 +10846,7 @@ const Missions = {
   detect(list, dt, s, mult = 1) {
     const P = G.player; if (P.dead || (window.BOT && BOT.blind)) return null;
     for (const a of list) {
-      if (a.dead || a.yielded || a.sleeping || a.state === 'kneel') { a.aware = 0; continue; }
+      if (a.dead || a.yielded || a.sleeping || a.lying || a.state === 'kneel' || a.state === 'sleep' || a.state === 'sit') { a.aware = 0; continue; }
       const d = dist(a.x, a.y, P.x, P.y); let R = (a.viewR || s.view || 8) * (G.night ? 0.75 : 1) * (P.crouch ? 0.55 : 1) * (P.mounted ? 1.4 : 1);
       const ang = Math.atan2(P.y - a.y, P.x - a.x), inCone = Math.abs(angDiff(a.face, ang)) < 0.95, close = d < (P.crouch ? 1.1 : 2.2);
       if (d > R || (!inCone && !close) || !Guns.los(a, P)) { a.aware = Math.max(0, (a.aware || 0) - dt * 0.35); continue; }
@@ -10960,7 +11077,7 @@ M({
       ['headman', 'Enough. The children are listening.'],
       ['merchant', 'Good.'] ] },
     { t: 'scene', parts: [['headman', 'Every family brings two sacks of rice to the threshing floor. Now. And not one word of it outside this village.'], ['jiro', 'Ren. You heard him. The storehouses.']] },
-    { t: 'use', ats: ['kiyo.storeA', 'kiyo.storeB'], label: 'Shoulder a rice sack', text: 'Carry rice from the storehouses', hint: 'Two sacks. They are heavier than you are.', on(m) { m.goTo('headman', ['kiyo.square', -4.5, 3.5]); m.goTo('jiro', 'kiyo.storeA'); }, onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, 'oof', '#efe3c8'); } },
+    { t: 'use', ats: ['kiyo.storeA', 'kiyo.storeB'], label: 'Shoulder a rice sack', thing: 'ricesacks', take: true, text: 'Carry rice from the storehouses', hint: 'Two sacks. They are heavier than you are.', on(m) { m.goTo('headman', ['kiyo.square', -4.5, 3.5]); m.goTo('jiro', 'kiyo.storeA'); }, onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, 'oof', '#efe3c8'); } },
     { t: 'go', at: ['kiyo.square', -6, 5], r: 2.4, text: 'Bring the rice to the threshing floor', talk: [['hana', 'Why are we hiding rice under the floor?'], ['ren', 'So it doesn\'t get cold.'], ['hana', 'Rice doesn\'t get cold.']] },
     { t: 'scene', parts: [['narr', 'Under the threshing floor, in the dark: rice sacks, and a family Ren has never seen, staring up at him.'], ['Stranger', '(whispering) Please. Don\'t tell anyone we\'re here.'], ['headman', 'They came over the mountains from Ishimura. If anyone asks, Ren, they do not exist.']] },
     { t: 'wait', dur: 1.6, text: 'A horn sounds beyond Kiyohara\'s fields', on(m) { if (!m.fast) { Snd.play('gong', 0.8); G.shake = 2; } } },
@@ -11170,7 +11287,7 @@ M({
 function depotGuards(m) {
   m.cast('captain', m.at('depot.yard', 3, 2), { face: PI * 0.25 });
   for (const [k, w] of [['g1', 'depot.post1'], ['g2', 'depot.post2'], ['g3', m.at('depot.gate', -2, -3)], ['g4', m.at('depot.gate', 2, -3)], ['g5', 'depot.yard']]) m.spawn(k === 'g5' ? 'rifleman' : 'imperial', w, 1, { watch: true, tag: 'watch', face: PI * 0.25, spread: 0.3, viewR: 8 });
-  for (const w of ['depot.sleep1', 'depot.sleep2']) { const [a] = m.spawn('conscript', w, 1, { watch: true, tag: 'watch', spread: 0.3 }); a.sleeping = true; a.state = 'kneel'; }
+  for (const w of ['depot.sleep1', 'depot.sleep2']) { const [a] = m.spawn('conscript', w, 1, { watch: true, tag: 'watch', spread: 0.15, appear: true }); m.doze(a); }
   // the sentry who walks the outside of the west wall
   const [s] = m.spawn('imperial', 'depot.sentry', 1, { watch: true, tag: 'watch', post: false, viewR: 7 }); m.walk(s, [m.at('depot.sentry', 0, -14), m.at('depot.sentry', 0, 10)], { loop: true, run: 0.4 });
 }
@@ -11202,7 +11319,7 @@ M({
     { t: 'go', at: () => Miso.dog ? [Miso.dog.x, Miso.dog.y] : m_(), r: 1.6, text: 'Quiet Miso before someone wakes up', hint: 'Walk over to him.', each(m) { } },
     { t: 'sneak', at: 'depot.store', r: 1.8, text: 'Creep to the rear storehouse', hint: 'Mind the guards at the gate and in the yard.', why: 'A guard saw you in the yard.' },
     { t: 'use', at: 'depot.store', label: 'Pick the storehouse lock', text: 'Pick the storehouse lock', dur: 2, busy: 'Working the lock…' },
-    { t: 'use', ats: [['depot.storeIn', -1, 0], ['depot.storeIn', 1, 0], ['depot.storeIn', 0, -1], ['depot.storeIn', 0, 1]], label: 'Fill your bags', text: 'Fill your bags: rice, dried fish, beans, salt', onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, pick(['rice', 'dried fish', 'beans', 'salt']), '#efe3c8'); } },
+    { t: 'use', ats: [['depot.storeIn', -1, 0], ['depot.storeIn', 1, 0], ['depot.storeIn', 0, -1], ['depot.storeIn', 0, 1]], label: 'Fill your bags', thing: 'ricesacks', take: true, text: 'Fill your bags: rice, dried fish, beans, salt', onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, pick(['rice', 'dried fish', 'beans', 'salt']), '#efe3c8'); } },
     { t: 'sneak', at: 'depot.room', r: 1.8, text: 'Look into the officer\'s locked stores', why: 'A guard saw you in the yard.' },
     { t: 'use', at: 'depot.room', label: 'Pick the lock', text: 'Pick the officer\'s lock', dur: 2, busy: 'Working the lock…' },
     { t: 'choice', ask: ['ren', 'Uji tea. Dried persimmons. Good sake.', 'And enough rice to feed a refugee camp.'], options: [['Take the rice. Leave the fine things.', 'rice'], ['Take the tea and the sake as well', 'all', [['ren', '...No. Rice. I came for rice.']]]] },
@@ -11219,7 +11336,7 @@ M({
   brief: 'Weeks on the road. Hot water, fresh towels and peace, for eleven glorious minutes.',
   go: 'Ride to the Mizuhama bathhouse (the gold marker)',
   recap: 'Ren smelled like wet leather and old regret, so he took a bath in Mizuhama. Eleven minutes later an officer recognised Kumo, and Ren left through the laundry window with his clothes in a bundle, wanted for disturbances at a public bath.',
-  setup(m) { m.cast('bathowner', 'bath.door', { face: PI * 0.25 }); m.spawn('villager', 'bath.soak', 2, { calm: true, tag: 'bathers', spread: 1.5 }); m.spawn('villager', 'bath.street', 3, { calm: true, tag: 'folk', wanderR: 6, post: false }); m.spawn('villager', ['bath.street', 1.6, 1.4], 1, { calm: true, key: 'Mother', name: 'Mother', face: -PI * 0.75 }); m.spawn('kid', ['bath.street', 2.4, 1.9], 1, { calm: true, key: 'Child', name: 'Child', face: -PI * 0.75 }); },
+  setup(m) { m.cast('bathowner', 'bath.door', { face: PI * 0.25 }); for (const a of m.spawn('villager', 'bath.soak', 2, { calm: true, tag: 'bathers', spread: 0.8, appear: true })) a.sitting = true; m.spawn('villager', 'bath.street', 3, { calm: true, tag: 'folk', wanderR: 6, post: false }); m.spawn('villager', ['bath.street', 1.6, 1.4], 1, { calm: true, key: 'Mother', name: 'Mother', face: -PI * 0.75 }); m.spawn('kid', ['bath.street', 2.4, 1.9], 1, { calm: true, key: 'Child', name: 'Child', face: -PI * 0.75 }); },
   steps: [
     { t: 'ride', at: 'bath.street', r: 9, text: 'Ride south to Mizuhama', hint: 'There is a bathhouse there. Hot water. Clean towels.', talk: [['ren', 'Kumo. Be honest with me.'], ['ren', 'Is it me? Or is it the dog?'], ['narr', 'Kumo sneezes.'], ['ren', 'That\'s fair.'], ['ren', 'There\'s a bathhouse in Mizuhama. Hot water. Towels. Silence.'], ['ren', 'They won\'t let you in. Don\'t take it personally.'], ['ren', 'They won\'t let Miso in either. Take that however you like.']] },
     { t: 'go', at: 'bath.street', r: 3, foot: true, text: 'Walk into Mizuhama', hint: 'Get down from Kumo (E).' },
@@ -11232,7 +11349,7 @@ M({
     { t: 'scene', parts: [['Officer', '(outside) That horse! That is the grey nag from the governor\'s rice wagon! Find the rider!'], ['ren', '...Eleven minutes. A personal record.']] },
     { t: 'use', at: ['bath.soak', 1, 0.5], label: 'Grab the first clothes you can find', text: 'Climb out and grab your clothes', onUse(m) { if (!m.fast) { const d = Miso.dog; if (d) FX.text(d.x, d.y, 'a whole cooked fish', '#efe3c8'); } } },
     { t: 'scene', on(m) { m.spawn('officer', 'bath.door', 1, { tag: 'foe', key: 'Officer', name: 'Imperial Officer', attack: false }); }, parts: [['Officer', 'You! Stand where you are!'], ['ren', 'Officer. You\'ve mistaken me for someone far more important.'], ['bathowner', 'If one screen breaks, I am billing the imperial government!']] },
-    { t: 'escape', at: 'bath.window', r: 2, cp: true, text: 'Escape through the laundry', hint: 'Customers scream. Buckets fly. Do not stop to fight unless you must.', on(m) { const o = m.get('Officer'); if (o) { o.ai.mode = 'fight'; o.ai.target = G.player; o.aware = 1; } m.spawn('imperial', 'bath.street', 2, { tag: 'foe' }); for (const a of m.group('bathers')) { a.ai.mode = 'flee'; a.ai.from = G.player; } } },
+    { t: 'escape', at: 'bath.window', r: 2, cp: true, text: 'Escape through the laundry', hint: 'Customers scream. Buckets fly. Do not stop to fight unless you must.', on(m) { const o = m.get('Officer'); if (o) { o.ai.mode = 'fight'; o.ai.target = G.player; o.aware = 1; } m.spawn('imperial', 'bath.street', 2, { tag: 'foe' }); for (const a of m.group('bathers')) { a.sitting = false; a.ai.mode = 'flee'; a.ai.from = G.player; } } },
     { t: 'escape', at: 'bath.bank', r: 4, text: 'Run for the riverbank', hint: 'Kumo knows where you are going even if you do not. Whistle (H) once you are clear.' },
     { t: 'scene', parts: [['ren', 'Clean. Dry. Wanted for disturbing the peace of a public bath.'], ['ren', 'Hygiene is overrated.']] },
   ],
@@ -11359,7 +11476,7 @@ M({
     { t: 'sneak', at: 'redpine.ammo', r: 2.2, cp: true, text: 'Slip into the ammunition yard', hint: 'The east fence has a gap. Crouch (C) and keep to the dark.', why: 'A sentry saw you.' },
     { t: 'scene', on(m) { m.cast('commander', m.at('redpine.ammo', 3, -2), { faction: 'imperial', essential: false, mEnemy: true }); }, parts: [['commander', 'You. YOU. The rice thief from the ridge!', 'Sound the alarm!']] },
     { t: 'survive', dur: 18, at: 'redpine.sheds', max: 4, every: 5, cp: true, text: 'Hold out by the artillery sheds', hint: 'Back to the wall. One at a time is all they can manage.', on(m) { m.alarm('watch'); const c = m.get('commander'); if (c) { c.ai.mode = 'fight'; c.ai.target = G.player; } }, wave(m, i) { m.spawn(i % 2 ? 'rifleman' : 'imperial', m.at('redpine.sheds', rnd(-6, 6), 6), 2); } },
-    { t: 'fn', run(m) { if (!m.fast) { Snd.play('swing', 1); FX.text(G.player.x, G.player.y - 1, 'an arrow cuts the rope', '#9ad0a0'); } const P = G.player; for (const a of m.actors.slice()) if (a.mEnemy && !a.dead) { if (dist(a.x, a.y, P.x, P.y) < 9) { Object.assign(a, { mEnemy: false, watch: false, sleeping: true, state: 'kneel', tag: 'canvas' }); a.ai.mode = 'idle'; m.prop('canvas', [a.x, a.y + 0.2]); } else m.remove(a); } m.cast('aiko', m.at('@ren', 1.8, 1.2), { run: 1.3 }); } },
+    { t: 'fn', run(m) { if (!m.fast) { Snd.play('swing', 1); FX.text(G.player.x, G.player.y - 1, 'an arrow cuts the rope', '#9ad0a0'); } const P = G.player; for (const a of m.actors.slice()) if (a.mEnemy && !a.dead) { if (dist(a.x, a.y, P.x, P.y) < 9) { Object.assign(a, { mEnemy: false, watch: false, tag: 'canvas' }); m.doze(a); a.ai.mode = 'idle'; m.prop('canvas', [a.x, a.y + 0.2]); } else m.remove(a); } m.cast('aiko', m.at('@ren', 1.8, 1.2), { run: 1.3 }); } },
     { t: 'scene', parts: [['aiko', 'This way. Now.']] },
     { t: 'follow', who: 'aiko', path: ['redpine.barracks', 'redpine.records'], text: 'Follow Aiko under the barracks', hint: 'Stay close.' },
     { t: 'use', at: 'redpine.recordsIn', label: 'Search the records room', text: 'Search the records room' },
@@ -11379,7 +11496,7 @@ M({
     { t: 'scene', parts: [['ren', 'That\'s a lot of medicine for one scout.'], ['aiko', 'It isn\'t for me.']] },
     { t: 'use', at: 'aikocamp.map', label: 'Look at Aiko\'s map', text: 'Look at Aiko\'s map' },
     { t: 'scene', parts: [['ren', 'Names. Dates.'], ['aiko', 'The ones I got past the checkpoints. The ones with a line through them, I didn\'t.'], ['ren', '...There are a lot of lines.']] },
-    { t: 'use', at: 'aikocamp.fire', label: 'Sit by the fire', text: 'Sit by the fire with her' },
+    { t: 'use', at: 'aikocamp.fire', label: 'Sit by the fire', text: 'Sit by the fire with her', on(m) { const a = m.get('aiko'); if (a) a.sitting = true; } },
     { t: 'scene', parts: [
       ['aiko', 'They took the north when I was sixteen. My family didn\'t see the first winter.'],
       ['aiko', 'There was a cell after that. Six of us. A district clerk sold our names for a pension.'],
@@ -11400,7 +11517,7 @@ M({
   brief: 'Aiko\'s route passes through occupied villages. Ren starts leaving things behind.',
   go: 'Follow Aiko\'s river route (the gold marker)',
   recap: 'Following Aiko\'s map, Ren left food by refugee shelters and cut the ropes on a medicine wagon. A little boy gave him a wooden horse his father had carved before the army took him. By the river, Ren realised he had begun to care about strangers.',
-  setup(m) { m.cast('boy', 'boyvil.square', { face: PI * 0.25 }); for (const w of ['boyvil.shelter1', 'boyvil.shelter2']) m.spawn('villager', w, 2, { calm: true, tag: 'refugees', spread: 2 }); const wg = m.at('boyvil.wagon'); if (wg) { const [a] = m.spawn('imperial', [wg[0] + 2, wg[1] + 1], 1, { watch: true, tag: 'watch', face: PI * 0.25, viewR: 7 }); a.sleeping = Math.random() < 0.5; m.spawn('conscript', [wg[0] - 2, wg[1] + 1], 1, { watch: true, tag: 'watch', face: -PI * 0.75, viewR: 6 }); } },
+  setup(m) { m.cast('boy', 'boyvil.square', { face: PI * 0.25 }); for (const w of ['boyvil.shelter1', 'boyvil.shelter2']) m.spawn('villager', w, 2, { calm: true, tag: 'refugees', spread: 2 }); const wg = m.at('boyvil.wagon'); if (wg) { const [a] = m.spawn('imperial', [wg[0] + 2, wg[1] + 1], 1, { watch: true, tag: 'watch', face: PI * 0.25, viewR: 7, appear: true }); m.doze(a); m.spawn('conscript', [wg[0] - 2, wg[1] + 1], 1, { watch: true, tag: 'watch', face: -PI * 0.75, viewR: 6 }); } },
   steps: [
     { t: 'go', at: 'boyvil.shelter1', r: 3, text: 'Follow Aiko\'s route past the refugee tents', talk: [['ren', 'Her route goes straight through the occupied villages.'], ['ren', 'Of course it does.']] },
     { t: 'use', at: 'boyvil.shelter1', label: 'Leave food by the shelter', text: 'Leave food by the refugee shelter', hint: 'Nobody needs to see who left it.' },
@@ -11427,7 +11544,7 @@ function midway(m, a, b, t = 0.5, key = 'mid') {
   World.streamAll(x, y);
   return m[key] = World.randomWalkable(x, y, 0, 14, 120) || B;
 }
-const sickLook = a => { a.state = 'kneel'; a.yieldLock = true; return a; };
+const sickLook = a => { if (!a) return a; a.lying = true; a.sleeping = false; a.yieldLock = true; a.state = 'idle'; a.moving = false; if (a.ai) { a.ai.mode = 'idle'; a.ai.target = null; } return a; };
 
 M({
   n: 21, title: 'The Second Meeting', at: 'boyvil.riverbank', atR: 6, giver: 'ren', sites: ['sazanami', 'convoy'], reward: 50,
@@ -11500,7 +11617,7 @@ M({
     { t: 'doc', id: 'prisoners', text: 'Read the register of the missing' },
     { t: 'scene', parts: [['aiko', 'Executed. Executed. Labour camp. Executed. Conscripted...'], ['aiko', '...Toma.'], ['ren', 'Who\'s Toma?'], ['aiko', 'My little brother. A labour settlement in the eastern mountains. Three years ago.'], ['aiko', 'There\'s no mark by his name.']] },
     { t: 'wait', dur: 6, text: 'Leave her be for a while', on(m) { const a = m.get('aiko'); if (a) { a.state = 'kneel'; a.yieldLock = true; } } },
-    { t: 'use', at: '@aiko', label: 'Sit beside her', text: 'Sit beside Aiko' },
+    { t: 'use', at: '@aiko', label: 'Sit beside her', text: 'Sit beside Aiko', on(m) { const a = m.get('aiko'); if (a) a.sitting = true; } },
     { t: 'scene', parts: [['ren', 'We can find the settlement.'], ['aiko', 'You work alone.'], ['ren', 'I do.'], ['aiko', 'And yet.'], ['ren', 'I\'m offering to use the map. You happen to know how to read it.'], ['aiko', '...Fine. You help me find Toma. I help you find the men who signed for Kiyohara.'], ['ren', 'Fine.']], done(m) { const a = m.get('aiko'); if (a) { a.state = 'idle'; a.yieldLock = false; } } },
   ],
 });
@@ -11572,7 +11689,7 @@ M({
   steps: [
     { t: 'talk', who: 'oldprisoner', text: 'Hear what the old prisoner remembers', parts: [['oldprisoner', 'Toma Senda? I knew him. Good with horses, that boy. Too good, for his own sake.', 'They took him to the cavalry stables to train as a handler.'], ['aiko', 'Did he... volunteer?'], ['oldprisoner', 'The record did not say. They never say.']] },
     { t: 'ride', at: 'stables.fence', r: 6, text: 'Ride to the cavalry stables', hint: 'East, over the ridge. Wait for dark when you get there.', on(m) { stablesCamp(m); }, talk: [['aiko', 'A cavalry handler. He was scared of horses when he was six.'], ['ren', 'Kumo bit me when I was six.'], ['aiko', 'And you still keep him.'], ['ren', 'He kept me.'], ['aiko', '...What does that mean?'], ['ren', 'It means he bites.']] },
-    { t: 'rest', title: 'Nightfall', sub: 'They wait in the trees for the handlers to sleep.', tod: 0.9, then() { for (const a of G.gang.filter(a => a.comp)) { a.mount = null; a.ai.ride = null; } } },
+    { t: 'rest', title: 'Nightfall', sub: 'They wait in the trees for the handlers to sleep.', tod: 0.9, then(m) { for (const a of G.gang.filter(a => a.comp)) { a.mount = null; a.ai.ride = null; } for (const a of m.group('handlers')) { m.doze(a); m.prop('bedroll', [a.x, a.y]); } } },
     { t: 'sneak', at: 'stables.toma', r: 2, cp: true, text: 'Slip into the stables with Aiko', hint: 'Crouch (C). The handlers sleep; the sentries do not.', why: 'A sentry saw you.' },
     { t: 'scene', parts: [['aiko', 'Toma.'], ['toma', '...Aiko?', 'No. You\'re dead. They told me you were dead.'], ['narr', 'He drops the reins.'], ['toma', 'Three years. Where were you for three years?'], ['narr', 'She steps toward him. He steps back, looking at the bow on her shoulder.'], ['toma', 'They feed me here. I sleep under a roof. Nobody shoots at me if I do what I\'m told.'], ['toma', 'You should go. Before somebody sees you.']] },
     { t: 'go', at: 'stables.out', r: 3, text: 'Wait outside while they talk', hint: 'Out past the fence.', on(m) { const a = m.get('aiko'); if (a) { G.gang = G.gang.filter(b => b !== a); a.faction = 'civ'; a.comp = false; a.post = m.at('stables.toma', 1, 0); } } },
@@ -11582,7 +11699,7 @@ M({
     { t: 'go', at: m => midway(m, 'stables.out', 'refuge.path', 0.5), r: 8, mounted: true, text: 'Ride away with Aiko and Toma', on(m) { const t = m.get('toma'); if (t) t.mTag = true; } },
   ],
 });
-function stablesCamp(m) { if (m.group('watch').length) return; for (const w of ['stables.gate', ['stables.gate', 4, 0], 'stables.pen', 'stables.tent']) m.spawn('imperial', m.at(...[].concat(w)), 1, { watch: true, tag: 'watch', spread: 0.5, face: rnd(TAU), viewR: 6.5 }); const [s] = m.spawn('imperial', 'stables.fence', 1, { watch: true, tag: 'watch', post: false, viewR: 6.5 }); m.walk(s, ['stables.fence', 'stables.pen', 'stables.tent'], { loop: true, run: 0.3 }); m.cast('toma', 'stables.toma', { face: PI * 0.25 }); m.spawn('conscript', 'stables.toma', 2, { calm: true, tag: 'handlers', spread: 2 }); }
+function stablesCamp(m) { if (m.group('watch').length) return; for (const w of ['stables.gate', ['stables.gate', 4, 0], 'stables.pen', 'stables.tent']) m.spawn('imperial', m.at(...[].concat(w)), 1, { watch: true, tag: 'watch', spread: 0.5, face: rnd(TAU), viewR: 6.5 }); const [s] = m.spawn('imperial', 'stables.fence', 1, { watch: true, tag: 'watch', post: false, viewR: 6.5 }); m.walk(s, ['stables.fence', 'stables.pen', 'stables.tent'], { loop: true, run: 0.3 }); m.cast('toma', 'stables.toma', { face: PI * 0.25 }); m.spawn('conscript', 'stables.toma', 2, { calm: true, tag: 'handlers', spread: 1.2, appear: true }); }
 M({
   n: 28, title: 'I Work Alone, Apparently', at: 'refuge.path', giver: 'aiko', sites: ['refuge'], reward: 50,
   brief: 'The hidden valley. Time for goodbyes, or something like them.',
@@ -11654,7 +11771,7 @@ M({
     { t: 'scene', parts: [['oldwoman', 'Fever. Half the village is too weak to stand. The healer here has the medicine, but the governor forbids him to give it out without official approval.', 'It is for the soldiers, they say.'], ['ren', 'Then we break into the government storehouse.'], ['aiko', 'And the sick survive a fight that leaves the medicine burning? Herbs first. Boiled water. Then we think.']] },
     { t: 'use', ats: ['marsh.herb1', 'marsh.herb2', 'marsh.herb3'], label: 'Gather herbs', text: 'Gather fever herbs around the village', hint: 'Low plants at the edges of the fields.' },
     { t: 'use', at: 'marsh.pot', label: 'Boil water and herbs', text: 'Boil the water', dur: 2, busy: 'Boiling…', after: [['narr', 'The pot boils over. A basket of roots goes into the mud.'], ['oldwoman', 'Ha! The great outlaw, defeated by a basket!'], ['ren', '...It was a very difficult basket.']] },
-    { t: 'use', ats: [m => m.sick[0] ? [m.sick[0].x, m.sick[0].y] : m.at('marsh.c'), m => m.sick[1] ? [m.sick[1].x, m.sick[1].y] : m.at('marsh.c'), m => m.sick[2] ? [m.sick[2].x, m.sick[2].y] : m.at('marsh.c')], label: 'Help them up', text: 'Help the weakest to their feet', onUse(m, k) { const a = m.sick[k]; if (a) { a.state = 'idle'; a.yieldLock = false; a.yielded = false; m.walk(a, ['marsh.hall'], { run: 0.5 }); } } },
+    { t: 'use', ats: [m => m.sick[0] ? [m.sick[0].x, m.sick[0].y] : m.at('marsh.c'), m => m.sick[1] ? [m.sick[1].x, m.sick[1].y] : m.at('marsh.c'), m => m.sick[2] ? [m.sick[2].x, m.sick[2].y] : m.at('marsh.c')], label: 'Help them up', text: 'Help the weakest to their feet', onUse(m, k) { const a = m.sick[k]; if (a) { a.state = 'idle'; a.yieldLock = false; a.yielded = false; a.lying = false; a.sleeping = false; m.walk(a, ['marsh.hall'], { run: 0.5 }); } } },
     { t: 'go', at: 'marsh.hall', r: 3, text: 'Get them into the dry communal hall' },
     { t: 'scene', parts: [['oldwoman', 'The only one who understands this fever is a travelling healer. He keeps the Shrine of Quiet Rain, beyond the flooded paddies.', 'His name is Haru.'], ['aiko', 'Then we leave at sunrise.']] },
     { t: 'rest', title: 'Sunrise', tod: 0.27 },
@@ -11664,7 +11781,7 @@ M({
   n: 32, title: 'The Man Who Would Not Fight', at: 'marsh.hall', atR: 7, giver: 'aiko', sites: ['quietrain', 'marsh'], party: ['aiko'], reward: 60,
   brief: 'The Shrine of Quiet Rain, and a healer who will not be anybody\'s weapon.',
   recap: 'Haru refused to help raid the storehouse: every battle makes another queue of people waiting for medicine. "A sword does not make a person wise." Aiko brokered a truce, and Haru brought what remained of his stores to the marsh. Ren remembered the names of his enemies. Haru remembered the names of everyone he had tried to save.',
-  setup(m) { m.cast('haru', 'quietrain.haru', { face: PI * 0.25 }); m.spawn('villager', 'quietrain.court', 2, { calm: true, tag: 'pilgrims', spread: 3 }); },
+  setup(m) { m.cast('haru', 'quietrain.haru', { face: PI * 0.25 }); const [f] = m.spawn('villager', ['quietrain.haru', 1.2, 0.4], 1, { calm: true, tag: 'pilgrims', appear: true, name: 'Farmer' }); if (f) f.sitting = true; m.spawn('villager', 'quietrain.court', 2, { calm: true, tag: 'pilgrims', spread: 3 }); },
   steps: [
     { t: 'ride', at: 'quietrain.gate', r: 9, text: 'Ride north to the Shrine of Quiet Rain', hint: 'Beyond the flooded paddies.', talk: [['aiko', 'They say this Haru treats anyone. Farmers. Bandits. Soldiers.'], ['ren', 'Then he\'s a fool.'], ['aiko', 'Or he\'s the only man in the province nobody shoots at.'], ['ren', 'Everybody gets shot at eventually.'], ['aiko', 'You\'re very cheerful this morning.']] },
     { t: 'talk', who: 'haru', text: 'Speak with the healer', parts: [
@@ -11694,7 +11811,7 @@ M({
     { t: 'scene', parts: [['haru', 'Take only what is listed here.'], ['ren', 'There is an entire room full of supplies.'], ['haru', 'And many people need them. If you empty the room, the next village will have nothing.'], ['ren', '...'], ['aiko', 'Drainage outlet on the north corner. Two at the gate, one walking the wall. The roof is yours.']] },
     { t: 'sneak', at: 'meddepot.roof', r: 2, cp: true, text: 'Get to the depot roof', hint: 'Crouch (C). The roof is on the depot by the north-west wall.', why: 'A guard saw you on the wall.' },
     { t: 'use', at: 'meddepot.roof', label: 'Drop in through the roof', text: 'Drop into the medicine depot', onUse(m) { m.cutTo(() => { m.put('meddepot.cratesIn', false, { local: true }); m.place('haru', ['meddepot.cratesIn', 1, 0]); }); } },
-    { t: 'use', ats: [['meddepot.cratesIn', -1, -1], ['meddepot.cratesIn', 1, -1], ['meddepot.cratesIn', 0, 1]], label: 'Take the crate on Haru\'s list', text: 'Find the crates on Haru\'s list', hint: 'Haru points them out.' },
+    { t: 'use', ats: [['meddepot.cratesIn', -1, -1], ['meddepot.cratesIn', 1, -1], ['meddepot.cratesIn', 0, 1]], label: 'Take the crate on Haru\'s list', thing: 'crates', take: true, text: 'Find the crates on Haru\'s list', hint: 'Haru points them out.' },
     { t: 'scene', on(m) { m.spawn('imperial', ['meddepot.cratesIn', 2, 2], 1, { tag: 'soldier', key: 'Soldier', canYield: true, attack: false, name: 'Depot Soldier' }); }, parts: [['Soldier', 'You. The healer from the shrine.', 'You treat rebels without imperial permission.'], ['haru', 'Yes.'], ['Soldier', 'Then you\'re under arrest.']] },
     { t: 'defeat', who: 'Soldier', cp: true, text: 'Disarm the soldier', hint: 'Beat him until he yields. He does not need to die.', on(m) { const a = m.get('Soldier'); if (a) { a.ai.mode = 'fight'; a.ai.target = G.player; } } },
     { t: 'survive', dur: 20, at: 'meddepot.yard', max: 4, every: 6, cp: true, text: 'Hold the guards back while Haru loads the cart', hint: 'Aiko holds the gate. You hold the yard.', on(m) { m.alarm('watch'); m.comp('aiko'); }, wave(m) { m.spawn('imperial', m.at('meddepot.gate', rnd(-2, 2), 2), 2); } },
@@ -11736,11 +11853,11 @@ M({
   brief: 'Families live under the arches of a flood-weakened bridge. Heavy guns are coming.',
   recap: 'A flood had weakened the old bridge on the coastal road, and families sheltered beneath it. Before the artillery convoy came they evacuated everyone at night. Ren drew the patrol away; Haru would not leave until an old man was across. When the last family reached the far bank, the bridge collapsed, and the guns never reached the fortress.',
   setup(m) { m.prop('wagon', ['stonebridge.farA', -3, 3], { sun: true, solid: true }); m.prop('wagon', ['stonebridge.farA', 3, -3], { sun: true, solid: true });
-    for (const w of ['stonebridge.camp1', 'stonebridge.camp2', 'stonebridge.underA']) m.spawn('villager', w, 2, { calm: true, tag: 'families', spread: 1.2 }); m.spawn('kid', 'stonebridge.camp1', 2, { calm: true, tag: 'families', spread: 1.5 }); const [o] = m.spawn('prisoner', 'stonebridge.underA', 1, { calm: true, tag: 'families', key: 'Old Man', name: 'Old Man' }); },
+    for (const w of ['stonebridge.camp1', 'stonebridge.camp2', 'stonebridge.underA']) for (const a of m.spawn('villager', w, 2, { calm: true, tag: 'families', spread: 0.8, appear: true })) m.doze(a); for (const a of m.spawn('kid', 'stonebridge.camp1', 2, { calm: true, tag: 'families', spread: 0.8, appear: true })) m.doze(a); const [o] = m.spawn('prisoner', 'stonebridge.underA', 1, { calm: true, tag: 'families', key: 'Old Man', name: 'Old Man', appear: true }); m.doze(o); },
   steps: [
     { t: 'ride', at: 'stonebridge.farA', r: 9, text: 'Ride to the coast road bridge', hint: 'West, along the coast road.', talk: [['haru', 'There are families living under that bridge. Eleven of them, last spring.'], ['aiko', 'Under it?'], ['haru', 'The arches keep the rain off. The flood took their village.'], ['ren', 'And now the empire wants to drive cannons over their heads.'], ['haru', 'Now you see why I asked you to come.']] },
     { t: 'scene', parts: [['haru', 'The flood took one of the supports. If the guns cross, the bridge comes down on everyone beneath it.', 'We warn the families first.'], ['ren', 'The artillery has to be stopped now.'], ['aiko', 'There is a path along the bank. We can turn the convoy down it, and move the families tonight. If they move quickly.']] },
-    { t: 'use', ats: ['stonebridge.camp1', 'stonebridge.camp2', 'stonebridge.underA'], label: 'Wake the family', text: 'Wake the families under the bridge', hint: 'Quietly.' },
+    { t: 'use', ats: ['stonebridge.camp1', 'stonebridge.camp2', 'stonebridge.underA'], label: 'Wake the family', text: 'Wake the families under the bridge', hint: 'Quietly.', onUse(m, k) { const p = m.at(['stonebridge.camp1', 'stonebridge.camp2', 'stonebridge.underA'][k]); if (!p) return; for (const a of m.group('families')) if (dist(a.x, a.y, p[0], p[1]) < 4.8) m.wake(a); } },
     { t: 'use', ats: [['stonebridge.farA', -2, 2], ['stonebridge.farA', 2, -2]], label: 'Cut the wagon harness', text: 'Cut the harnesses on the convoy\'s lead wagons' },
     { t: 'use', at: 'stonebridge.farA', label: 'Build a false roadblock', thing: 'lumber', take: true, text: 'Block the road to keep the convoy back', dur: 1.2, busy: 'Dragging timber…', onUse(m) { m.prop('stakes', ['stonebridge.farA', 0, 1], { solid: true }); } },
     { t: 'escort', who: m => m.group('families'), path: ['stonebridge.endA', 'stonebridge.deck', 'stonebridge.endB', 'stonebridge.bankB'], text: 'Get the families across', hint: 'Haru carries the children. Aiko leads the adults. They follow when you are near.' },
@@ -11760,7 +11877,7 @@ M({
     m.cast('kurogov', ['quietrain.court', 0, -2], { key: 'officer', faction: 'imperial', essential: false });
     const off = m.get('officer'); if (off) { off.name = off.label = 'Search Officer'; off.look = lk({ top: 4, bottom: 7, sash: 6, crest: 'sun', hat: 4, coat: '#ece6d8', face: 2 }); }
     m.spawn('imperial', 'quietrain.court', 5, { watch: true, tag: 'watch', spread: 4, viewR: 8 }); m.spawn('rifleman', 'quietrain.roof', 1, { watch: true, tag: 'watch', viewR: 9 });
-    for (const w of ['quietrain.patient1', 'quietrain.patient2', 'quietrain.patient3']) { const [a] = m.spawn('villager', w, 1, { calm: true, tag: 'patients', spread: 0.5 }); sickLook(a); }
+    for (const w of ['quietrain.patient1', 'quietrain.patient2', 'quietrain.patient3']) { const [a] = m.spawn('villager', w, 1, { calm: true, tag: 'patients', spread: 0.12, appear: true }); sickLook(a); }
   },
   steps: [
     { t: 'ride', at: 'quietrain.gate', r: 8, text: 'Ride after Haru to the Shrine of Quiet Rain', hint: 'He went ahead to his patients.', talk: [['aiko', 'He rode off before dawn. Didn\'t even eat.'], ['ren', 'His patients.'], ['aiko', 'Ren. Riders on the shrine road. Imperial.'], ['ren', 'How many?'], ['aiko', 'Enough to search a shrine.'], ['ren', 'Ride.']] },
@@ -11768,7 +11885,7 @@ M({
     { t: 'scene', parts: [['officer', 'Healer Haru. You have been harbouring rebels and stealing government supplies.', 'By order of the governor, the shrine\'s stores are to be destroyed, and anyone connected to the so-called Lantern Route arrested.'], ['haru', 'Ren. Aiko. Leave. Now.'], ['ren', 'No.'], ['aiko', 'No.']] },
     { t: 'kill', tag: 'watch', cp: true, text: 'Fight the soldiers in the courtyard', hint: 'Aiko covers you from the roof. Keep them away from the medicine.', on(m) { m.alarm('watch'); const o = m.get('officer'); if (o) { o.mEnemy = true; o.ai.mode = 'fight'; o.ai.target = G.player; } m.place('haru', 'quietrain.haru', { run: 1.2 }); } },
     { t: 'fn', run(m) { m.burn('quietrain.shed', { size: 1.5, z: 16 }); m.burn('quietrain.hall', { size: 1.8, z: 26 }); m.burn(['quietrain.haru', -3, -3], { size: 1.4, z: 22 }); if (!m.fast) { Snd.play('crackle', 1); Subs.add([['aiko', 'The shed! They fired the shed! It\'s spreading to the hall!']]); } } },
-    { t: 'escort', who: m => m.group('patients'), path: ['quietrain.court', 'quietrain.gate', 'quietrain.hills'], text: 'Get the patients out to the hills', hint: 'Haru takes the passage under the main hall. You take the courtyard.', on(m) { for (const a of m.group('patients')) { a.state = 'idle'; a.yieldLock = false; } const h = m.get('haru'); if (h) m.walk(h, ['quietrain.hall'], { run: 1 }); } },
+    { t: 'escort', who: m => m.group('patients'), path: ['quietrain.court', 'quietrain.gate', 'quietrain.hills'], text: 'Get the patients out to the hills', hint: 'Haru takes the passage under the main hall. You take the courtyard.', on(m) { for (const a of m.group('patients')) { a.state = 'idle'; a.yieldLock = false; a.lying = false; a.sleeping = false; } const h = m.get('haru'); if (h) m.walk(h, ['quietrain.hall'], { run: 1 }); } },
     { t: 'use', at: 'quietrain.hall', label: 'Drag Haru out', text: 'Haru went back for his records. Drag him out before the roof falls', hint: 'He is in the burning hall.', cp: true, on(m) { m.place('haru', 'quietrain.hall'); } },
     { t: 'escape', at: 'quietrain.hills', r: 5, text: 'Get into the hills', on(m) { const h = m.get('haru'); if (h) { h.mPath = null; h.mTag = true; } } },
     { t: 'scene', parts: [['narr', 'The shrine roof goes in. Haru kneels in the wet grass, gathering scattered pages.'], ['haru', 'Kenzo. Saki. The Ota twins...'], ['haru', 'Nine years of them.']], done(m) { const h = m.get('haru'); if (h) { h.mTag = false; h.state = 'kneel'; h.yieldLock = true; } } },
@@ -11782,7 +11899,7 @@ M({
   setup(m) { m.cast('haru', 'quietrain.hills', { face: 0 }); m.spawn('villager', 'quietrain.hills', 3, { calm: true, tag: 'patients', spread: 3 }); },
   steps: [
     { t: 'go', at: 'clinic.yard', r: 4, mounted: true, text: 'Lead the patients to the ruined farmhouse', hint: 'Haru and the patients follow the road; ride ahead and see the place is safe.', talk: [['haru', 'Slowly. Some of them haven\'t walked this far in a month.'], ['haru', 'The little one asked me if there will be a roof.'], ['ren', 'Will there?'], ['haru', 'There will be a roof. It leaks. They\'ll like it.']], on(m) { m.comp('haru'); for (const a of m.group('patients')) m.walk(a, [['clinic.yard', rnd(-3, 3), rnd(-2, 2)]], { run: 0.6 }); } },
-    { t: 'rest', title: 'Night', sub: 'The surviving patients sleep. The two of them do not.', tod: 0.94, then(m) { for (const a of m.group('patients')) { m.stopWalk(a); a.x = a.post[0] = m.at('clinic.inside')[0] + rnd(-1.5, 1.5); a.y = a.post[1] = m.at('clinic.inside')[1] + rnd(-1, 1); } } },
+    { t: 'rest', title: 'Night', sub: 'The surviving patients sleep. The two of them do not.', tod: 0.94, then(m) { for (const a of m.group('patients')) { m.stopWalk(a); a.x = a.post[0] = m.at('clinic.inside')[0] + rnd(-1.5, 1.5); a.y = a.post[1] = m.at('clinic.inside')[1] + rnd(-1, 1); m.doze(a); } } },
     { t: 'scene', parts: [
       ['ren', 'My village was called Kiyohara. I was eight. My father made saddles.', 'They burned it. I ran. My horse found me.'],
       ['ren', 'Since then it\'s been simple. Find the men who did it.'],
@@ -11836,7 +11953,7 @@ M({
     { t: 'use', ats: [['clinic.inside', 1, 0], ['clinic.inside', -1, 0], ['clinic.bench', 0, 0]], label: 'Pack it up', text: 'Pack up the clinic', dur: 0.8, busy: 'Packing…' },
     { t: 'horse', label: 'Rearrange the saddle for the medicine chest', text: 'Make room on Kumo for Haru\'s medicine chest', hint: 'Whistle him (H).', after: [['ren', 'Kumo is a horse, Haru. Not a pharmacy.'], ['haru', 'Miso seems to approve.'], ['narr', 'Miso is asleep on top of the medicine chest.']] },
     { t: 'go', at: m => midway(m, 'clinic.yard', 'foundry.approach', 0.35, 'm1'), r: 7, mounted: true, on(m) { const p = midway(m, 'clinic.yard', 'foundry.approach', 0.35, 'm1'); const [a] = m.spawn('villager', [p[0] + 2, p[1] + 2], 1, { calm: true, tag: 'hurt', name: 'Wounded Traveller', appear: true }); sickLook(a); m.hurt = a; }, text: 'Take the road north with Haru and Aiko', talk: [['ren', 'We are becoming a travelling hospital, not a resistance.'], ['haru', 'A resistance is considerably less useful when all its members are dead.']] },
-    { t: 'use', at: m => { const p = midway(m, 'clinic.yard', 'foundry.approach', 0.35, 'm1'); if (!m.hurt) { const [a] = m.spawn('villager', [p[0] + 2, p[1] + 2], 1, { calm: true, tag: 'hurt', name: 'Wounded Traveller' }); sickLook(a); m.hurt = a; } return [m.hurt.x, m.hurt.y]; }, label: 'Stop for the wounded traveller', text: 'Haru insists on stopping for a wounded traveller', after: [['haru', 'A cut from a bayonet. Clean it, bind it, keep it dry. You will walk tomorrow.']] },
+    { t: 'use', at: m => { const p = midway(m, 'clinic.yard', 'foundry.approach', 0.35, 'm1'); if (!m.hurt) { const [a] = m.spawn('villager', [p[0] + 2, p[1] + 2], 1, { calm: true, tag: 'hurt', name: 'Wounded Traveller' }); sickLook(a); m.hurt = a; } return [m.hurt.x, m.hurt.y]; }, label: 'Stop for the wounded traveller', text: 'Haru insists on stopping for a wounded traveller', onUse(m) { const a = m.hurt; if (a) { a.lying = false; a.yieldLock = false; a.state = 'idle'; } }, after: [['haru', 'A cut from a bayonet. Clean it, bind it, keep it dry. You will walk tomorrow.']] },
     { t: 'go', at: m => midway(m, 'clinic.yard', 'foundry.approach', 0.7, 'm2'), r: 7, mounted: true, text: 'Ride on. Aiko leads you around a patrol', talk: [['aiko', 'Patrol on the ridge road. Left, through the trees. Quietly.'], ['ren', 'That is the fourth time today.'], ['aiko', 'And you are alive four more times.']] },
     { t: 'use', at: m => midway(m, 'clinic.yard', 'foundry.approach', 0.7, 'm2'), label: 'Make camp', text: 'Make camp for the night', onUse(m) { const P = G.player; m.prop('campfire', [P.x + 1, P.y + 0.6], { light: { r: 54, c: '255,140,60' } }); m.prop('bedroll', [P.x - 1.2, P.y + 0.8]); } },
     { t: 'rest', title: 'Night', tod: 0.9 },
@@ -12091,7 +12208,7 @@ M({
   n: 52, title: 'The Empty Purse', at: 'kagetsuki.inn', giver: 'ren', sites: ['kagetsuki', 'foxden'], party: ['aiko', 'haru', 'daichi'], reward: 0,
   brief: 'Breakfast. No purse.',
   recap: 'Ren\'s purse was gone, with two coins from Daichi\'s tools, Haru\'s spare bandages, Aiko\'s map of the western district and Ren\'s stolen customs pass. A note: YOU SHOULD LEARN TO WATCH YOUR POCKETS. — N. The trail led through the fish market and the gamblers\' quarter to the Paper Fox, a thief who robbed imperial officers to feed families, polishing a stolen silver cup in a canal warehouse. "My name is Nao."',
-  setup(m) { m.cast('nao', 'foxden.crates', { face: PI * 0.25 }); m.spawn('villager', 'kagetsuki.fish', 1, { calm: true, key: 'Fish Vendor', name: 'Fish Vendor' }); m.spawn('mercenary', ['kagetsuki.gamble', 2, 2], 1, { calm: true, key: 'Gambler', name: 'Gambler' }); },
+  setup(m) { const n = m.cast('nao', 'foxden.crates', { face: PI * 0.25, appear: true }); if (n) n.sitting = true; m.spawn('villager', 'kagetsuki.fish', 1, { calm: true, key: 'Fish Vendor', name: 'Fish Vendor' }); m.spawn('mercenary', ['kagetsuki.gamble', 2, 2], 1, { calm: true, key: 'Gambler', name: 'Gambler' }); },
   steps: [
     { t: 'fn', run(m) { const P = G.profile; P.flags.purse = (P.flags.purse || 0) + P.gold; P.gold = 0; } },
     { t: 'scene', parts: [['ren', 'My purse.'], ['daichi', 'Two coins from my tool bag.'], ['haru', 'My spare bandages.'], ['aiko', 'My map of the western district. And your customs pass.'], ['narr', 'A note on the table: YOU SHOULD LEARN TO WATCH YOUR POCKETS. — N'], ['ren', 'I will kill him.'], ['aiko', 'I am impressed.'], ['daichi', 'Someone should check the roof.'], ['haru', 'Do you think the thief might be hungry?'], ['ren', 'Anyone who steals a man\'s money before breakfast is beyond redemption.']] },
@@ -12107,7 +12224,7 @@ M({
   n: 53, title: 'The Paper Fox', at: 'foxden.crates', chain: true, sites: ['foxden', 'kagetsuki'], party: ['aiko', 'haru', 'daichi'], reward: 0,
   brief: 'Quick-witted, theatrical, and deeply allergic to honest employment.',
   recap: 'Nao returned everything, minus a fee. He knew the harbour\'s secret routes and its informants, could forge a clerk\'s hand, and appeared in rooms that were supposed to be locked. The customs house had a second lock: hidden ledgers kept by the governor\'s private secretary. Nao could get them through the door, not out alone. The price: help him take the register of the governor\'s informants first. "A partnership built on mutual emotional poverty."',
-  setup(m) { m.cast('nao', 'foxden.crates', { face: PI * 0.25 }); },
+  setup(m) { const n = m.cast('nao', 'foxden.crates', { face: PI * 0.25, appear: true }); if (n) n.sitting = true; },
   end() { const P = G.profile; const back = Math.floor((P.flags.purse || 0) * 0.9); P.gold += back; P.flags.purse = 0; UI.toast('Nao returns ' + back + ' mon. He keeps a small fee.', 'good'); },
   steps: [
     { t: 'scene', parts: [
@@ -12155,7 +12272,7 @@ M({
     { t: 'doc', id: 'informants' },
     { t: 'scene', parts: [['nao', '...'], ['ren', 'Nao?'], ['nao', 'Seki.', 'He was a street messenger. He taught me the routes under the city when we were children. They arrested him years ago for stealing food from an imperial storehouse.'], ['nao', 'It says he is a paid informant.', 'No. They forced him. They must have forced him. The jail. If anyone knows, the jail knows.']] },
     { t: 'talk', who: 'Jailer', text: 'Ask at the harbour jail', parts: [['nao', 'A prisoner called Seki. Former informant.'], ['Jailer', 'Seki... Seki... Here. Died in the cells. Fever. Six years ago.'], ['nao', 'Six years.'], ['aiko', 'The payments in the ledger began three years ago.'], ['nao', 'He\'s been paying a dead man.'], ['aiko', 'He\'s been paying nobody. The names are there so that everyone wonders about everyone.']] },
-    { t: 'go', at: 'foxden.roof', r: 2.5, text: 'Nao has gone up onto the warehouse roof', on(m) { m.stay('nao', 'foxden.roof'); } },
+    { t: 'go', at: 'foxden.roof', r: 2.5, text: 'Nao has gone up onto the warehouse roof', on(m) { m.stay('nao', 'foxden.roof'); const n = m.get('nao'); if (n) n.sitting = true; } },
     { t: 'use', at: ['foxden.roof', 0.9, 0.7], label: 'Bring him a cup of tea', text: 'Bring Nao a cup of tea', hint: 'He is sitting at the edge of the roof.' },
     { t: 'scene', parts: [['nao', '...'], ['nao', 'Steal first. Laugh second. Leave before anyone decides to sell you. That was the whole rule.'], ['ren', 'I know the rule.'], ['nao', 'You? A man who considers friendship a contagious disease?'], ['ren', 'I\'m recovering.']] },
   ],
@@ -12286,7 +12403,7 @@ M({
   recap: 'Genjiro asked each of them why they fought. Aiko: so families can search for the missing without being treated as enemies. Haru: so medicine and food cannot be withheld as punishment. Daichi: to stop others committing the crimes he once enabled. Nao: so the poor need not become thieves, though he would remain one recreationally. Genjiro: to end the lords\' cycle of betrayal. Ren: he wanted Kahn dead. He made another promise too: the country would not become a monument to his family\'s suffering, but a place where other families could live.',
   setup(m) { const f = m.at('monastery.square'); m.prop('campfire', f, { light: { r: 54, c: '255,140,60' } }); const ids = ['genjiro', 'aiko', 'haru', 'daichi', 'nao']; ids.forEach((id, i) => { const a = i / ids.length * TAU; m.cast(id, [f[0] + Math.cos(a) * 2.2, f[1] + Math.sin(a) * 2.2]); m.face(id, f); }); },
   steps: [
-    { t: 'use', at: ['monastery.square', 0, 1.6], label: 'Sit down at the fire', text: 'Join them at the fire beneath the cedars' },
+    { t: 'use', at: ['monastery.square', 0, 1.6], label: 'Sit down at the fire', text: 'Join them at the fire beneath the cedars', on(m) { for (const id of ['aiko', 'haru', 'daichi', 'nao', 'genjiro']) { const a = m.get(id); if (a) a.sitting = true; } } },
     { t: 'scene', parts: [
       ['genjiro', 'A group cannot survive if its members are fighting for six different ideas of victory. So. Why are you here?'],
       ['aiko', 'A country where families can look for their missing without being treated as enemies of the state.'],
@@ -13207,7 +13324,9 @@ Render.markers = function (toS, S, dt) {
 function figOf(a, t) {
   const W = a.W; let pose = 'idleArmed', pt = 0;
   const fighting = a === G.player ? (G.danger > 0 || a.lastHit < 6 || a.state !== 'idle' || (a._armedT || 0) > 0) : (a.ai && (a.ai.mode === 'fight' || a.dueling)) || a.state === 'atk' || a.state === 'block' || a.faction === 'gang' && a.ai?.mode === 'fight';
-  if (a.state === 'atk' && a.atk) {
+  if (a.sleeping || a.lying || a.state === 'sleep') pose = 'sleep';
+  else if (a.sitting || a.state === 'sit') pose = 'sit';
+  else if (a.state === 'atk' && a.atk) {
     const k = a.atk, ph = k.phase;
     if (ph === 'wind') { pose = k.spin || k.heavy ? 'hwindup' : W.thrust ? 'thrust' : 'windup'; pt = W.thrust && !k.heavy ? 0 : k.t / Math.max(0.01, k.wind); if (k.heavy && a !== G.player) pt = Math.min(1, pt * 1.4); }
     else if (ph === 'act') { pose = k.spin ? 'spin' : k.heavy ? 'hswing' : W.thrust ? 'thrust' : 'swing'; pt = W.thrust && !k.heavy ? (k.t / W.act) * 0.5 : k.t / W.act; }
@@ -13217,8 +13336,11 @@ function figOf(a, t) {
   else if (a.state === 'stagger') { pose = 'stagger'; pt = a.sT; }
   else if (a.state === 'kneel') pose = 'kneel';
   else if (a.state === 'bow') pose = 'bow';
-  const armed = a.wpn !== 'fists' && (fighting || pose !== 'idleArmed');
-  return { face: a.face, look: a.look, wpn: a.wpn, armor: a.armor, pose, t: pt, moving: a.moving, walk: a.walk, bloody: a.bloody, flash: a.flash > 0, unarmed: !armed, sheath: !armed && (a.wpn !== 'fists' ? !['hoe', 'kama'].includes(a.wpn) : a === G.player && G.profile.weapons.length > 0), trailCol: a.riposte > 0 ? '#ffd27a' : null, crouch: !!a.crouch && !a.mounted, child: childOf(a) };
+  else if (a.aimAt) { pose = 'thrust'; pt = 0.55; }
+  const showGun = !!(a.gun && pose !== 'sleep' && pose !== 'sit' && pose !== 'kneel' && pose !== 'bow' && a.state !== 'atk');
+  const down = pose === 'sleep' || pose === 'sit';
+  const armed = !down && (showGun || (a.wpn !== 'fists' && (fighting || pose !== 'idleArmed')));
+  return { face: a.face, look: a.look, wpn: showGun ? 'arquebus' : a.wpn, armor: a.armor, pose, t: pt, moving: a.moving && !down && pose !== 'kneel', walk: a.walk, bloody: a.bloody, flash: a.flash > 0, unarmed: !armed, sheath: !armed && !down && (a.wpn !== 'fists' ? !['hoe', 'kama'].includes(a.wpn) : a === G.player && G.profile.weapons.length > 0), trailCol: a.riposte > 0 ? '#ffd27a' : null, crouch: !!a.crouch && !a.mounted, child: childOf(a) };
 }
 function drawActor(ctx, a, sx, sy, t, riding = false) {
   if (a.dummy) {
@@ -13284,6 +13406,91 @@ function frame(now) {
   Input.endFrame();
   requestAnimationFrame(frame);
 }
+// ---- dev kit: on the title screen, type crdk in order to unlock a mission jumper with a maxed loadout
+const DevKit = {
+  seq: '',
+  want: 'crdk',
+  unlocked: false,
+  onKey(e) {
+    if ($('title').hidden || G.state !== 'title') return;
+    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target && e.target.tagName === 'INPUT') return;
+    if (!e.code.startsWith('Key')) { this.seq = ''; return; }
+    const ch = e.code.slice(3).toLowerCase();
+    const next = this.seq + ch;
+    if (this.want.startsWith(next)) this.seq = next;
+    else this.seq = this.want[0] === ch ? ch : '';
+    if (this.seq === this.want) { this.seq = ''; this.unlock(); }
+  },
+  restore() { try { if (sessionStorage.getItem('crdk') === '1') this.unlock(true); } catch (e) {} },
+  unlock(quiet) {
+    if (this.unlocked) { $('btnDev').hidden = false; return; }
+    this.unlocked = true;
+    try { sessionStorage.setItem('crdk', '1'); } catch (e) {}
+    $('btnDev').hidden = false;
+    if (!quiet) { Snd.init(); Snd.play('gong', 0.45); UI.toast('Dev kit unlocked', 'good'); }
+  },
+  open() {
+    $('title').hidden = true; $('devPick').hidden = false;
+    const el = $('devList');
+    el.innerHTML = ACTS.map(act => {
+      const rows = [];
+      for (let n = act.from; n <= act.to; n++) {
+        const d = Missions.def(n); if (!d) continue;
+        rows.push(`<button class="row" data-n="${n}"><div class="grow"><span class="nm">${n}. ${esc(d.title)}</span><span class="ds">${d.kid ? 'Childhood · ' : ''}${esc(d.brief || '')}</span></div></button>`);
+      }
+      return `<div class="act">Act ${act.roman} · ${esc(act.title)}</div>${rows.join('')}`;
+    }).join('');
+    el.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { Snd.play('ui'); this.launch(+b.dataset.n); });
+  },
+  close() { $('devPick').hidden = true; $('title').hidden = false; },
+  flagsFor(n) {
+    const f = { dev: true };
+    if (n > 10) f.miso = true;
+    if (n > 20) f.woodhorse = true;
+    if (n > 28) f.aiko = true;
+    if (n > 30) f.lanternRoute = true;
+    if (n > 38) f.haru = true;
+    if (n > 61) f.genjiro = true;
+    if (n > 62) f.lanterns = true;
+    if (n > 70) f.bell = true;
+    if (n > 75) f.genjiroGone = true;
+    if (n > 83) f.judge = true;
+    if (n > 88) { f.naoGone = true; f.charm = true; }
+    if (n > 95) f.daichiGone = true;
+    if (n > 98) f.kahnDead = true;
+    if (n > 99) f.kurodaDone = true;
+    return f;
+  },
+  profile(n) {
+    const look = Sprites.randomLook(); look.hat = pick([0, 1, 2, 4]); look.coat = pick(COATC.slice(1));
+    const p = G.newProfile(look), cells = (MAP / Systems.FOG) * (MAP / Systems.FOG);
+    p.gold = 99999; p.bank = 99999; p.honor = 100; p.level = 40; p.xp = 0; p.pendingPerks = 0;
+    p.bandages = 99; p.sake = 99; p.armor = 2; p.armors = [0, 1, 2];
+    const all = Object.keys(WEAPONS).filter(w => w !== 'fists');
+    const belt = ['masamune', 'nodachi', 'kanabo', 'naginata', 'yari', 'katana', 'wakizashi', 'tanto', 'bo'].filter(w => all.includes(w));
+    p.weapons = belt.slice(0, G.WPN_SLOTS);
+    p.stash = all.filter(w => !p.weapons.includes(w));
+    p.wpn = p.weapons.includes('masamune') ? 'masamune' : p.weapons[0]; p.lastBlade = p.wpn;
+    p.perks = {}; for (const k of PERKS) p.perks[k.id] = k.max;
+    for (const k of Object.keys(p.hideout)) p.hideout[k] = 3;
+    p.story = { n, best: Math.max(0, n - 1), done: {} };
+    for (let i = 1; i < n; i++) p.story.done[i] = 1;
+    p.horse = n >= 6 ? { coat: 4 } : null;
+    p.day = Math.max(1, n); p.flags = this.flagsFor(n);
+    p.fog = '~0,' + cells.toString(36); p.dev = true;
+    for (const pl of PLACES) p.discovered[pl.id] = true;
+    return p;
+  },
+  launch(n) {
+    n = clamp(n | 0, 1, 100); if (!Missions.def(n)) return;
+    Snd.init(); $('devPick').hidden = true; $('title').hidden = true;
+    G.start(this.profile(n), n >= 6);
+    Missions.debugStart(n);
+    UI.toast('Dev kit · Mission ' + n + ' · maxed', 'good');
+  }
+};
+
 // ---- boot
 function boot() {
   FX.init(); Input.init(cv);
@@ -13301,6 +13508,10 @@ function boot() {
   $('btnQuick').onclick = () => { Snd.init(); $('title').hidden = true; const look = Sprites.randomLook(); look.hat = pick([0, 0, 1, 2]); look.coat = pick(COATC.slice(1)); G.start(G.newProfile(look), false); Systems.save(); };
   $('btnKeys').onclick = () => { $('keysBox').hidden = !$('keysBox').hidden; };
   $('btnControls').onclick = () => { G.setControls(G.controls === 'classic' ? 'turn' : 'classic'); $('keysBox').hidden = false; };
+  $('btnDev').onclick = () => { Snd.init(); DevKit.open(); };
+  $('btnDevBack').onclick = () => { Snd.play('ui'); DevKit.close(); };
+  addEventListener('keydown', e => DevKit.onKey(e));
+  DevKit.restore();
   UI.controlsHelp();
   $('rotL').onclick = () => { Creator.dir = (Creator.dir + 7) % 8; Snd.play('ui'); };
   $('rotR').onclick = () => { Creator.dir = (Creator.dir + 1) % 8; Snd.play('ui'); };
