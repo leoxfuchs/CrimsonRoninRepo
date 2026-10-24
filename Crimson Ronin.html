@@ -605,6 +605,13 @@ const Snd = {
     this.noise(t, 0.016, 'highpass', 5200, 0.7, peak * 2.4);
     this.noise(t, 0.04, 'bandpass', fund * 3.4, 6, peak * 0.7);
   },
+  // blade singing after it clears the saya — high steel, no sub
+  shing(t, peak) {
+    const f = this.jit(2480, 0.07);
+    this.noise(t, 0.018, 'highpass', 7200, 0.5, peak * 1.8);
+    this.noise(t, 0.07, 'bandpass', f * 1.35, 5.5, peak * 0.85);
+    [1, 1.68, 2.41, 3.27, 4.52].forEach((r, i) => this.res(t, f * r, 0.82 - i * 0.11, peak * [1, 0.7, 0.4, 0.22, 0.12][i], { q: 20 - i * 1.8, type: i ? 'sine' : 'triangle', jit: 0.012, attack: 0.002 }));
+  },
   wood(t, f, peak) {
     this.res(t, f, 0.1, peak, { type: 'triangle', q: 5.5, slide: f * 0.7, jit: 0.05 });
     this.res(t, f * 1.62, 0.055, peak * 0.32, { q: 8 });
@@ -645,14 +652,20 @@ const Snd = {
         this.noise(t, 0.08, 'lowpass', 220, 1, 0.18 * v);
         this.res(t + 0.04, rnd(1800, 2400), 0.12, 0.03 * v, { q: 10, slide: 900 });
         break;
-      case 'draw':
-        this.scrape(t, 0.07, 4200, 2800, 0.1 * v, 2.4);
-        this.wood(t, rnd(240, 320), 0.05 * v);
-        this.scrape(t + 0.05, 0.32, 2100, 3900, 0.16 * v, 3.6);
-        this.scrape(t + 0.08, 0.22, 1400, 2200, 0.07 * v, 2.2);
-        this.res(t + 0.3, rnd(2200, 2800), 0.22, 0.045 * v, { q: 14, slide: 3400 });
-        this.whoosh(t + 0.26, 0.12, 2600, 700, 0.08 * v);
+      case 'draw': {
+        this.wood(t, rnd(260, 340), 0.07 * v);
+        this.scrape(t, 0.1, 4200, 2600, 0.14 * v, 2.8);
+        this.scrape(t + 0.06, 0.36, 1600, 5200, 0.22 * v, 4.4);
+        this.scrape(t + 0.1, 0.28, 900, 2600, 0.09 * v, 2.6);
+        this.res(t + 0.1, 1400, 0.34, 0.09 * v, { q: 13, type: 'triangle', slide: 3100, attack: 0.05 });
+        this.res(t + 0.14, 2100, 0.3, 0.06 * v, { q: 16, slide: 3900, attack: 0.06 });
+        this.tick(t + 0.16, 0.1 * v);
+        this.tick(t + 0.26, 0.08 * v);
+        this.whoosh(t + 0.28, 0.16, 3400, 700, 0.12 * v);
+        this.shing(t + 0.36, 0.2 * v);
+        this.res(t + 0.38, rnd(3600, 4400), 0.5, 0.07 * v, { q: 18, slide: 2200 });
         break;
+      }
       case 'sheathe':
         this.scrape(t, 0.3, 3600, 1500, 0.14 * v, 3.4);
         this.scrape(t + 0.1, 0.22, 1900, 800, 0.07 * v, 2.4);
@@ -811,12 +824,12 @@ const Snd = {
         this.wood(t + 0.12, 180, 0.05 * v);
         break;
       case 'hoof': {
-        const f = rnd(78, 108);
-        this.res(t, f, 0.08, 0.2 * v, { filt: 'lowpass', q: 0.8, slide: 42, attack: 0.003 });
-        this.noise(t, 0.05, 'lowpass', rnd(500, 820), 1, 0.12 * v);
-        this.noise(t, 0.03, 'highpass', 1600, 0.8, 0.05 * v);
-        this.res(t + 0.085, f * 0.88, 0.07, 0.14 * v, { filt: 'lowpass', q: 0.8, slide: 38 });
-        this.noise(t + 0.085, 0.04, 'lowpass', 700, 1, 0.08 * v);
+        const f = rnd(190, 270);
+        this.noise(t, 0.038, 'bandpass', rnd(300, 520), 1.5, 0.08 * v);
+        this.noise(t, 0.024, 'highpass', 1600, 0.8, 0.035 * v);
+        this.res(t, f, 0.045, 0.05 * v, { q: 3.4, slide: f * 0.64, attack: 0.002 });
+        this.noise(t + 0.07, 0.03, 'bandpass', rnd(250, 420), 1.4, 0.055 * v);
+        this.res(t + 0.07, f * 0.9, 0.038, 0.032 * v, { q: 3.2, slide: f * 0.58, attack: 0.002 });
         break;
       }
       case 'whistle': this.whistleChirp(t, 1860, 0.22, 0.1 * v); this.whistleChirp(t + 0.24, 2280, 0.28, 0.09 * v, 1680); break;
@@ -913,14 +926,15 @@ const Snd = {
   },
   blip(f, vol = 1) {
     if (!this.ctx || !this.on) return;
-    const t = this.ctx.currentTime;
-    this.res(t, f, 0.038, 0.028 * vol, { q: 7, type: 'triangle', attack: 0.004 });
-    this.res(t, f * 2.02, 0.022, 0.01 * vol, { q: 9 });
+    const t = this.ctx.currentTime, f0 = Math.max(90, +f || 200);
+    this.tone(t, f0, 0.045, 'square', 0.048 * vol);
+    this.tone(t, f0 * 2.02, 0.03, 'triangle', 0.022 * vol);
+    this.noise(t, 0.018, 'bandpass', f0 * 3.4, 2.2, 0.03 * vol);
   },
   startWind() {
     const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true;
     const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 0.7;
-    const g = this.ctx.createGain(); g.gain.value = 0.035; s.connect(f); f.connect(g); g.connect(this.master); s.start();
+    const g = this.ctx.createGain(); g.gain.value = 0.014; s.connect(f); f.connect(g); g.connect(this.master); s.start();
     this.wind = { f, g };
   },
   whistleChirp(t, f, d, peak, fall) {
@@ -1009,7 +1023,7 @@ const Snd = {
     this.mood = mood;
     const menu = typeof UI !== 'undefined' && UI.isOpen && UI.isOpen();
     this.whistleHold(Input.held('KeyH') && !menu && G.state === 'play');
-    if (this.wind) { this.wind.g.gain.value = lerp(this.wind.g.gain.value, 0.02 + windAmt * 0.07, 0.02); this.wind.f.frequency.value = 300 + Math.sin(performance.now() / 3000) * 120 + windAmt * 200; }
+    if (this.wind) { this.wind.g.gain.value = lerp(this.wind.g.gain.value, 0.008 + windAmt * 0.028, 0.02); this.wind.f.frequency.value = 300 + Math.sin(performance.now() / 3000) * 120 + windAmt * 200; }
     if (typeof Music !== 'undefined') Music.tick(dt, mood);
   }
 };
