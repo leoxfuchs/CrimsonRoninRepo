@@ -3244,7 +3244,24 @@ const Realm = {
       for (let k = 0; k < 1 + (R() < 0.6 ? 1 : 0); k++) { at = this.findSite(R, p, 12, 110); if (at) this.poiPlan(R, at, p, 'ruin', n++); }
       for (let k = 0; k < 2 + (R() < 0.5 ? 1 : 0); k++) { at = this.findSite(R, p, 16, 70, (x, y) => far(x, y, 130, s => s.kind !== 'camp') && far(x, y, 180, s => s.kind === 'camp')); if (at) this.campPlan(R, at, p, n++); }
       if (snowy) this.skiPlan(R, p, n++);
+      if (P.b === B.PLAINS || P.b === B.MAPLE) {
+        const nf = 2 + (R() < 0.5 ? 1 : 0);
+        for (let k = 0; k < nf; k++) {
+          at = this.findSite(R, p, 20, 80, (x, y) => this.seaVal(x, y) < -80 && !World.heart(x, y) && far(x, y, 170, towns) && far(x, y, 90, s => s.kind === 'farm'));
+          if (at) this.farmsteadPlan(R, at, p, n++);
+        }
+      }
     }
+  },
+  // an isolated stead on open ground: one large field, a house, a track toward a road. Indexed before the roads are drawn.
+  farmsteadPlan(R, [cx, cy], p, n) {
+    const P = this.provinces[p], w = 26 + Math.round(R() * 10), h = 18 + Math.round(R() * 6);
+    const x0 = Math.round(cx - w / 2), y0 = Math.round(cy - h / 2), rect = [x0, y0, x0 + w, y0 + h];
+    World.indexFarm(rect);
+    const hx = x0 + w + 3, hy = y0 + 2, id = 'rf_' + n;
+    const S = this.site({ id, kind: 'farm', sub: 'stead', p, x: cx, y: cy, r: 16, short: 'Farmstead', homes: [], keepers: [], folk: 0, guards: 0, monks: [], bb: [x0 - 18, y0 - 14, hx + 16, y0 + h + 14], c: [hx + 4, hy + 5], builder: 'farm', farms: [rect], hut: [hx, hy], crew: 2 + Math.floor(R() * 3) });
+    S.place = this.addPlace({ id, name: 'A Farmstead', jp: '農家', x: cx, y: cy, r: 18, b: P.b, kind: 'poi', safe: true, sub: 'farm' });
+    return S;
   },
   townPlan(R, [cx, cy], p, sub, n, nm) {
     const P = this.provinces[p], castle = sub === 'castle', id = typeof n === 'string' ? n : 'r' + n;
@@ -3793,6 +3810,24 @@ const Realm = {
     S.palaceRect = [x0 + 1, y0 + 1, x1, y1];
   },
   build_story(S, R) { const Ly = LAYOUTS[S.layout], P = siteBuilder(S, R); Ly.build(S, P); P.flush(); },
+  build_farm(S, R) {
+    const W = World, [x0, y0, x1, y1] = S.farms[0], [hx, hy] = S.hut;
+    W.field(x0, y0, x1 - x0, y1 - y0, { crops: true, gate: 'S' });
+    if (!this.B('minka', hx, hy, 8, 6, { name: 'Farmhouse' })) this.B('hut', hx + 1, hy + 1, 6, 4, { name: 'Farmhouse' });
+    const door = [hx + 4, hy + 7], gate = [(x0 + x1) / 2, y1 + 2];
+    let best = null, bd = 1e9;
+    for (const pts of this.roads) for (const q of pts) { const d = dist(gate[0], gate[1], q[0], q[1]); if (d < bd && d > 4) { bd = d; best = q; } }
+    const paint = (ax, ay, bx, by) => {
+      const L = dist(ax, ay, bx, by) || 1;
+      for (let d = 0; d <= L; d += 0.7) {
+        const t = d / L, x = lerp(ax, bx, t), y = lerp(ay, by, t);
+        if (W.farmAt(x, y, 0)) continue;
+        W.disc(x, y, 0.65, (i, j) => { if (W.bAt(i, j) || TINFO[W.tileAt(i, j)].water || W.tileAt(i, j) === TILE.BRIDGE) return; W.set(i, j, TILE.PATH); W.setClear(i, j); });
+      }
+    };
+    paint(door[0], door[1], gate[0], gate[1]);
+    if (best && bd < 90) paint(gate[0], gate[1], best[0], best[1]);
+  },
   build_holy(S, R) {
     const W = World, P = this.provinces[S.p], snow = P.b === B.SNOW, cx = S.x, cy = S.y;
     if (S.sub === 'temple') {
@@ -3955,6 +3990,17 @@ const Realm = {
       const c = S.c;
       const b = mk('boss', c, { name: S.boss, label: S.boss, wanderR: 2, campId: S.id }); b.shout = pick(['Another hero for the crows!', 'Kill the ronin and split his purse!', 'You came to the wrong den.']);
       for (let i = 0; i < S.crew; i++) mk('bandit', [c[0] + rnd(-3, 3), c[1] + rnd(-3, 3)], { wanderR: 4, home: c.slice(), campId: S.id, label: S.gang });
+      return;
+    }
+    if (S.kind === 'farm') {
+      const f = S.farms[0], home = [S.hut[0] + 4, S.hut[1] + 6], kinds = ['hoe', 'cut', 'haul'];
+      for (let i = 0; i < (S.crew || 3); i++) {
+        const x = f[0] + 2 + Math.random() * Math.max(4, f[2] - f[0] - 4), y = f[1] + 2 + Math.random() * Math.max(4, f[3] - f[1] - 4);
+        const a = mk('farmer', [x, y], { home: home.slice(), wanderR: 0, wpn: 'hoe', post: [x, y] });
+        a.farmLoop = { field: f, kinds, n: i };
+        a.state = 'work';
+        a.work = { kind: kinds[i % 3], hold: null, t: Math.random() * 3, dur: 14, beat: kinds[i % 3] === 'cut' ? 0.42 : 0.6, fxT: 0, at: [x, y] };
+      }
       return;
     }
     if (S.kind === 'ski') {
@@ -6072,6 +6118,18 @@ function aiUpdate(a, dt) {
     if (a.faction === 'civ' && a.sT > 6 && !a.yieldLock) { a.state = 'idle'; a.yielded = false; ai.mode = a.mission && a.mKeyed ? 'idle' : 'flee'; } return;
   }
   // someone the story is moving: walking a route, following, being chased; lookouts keep their posts and patrols
+  if (a.farmLoop && a.state !== 'work' && !a.mPath) {
+    const f = a.farmLoop.field, home = a.home, night = G.night;
+    if (night && home && dist(a.x, a.y, home[0], home[1]) > 1.8) { a.mPath = [home]; a.mPi = 0; a.mDone = false; a.mBest = 1e9; a.mProg = 0; a.mRun = 0.75; }
+    else if (!night) {
+      const x = f[0] + 2 + Math.random() * Math.max(4, f[2] - f[0] - 4), y = f[1] + 2 + Math.random() * Math.max(4, f[3] - f[1] - 4);
+      const kind = a.farmLoop.kinds[(a.farmLoop.n = (a.farmLoop.n || 0) + 1) % a.farmLoop.kinds.length];
+      const job = { kind, hold: null, t: 0, dur: 12 + Math.random() * 8, beat: kind === 'cut' ? 0.42 : 0.6, fxT: 0, at: [x, y] };
+      a.wpn = kind === 'cut' ? 'kama' : 'hoe';
+      if (dist(a.x, a.y, x, y) > 3.2) { a.mPath = [[x, y]]; a.mPi = 0; a.mDone = false; a.mBest = 1e9; a.mProg = 0; a.mRun = 0.7; a._farmJob = job; }
+      else { a.state = 'work'; a.work = job; }
+    }
+  }
   if (a.mPath && Missions.walkAI(a, dt)) return;
   if (a.state === 'work' && a.work) {
     const w = a.work; w.t = (w.t || 0) + dt;
@@ -14455,6 +14513,7 @@ const Missions = {
   walkAI(a, dt) {
     const pts = a.mPath; if (!pts || a.mDone) {
       if (a.mDone && a.mPath) { a.mPath = null; a.post = [a.x, a.y]; a.mArrive = false; a.nav = null; }
+      if (a._farmJob) { a.state = 'work'; a.work = a._farmJob; a._farmJob = null; }
       if (a._job) { const j = a._job; a._job = null; const m = Missions.cur; if (m) m.setWork(a, j.kind, j.hold, j.at, j.dur); }
       return !!(a.work && a.state === 'work');
     }
@@ -17623,7 +17682,7 @@ function figOf(a, t) {
     else if (w.kind === 'heave') pose = 'heave';
     else if (w.kind === 'cut') { pose = u < 0.42 ? 'windup' : 'swing'; pt = u < 0.42 ? u / 0.42 : (u - 0.42) / 0.58; }
     else if (w.kind === 'hammer') { pose = u < 0.55 ? 'hwindup' : 'hswing'; pt = u < 0.55 ? u / 0.55 : (u - 0.55) / 0.45; }
-    else if (w.kind === 'dig') pose = 'dig';
+    else if (w.kind === 'dig' || w.kind === 'hoe') pose = 'dig';
     else if (w.kind === 'pry') pose = 'pry';
     else if (w.kind === 'pack') pose = 'pack';
     else pose = 'work';
