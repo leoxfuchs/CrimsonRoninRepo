@@ -25,7 +25,7 @@ const BUILDINGS = {
   forge: { name: 'Forge', costs: [120, 320, 800], bonus: ['+8% damage', '+16% damage', '+24% damage'] },
   shrine: { name: 'Shrine', costs: [80, 240, 600], bonus: ['+10 max health', '+25 max health', '+40 max health'] },
   dojo: { name: 'Dojo', costs: [100, 280, 700], bonus: ['+10 stamina', '+25 stamina', '+40 stamina'] },
-  barracks: { name: 'Barracks', costs: [150, 400, 900], bonus: ['Room for 1 sworn blade', 'Room for 2', 'Room for 5'] },
+  barracks: { name: 'Barracks', costs: [150, 400, 900], bonus: ['Room for 1 sworn blade', 'Room for 1 sworn blade', 'Room for 1 sworn blade'] },
   kura: { name: 'Treasury', costs: [100, 300, 700], bonus: ['Store mon', '4% a day', '12% a day'] },
   garden: { name: 'Herb garden', costs: [80, 220, 550], bonus: ['+1 bandage on rest', '+2 bandages', '+3 bandages, +1 sake'] },
   walls: { name: 'Walls & lanterns', costs: [80, 250, 650], bonus: ['Bamboo. Outsiders take two breaths to push through.', 'Wood fences. Ten breaths to force.', 'Stone. Nobody comes in but you.'] },
@@ -40,6 +40,8 @@ function emptyBuildings() {
 }
 function nid(n = 8) { return crypto.randomBytes(n).toString('hex'); }
 function now() { return Date.now(); }
+
+const DOG_COST = 120;
 
 let db = { players: {}, gangs: {}, invites: [] };
 try {
@@ -79,12 +81,81 @@ function toGang(g, msg, except) {
     if (p && p.gangId === g.id && ws.readyState === 1) ws.send(s);
   }
 }
+function compactNpc(m) {
+  if (!m || m.alive === false) return null;
+  return {
+    id: String(m.id || ('n_' + nid(3))),
+    name: cleanName(m.name, 'Ronin'),
+    look: m.look && typeof m.look === 'object' ? m.look : {},
+    wpn: m.wpn || 'katana',
+    armor: m.armor | 0,
+    maxHp: m.maxHp || 90,
+    skill: +m.skill || 0.5,
+    level: m.level || 1,
+    alive: true,
+    atkSpeed: m.atkSpeed || 1,
+    title: String(m.title || '').slice(0, 24)
+  };
+}
+function compactDog(d, fallbackBuyer) {
+  if (!d || typeof d !== 'object') return null;
+  return {
+    name: cleanName(d.name, 'Miso').slice(0, 16),
+    coat: d.coat | 0,
+    buyer: d.buyer || fallbackBuyer || null
+  };
+}
+function trimGang(g) {
+  if (!g) return g;
+  if (Array.isArray(g.npcs)) {
+    if (!g.npc) g.npc = g.npcs.find(x => x && x.alive !== false) || null;
+    delete g.npcs;
+  }
+  if (Array.isArray(g.npc)) g.npc = g.npc[0] || null;
+  g.npc = compactNpc(g.npc);
+  g.dog = compactDog(g.dog, g.leader);
+  if (!g.world || typeof g.world !== 'object') g.world = g.world || null;
+  if (!Array.isArray(g.members)) g.members = [];
+  return g;
+}
+function adoptNpc(g) {
+  if (!g || g.npc) return;
+  const lead = player(g.leader);
+  const list = lead && Array.isArray(lead.gang) ? lead.gang.filter(m => m && m.alive !== false) : [];
+  if (list[0]) g.npc = compactNpc(list[0]);
+}
+function stripExtraNpcs() {
+  for (const g of Object.values(db.gangs || {})) {
+    trimGang(g);
+    adoptNpc(g);
+    for (const id of g.members || []) {
+      const p = player(id);
+      if (p) p.gang = g.npc ? [g.npc] : [];
+    }
+  }
+}
+stripExtraNpcs();
+
 function publicPlayer(p, online) {
   return {
     id: p.id, name: p.name, look: p.look, x: p.x, y: p.y, face: p.face || 0,
     hp: p.hp, maxHp: p.maxHp || 100, wpn: p.wpn, armor: p.armor || 0,
-    pose: p.pose || 'idle', mounted: !!p.mounted, seat: p.seat || 0,
-    mountOf: p.mountOf || null, horse: p.horse, gangId: p.gangId, online: !!online
+    pose: p.pose || 'idle', state: p.pose || 'idle',
+    armed: !!(p.wpn && p.wpn !== 'fists'),
+    atk: p.atk || null, draw: p.draw || null,
+    walk: p.walk || 0, moving: !!p.moving, crouch: !!p.crouch,
+    mounted: !!p.mounted, seat: p.seat || 0,
+    mountOf: p.mountOf || null, horse: p.horse, dog: p.dog || null,
+    gangId: p.gangId, online: !!online
+  };
+}
+function publicGang(g) {
+  if (!g) return null;
+  trimGang(g);
+  return {
+    id: g.id, name: g.name, leader: g.leader, members: (g.members || []).slice(),
+    slot: g.slot, buildings: g.buildings,
+    npc: g.npc || null, dog: g.dog || null, world: g.world || null
   };
 }
 function snapshotWorld() {
@@ -98,7 +169,7 @@ function nextSlot() {
 }
 function makeGang(leaderId, name) {
   const id = 'g_' + nid(4);
-  const g = { id, leader: leaderId, members: [leaderId], slot: nextSlot(), name: name || 'Nameless gang', buildings: emptyBuildings() };
+  const g = { id, leader: leaderId, members: [leaderId], slot: nextSlot(), name: name || 'Nameless gang', buildings: emptyBuildings(), npc: null, dog: null, world: null };
   db.gangs[id] = g; touch();
   return g;
 }
@@ -147,7 +218,8 @@ function hello(ws, m) {
   }
   clients.set(ws, { id: p.id, token: p.token });
   const g = gangOf(p.id);
-  send(ws, { t: 'welcome', id: p.id, token: p.token, you: p, gang: g, world: snapshotWorld(), slots: MP_SLOTS });
+  if (g) { trimGang(g); adoptNpc(g); p.gang = g.npc ? [g.npc] : []; }
+  send(ws, { t: 'welcome', id: p.id, token: p.token, you: p, gang: publicGang(g), world: snapshotWorld(), slots: MP_SLOTS });
   const others = [];
   for (const [ow, c] of clients) if (c.id !== p.id) { const q = player(c.id); if (q) others.push(publicPlayer(q, true)); }
   send(ws, { t: 'players', list: others });
@@ -163,17 +235,28 @@ function onMsg(ws, raw) {
   }
   const p = player(c.id); if (!p) return;
   switch (m.t) {
+    case 'pose':
     case 'state': {
       p.x = +m.x || p.x; p.y = +m.y || p.y; p.face = +m.face || 0;
       p.hp = m.hp; p.maxHp = m.maxHp; p.wpn = m.wpn; p.armor = m.armor;
-      p.pose = m.pose; p.mounted = !!m.mounted; p.seat = m.seat | 0; p.mountOf = m.mountOf || null;
+      p.pose = m.pose || m.state || p.pose; p.atk = m.atk || null; p.draw = m.draw || null;
+      p.walk = m.walk || 0; p.moving = !!m.moving; p.crouch = !!m.crouch;
+      p.armed = m.armed != null ? !!m.armed : !!(p.wpn && p.wpn !== 'fists');
+      p.mounted = !!m.mounted; p.seat = m.seat | 0; p.mountOf = m.mountOf || null;
+      if (m.look) p.look = m.look;
       if (m.horse) p.horse = Object.assign(p.horse || {}, m.horse);
-      broadcast({ t: 'state', id: p.id, x: p.x, y: p.y, face: p.face, hp: p.hp, maxHp: p.maxHp, wpn: p.wpn, armor: p.armor, pose: p.pose, mounted: p.mounted, seat: p.seat, mountOf: p.mountOf, horse: p.horse }, ws);
+      if (m.dog) p.dog = m.dog; else if (m.dog === null) p.dog = null;
+      broadcast({
+        t: 'state', id: p.id, x: p.x, y: p.y, face: p.face, hp: p.hp, maxHp: p.maxHp,
+        wpn: p.wpn, armor: p.armor, pose: p.pose, state: p.pose, armed: p.armed,
+        atk: p.atk, draw: p.draw, walk: p.walk, moving: p.moving, crouch: p.crouch,
+        look: p.look, mounted: p.mounted, seat: p.seat, mountOf: p.mountOf, horse: p.horse, dog: p.dog || null
+      }, ws);
       break;
     }
     case 'save': {
       if (m.profile && typeof m.profile === 'object') {
-        const keep = ['gold', 'bank', 'honor', 'xp', 'level', 'perks', 'weapons', 'stash', 'wpn', 'lastBlade', 'armors', 'armor', 'bandages', 'sake', 'horse', 'day', 'tod', 'quests', 'chests', 'camps', 'blades', 'kills', 'bonusHp', 'look', 'name'];
+        const keep = ['gold', 'bank', 'honor', 'xp', 'level', 'perks', 'weapons', 'stash', 'wpn', 'lastBlade', 'armors', 'armor', 'bandages', 'sake', 'horse', 'day', 'tod', 'quests', 'track', 'chests', 'camps', 'blades', 'kills', 'bonusHp', 'look', 'name', 'gang'];
         for (const k of keep) if (m.profile[k] !== undefined) p[k] = m.profile[k];
         p.x = m.profile.pos ? m.profile.pos[0] : p.x;
         p.y = m.profile.pos ? m.profile.pos[1] : p.y;
@@ -208,8 +291,8 @@ function onMsg(ws, raw) {
       db.invites = db.invites.filter(i => i !== inv);
       const [x, y] = campPos(g); p.x = x; p.y = y;
       touch();
-      send(ws, { t: 'joined', gang: g, x, y });
-      toGang(g, { t: 'gang', gang: g, joined: publicPlayer(p, true) });
+      send(ws, { t: 'joined', gang: publicGang(g), x, y });
+      toGang(g, { t: 'gang', gang: publicGang(g), joined: publicPlayer(p, true) });
       break;
     }
     case 'campBuy':
@@ -225,7 +308,7 @@ function onMsg(ws, raw) {
       const fromCarry = Math.min(p.gold | 0, cost); p.gold -= fromCarry; p.bank = (p.bank | 0) - (cost - fromCarry);
       g.buildings[key] = cur + 1;
       touch();
-      toGang(g, { t: 'camp', gang: g, gold: p.gold, bank: p.bank, who: p.id, key, lvl: g.buildings[key] });
+      toGang(g, { t: 'camp', gang: publicGang(g), gold: p.gold, bank: p.bank, who: p.id, key, lvl: g.buildings[key] });
       send(ws, { t: 'paid', gold: p.gold, bank: p.bank });
       break;
     }
@@ -244,7 +327,85 @@ function onMsg(ws, raw) {
     case 'rename': {
       setName(p, m.name);
       broadcast({ t: 'player', p: publicPlayer(p, true) });
-      const g = gangOf(p.id); if (g) toGang(g, { t: 'gang', gang: g });
+      const g = gangOf(p.id); if (g) toGang(g, { t: 'gang', gang: publicGang(g) });
+      break;
+    }
+    case 'hireNpc': {
+      const g = gangOf(p.id); if (!g) break;
+      if (g.npc) { send(ws, { t: 'err', msg: 'Your gang already has a sworn blade.' }); break; }
+      g.npc = compactNpc(m.npc); if (!g.npc) break;
+      for (const id of g.members) { const q = player(id); if (q) q.gang = [g.npc]; }
+      touch();
+      toGang(g, { t: 'gang', gang: publicGang(g), hired: g.npc, who: p.id });
+      break;
+    }
+    case 'dismissNpc': {
+      const g = gangOf(p.id); if (!g) break;
+      g.npc = null;
+      for (const id of g.members) { const q = player(id); if (q) q.gang = []; }
+      touch();
+      toGang(g, { t: 'gang', gang: publicGang(g), dismissed: true, who: p.id });
+      break;
+    }
+    case 'buyDog': {
+      const g = gangOf(p.id); if (!g) break;
+      if (g.dog) { send(ws, { t: 'err', msg: 'The camp already has a dog.' }); break; }
+      const gold = (p.gold | 0) + (p.bank | 0);
+      if (gold < DOG_COST) { send(ws, { t: 'err', msg: 'Not enough mon (need ' + DOG_COST + ').' }); break; }
+      const fromCarry = Math.min(p.gold | 0, DOG_COST); p.gold -= fromCarry; p.bank = (p.bank | 0) - (DOG_COST - fromCarry);
+      g.dog = { name: cleanName(m.name, 'Miso').slice(0, 16), coat: m.coat | 0, buyer: p.id };
+      touch();
+      toGang(g, { t: 'gang', gang: publicGang(g), dog: g.dog, who: p.id });
+      send(ws, { t: 'paid', gold: p.gold, bank: p.bank });
+      send(ws, { t: 'ok', msg: g.dog.name + ' waits by the fire.' });
+      break;
+    }
+    case 'renameDog': {
+      const g = gangOf(p.id); if (!g || !g.dog) break;
+      if (p.id !== g.leader && p.id !== g.dog.buyer) { send(ws, { t: 'err', msg: 'Only the one who bought the dog, or the gang leader, can rename it.' }); break; }
+      g.dog.name = cleanName(m.name, g.dog.name).slice(0, 16);
+      touch();
+      toGang(g, { t: 'gang', gang: publicGang(g), dog: g.dog });
+      break;
+    }
+    case 'worldSync': {
+      const g = gangOf(p.id); if (!g || g.leader !== p.id) break;
+      g.world = {
+        tod: m.tod, day: m.day | 0, rain: !!m.rain,
+        track: m.track || null,
+        quests: m.quests && typeof m.quests === 'object' ? m.quests : (g.world && g.world.quests) || {},
+        npcPose: m.npcPose || null
+      };
+      toGang(g, {
+        t: 'worldSync', tod: g.world.tod, day: g.world.day, rain: g.world.rain,
+        track: g.world.track, quests: g.world.quests, npcPose: g.world.npcPose,
+        dog: m.dog || null, actors: Array.isArray(m.actors) ? m.actors.slice(0, 24) : []
+      }, ws);
+      break;
+    }
+    case 'questSync': {
+      const g = gangOf(p.id); if (!g) break;
+      if (!g.world) g.world = {};
+      if (m.track !== undefined) g.world.track = m.track;
+      if (m.quests && typeof m.quests === 'object') g.world.quests = m.quests;
+      else if (m.id) {
+        g.world.quests = g.world.quests || {};
+        g.world.quests[m.id] = { s: m.s | 0, n: m.n | 0, done: !!m.done };
+      }
+      toGang(g, m, ws);
+      break;
+    }
+    case 'track': {
+      const g = gangOf(p.id); if (!g) break;
+      if (g.leader !== p.id) { send(ws, { t: 'err', msg: 'Only the gang leader sets the tracker.' }); break; }
+      if (!g.world) g.world = {};
+      g.world.track = m.id || null;
+      toGang(g, { t: 'track', id: g.world.track }, ws);
+      break;
+    }
+    case 'npcHurt': {
+      const g = gangOf(p.id);
+      toGang(g, { t: 'npcHurt', id: m.id, hp: m.hp, dead: !!m.dead, x: +m.x, y: +m.y, by: p.id }, ws);
       break;
     }
     case 'mount': {
