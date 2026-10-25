@@ -3302,7 +3302,6 @@ const Realm = {
   // fields a walk from the houses, never against the streets; roads are told about them before they are drawn
   planFarms(S) {
     if (S.sub === 'edo' || S.sub === 'fishing') return;
-    const P = this.provinces[S.p]; if (P && P.b === B.SNOW) return;
     const cx = S.x, cy = S.y - 1, L = S.L, last = cy + (S.rows - 1) * 13;
     const add = (x0, y0, w, h) => {
       const mx = x0 + w / 2, my = y0 + h / 2;
