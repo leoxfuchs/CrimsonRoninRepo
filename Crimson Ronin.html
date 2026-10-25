@@ -516,17 +516,27 @@ const Snd = {
     try {
       const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
       this.ctx = new C();
-      this.master = this.ctx.createGain(); this.master.gain.value = 0.58;
+      this.master = this.ctx.createGain(); this.master.gain.value = 0.5;
       const lim = this.ctx.createDynamicsCompressor();
-      lim.threshold.value = -16; lim.knee.value = 8; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.09;
-      const ceil = this.ctx.createGain(); ceil.gain.value = 0.72;
-      this.master.connect(lim); lim.connect(ceil); ceil.connect(this.ctx.destination);
-      this.sfxBus = this.ctx.createGain(); this.sfxBus.gain.value = 0.62;
-      const sfxDry = this.ctx.createGain(); sfxDry.gain.value = 0.8;
-      const sfxWet = this.ctx.createGain(); sfxWet.gain.value = 0.1;
+      lim.threshold.value = -24; lim.knee.value = 16; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.14;
+      const clip = this.ctx.createWaveShaper();
+      const cn = 2048, cc = new Float32Array(cn);
+      for (let i = 0; i < cn; i++) { const x = (i / (cn - 1)) * 2 - 1; cc[i] = Math.tanh(x * 1.15) * 0.92; }
+      clip.curve = cc; clip.oversample = '4x';
+      const ceil = this.ctx.createGain(); ceil.gain.value = 0.78;
+      this.master.connect(lim); lim.connect(clip); clip.connect(ceil); ceil.connect(this.ctx.destination);
+      this.sfxBus = this.ctx.createGain(); this.sfxBus.gain.value = 0.48;
+      const sfxDry = this.ctx.createGain(); sfxDry.gain.value = 0.92;
+      const sfxWet = this.ctx.createGain(); sfxWet.gain.value = 0.04;
       const sfxConv = this.ctx.createConvolver(); sfxConv.buffer = this._sfxIr();
       this.sfxBus.connect(sfxDry); sfxDry.connect(this.master);
       this.sfxBus.connect(sfxConv); sfxConv.connect(sfxWet); sfxWet.connect(this.master);
+      this.ground = this.ctx.createGain(); this.ground.gain.value = 0.62;
+      const gHp = this.ctx.createBiquadFilter(); gHp.type = 'highpass'; gHp.frequency.value = 90; gHp.Q.value = 0.7;
+      const gLp = this.ctx.createBiquadFilter(); gLp.type = 'lowpass'; gLp.frequency.value = 2600; gLp.Q.value = 0.7;
+      const gComp = this.ctx.createDynamicsCompressor();
+      gComp.threshold.value = -28; gComp.knee.value = 12; gComp.ratio.value = 10; gComp.attack.value = 0.001; gComp.release.value = 0.1;
+      this.ground.connect(gHp); gHp.connect(gLp); gLp.connect(gComp); gComp.connect(this.sfxBus);
       this.music = this.ctx.createGain(); this.music.gain.value = 0.0001;
       const dry = this.ctx.createGain(); dry.gain.value = 0.62;
       const wet = this.ctx.createGain(); wet.gain.value = 0.48;
@@ -569,19 +579,26 @@ const Snd = {
     }
     return buf;
   },
-  env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); },
+  env(g, t, a, peak, dec) {
+    const atk = Math.max(0.01, a), p = Math.max(0.0002, peak);
+    g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(p, t + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + atk + Math.max(0.025, dec));
+  },
+  _bus(dest) { return dest || this._out || this.sfxBus; },
   noise(t, dur, type, freq, q, peak, dest, sweepTo) {
     const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.playbackRate.value = rnd(0.8, 1.2);
     const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
     if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + dur);
-    const g = this.ctx.createGain(); this.env(g, t, 0.005, peak, dur);
-    s.connect(f); f.connect(g); g.connect(dest || this.sfxBus); s.start(t, rnd(0, 1)); s.stop(t + dur + 0.05);
+    const g = this.ctx.createGain(), atk = Math.min(0.014, Math.max(0.01, dur * 0.28));
+    this.env(g, t, atk, peak, dur);
+    s.connect(f); f.connect(g); g.connect(this._bus(dest)); s.start(t); s.stop(t + atk + dur + 0.06);
   },
-  tone(t, freq, dur, type, peak, dest, slideTo, attack = 0.005) {
+  tone(t, freq, dur, type, peak, dest, slideTo, attack = 0.01) {
     const o = this.ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
     const g = this.ctx.createGain(); this.env(g, t, attack, peak, dur);
-    o.connect(g); g.connect(dest || this.sfxBus); o.start(t); o.stop(t + dur + attack + 0.05);
+    o.connect(g); g.connect(this._bus(dest)); o.start(t); o.stop(t + dur + Math.max(0.01, attack) + 0.06);
   },
   jit(n, amt = 0.06) { return n * (1 + (Math.random() * 2 - 1) * amt); },
   // oscillator through a resonator — the whistle trick, for steel, wood, and throats
@@ -594,44 +611,28 @@ const Snd = {
     if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
     const bp = this.ctx.createBiquadFilter(); bp.type = opts.filt || 'bandpass'; bp.Q.value = opts.q || 8;
     bp.frequency.setValueAtTime(f0, t); if (slide) bp.frequency.exponentialRampToValueAtTime(slide, t + dur);
-    const g = this.ctx.createGain(), atk = opts.attack || 0.003;
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + atk);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + atk + dur);
-    o.connect(bp); bp.connect(g); g.connect(opts.dest || this.sfxBus);
-    o.start(t); o.stop(t + dur + atk + 0.05);
+    const g = this.ctx.createGain(), atk = Math.max(0.01, opts.attack || 0.01);
+    this.env(g, t, atk, peak, dur);
+    o.connect(bp); bp.connect(g); g.connect(this._bus(opts.dest));
+    o.start(t); o.stop(t + dur + atk + 0.06);
   },
   whoosh(t, dur, f0, f1, peak, q = 1.05) {
     const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.playbackRate.value = rnd(0.82, 1.18);
     const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q;
     f.frequency.setValueAtTime(this.jit(f0, 0.08), t); f.frequency.exponentialRampToValueAtTime(Math.max(50, f1), t + dur);
     const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + dur * 0.22);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(f); f.connect(g); g.connect(this.sfxBus); s.start(t, rnd(0, 1)); s.stop(t + dur + 0.04);
+    this.env(g, t, Math.max(0.012, dur * 0.18), peak, dur * 0.82);
+    s.connect(f); f.connect(g); g.connect(this._bus()); s.start(t); s.stop(t + dur + 0.06);
   },
-  _hoofDest() {
-    if (this._hoofIn || !this.ctx) return this._hoofIn;
-    const hp1 = this.ctx.createBiquadFilter(); hp1.type = 'highpass'; hp1.frequency.value = 520; hp1.Q.value = 0.7;
-    const hp2 = this.ctx.createBiquadFilter(); hp2.type = 'highpass'; hp2.frequency.value = 520; hp2.Q.value = 0.7;
-    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3600; lp.Q.value = 0.65;
-    const sh = this.ctx.createWaveShaper();
-    const n = 2048, c = new Float32Array(n);
-    for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 1.35) / Math.tanh(1.35); }
-    sh.curve = c; sh.oversample = '2x';
-    hp1.connect(hp2); hp2.connect(lp); lp.connect(sh); sh.connect(this.sfxBus);
-    this._hoofIn = hp1;
-    return hp1;
-  },
+  _hoofDest() { return this.ground || this.sfxBus; },
   hoofTap(t, peak, tone) {
     const dest = this._hoofDest(); if (!dest) return;
     const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.playbackRate.value = rnd(0.94, 1.08);
-    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = tone; bp.Q.value = 0.9;
-    const g = this.ctx.createGain(), atk = 0.014, dec = 0.042;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + atk);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + atk + dec);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = tone; bp.Q.value = 0.85;
+    const g = this.ctx.createGain(), atk = 0.02, dec = 0.055;
+    this.env(g, t, atk, peak, dec);
     s.connect(bp); bp.connect(g); g.connect(dest);
-    s.start(t, rnd(0.05, 1.2)); s.stop(t + atk + dec + 0.03);
+    s.start(t); s.stop(t + atk + dec + 0.05);
   },
   scrape(t, dur, f0, f1, peak, q = 3.2) {
     this.noise(t, dur, 'bandpass', this.jit(f0, 0.07), q, peak, null, f1);
@@ -838,11 +839,15 @@ const Snd = {
   },
   play(name, vol = 1) {
     if (!this.ctx || !this.on) return;
-    const t = this.ctx.currentTime;
+    const t = this.ctx.currentTime + 0.02;
     this._lastT = this._lastT || 0; this._busy = this._busy || 0;
-    if (t - this._lastT < 0.045) this._busy = Math.min(10, this._busy + 1); else this._busy = Math.max(0, this._busy - 2);
+    if (t - this._lastT < 0.05) this._busy = Math.min(10, this._busy + 1); else this._busy = Math.max(0, this._busy - 2);
     this._lastT = t;
-    const v = Math.min(0.65, Math.max(0, vol)) * (this._busy > 1 ? 0.5 / Math.sqrt(this._busy) : 1);
+    if (name === 'step') { if (t - (this._stepAt || 0) < 0.13) return; this._stepAt = t; }
+    if (name === 'hoof') { if (t - (this._hoofAt || 0) < 0.1) return; this._hoofAt = t; }
+    this._out = (name === 'step' || name === 'hoof') ? (this.ground || this.sfxBus) : null;
+    const cap = (name === 'step' || name === 'hoof') ? 0.42 : 0.58;
+    const v = Math.min(cap, Math.max(0, vol)) * (this._busy > 1 ? 0.45 / Math.sqrt(this._busy) : 1);
     switch (name) {
       case 'swing': {
         const hi = rnd(2100, 3200);
@@ -1000,10 +1005,10 @@ const Snd = {
         break;
       case 'hoof': {
         const dest = this._hoofDest();
-        this.hoofTap(t, 0.12 * v, rnd(980, 1380));
-        this.noise(t, 0.018, 'highpass', 2600, 0.7, 0.04 * v, dest);
-        this.hoofTap(t + 0.11, 0.1 * v, rnd(760, 1080));
-        this.noise(t + 0.11, 0.014, 'highpass', 2400, 0.7, 0.03 * v, dest);
+        this.hoofTap(t, 0.055 * v, rnd(780, 1080));
+        this.noise(t, 0.028, 'lowpass', 900, 0.8, 0.028 * v, dest);
+        this.hoofTap(t + 0.12, 0.042 * v, rnd(620, 860));
+        this.noise(t + 0.12, 0.022, 'lowpass', 720, 0.8, 0.02 * v, dest);
         break;
       }
       case 'whistle': this.whistleChirp(t, 1860, 0.22, 0.1 * v); this.whistleChirp(t + 0.24, 2280, 0.28, 0.09 * v, 1680); break;
@@ -5427,7 +5432,7 @@ class Actor {
     const ox = this.x, oy = this.y;
     moveActor(this, dx / m * sp, dy / m * sp, dt);
     this.moving = Math.hypot(this.x - ox, this.y - oy) > sp * dt * 0.2;
-    if (this.moving) { const ow = this.walk; this.walk += dt * sp * 0.75; if (this === G.player && !this.mounted && Math.floor(ow * 2) !== Math.floor(this.walk * 2)) { Snd.play('step', this.crouch ? 0.42 : 0.82); if (G.bloodyFeet > 0) { G.bloodyFeet--; FX.foot(this.x + rnd(-0.1, 0.1), this.y + rnd(-0.1, 0.1)); } } }
+    if (this.moving) { const ow = this.walk; this.walk += dt * sp * 0.75; if (this === G.player && !this.mounted && Math.floor(ow * 2) !== Math.floor(this.walk * 2)) { Snd.play('step', this.crouch ? 0.28 : 0.48); if (G.bloodyFeet > 0) { G.bloodyFeet--; FX.foot(this.x + rnd(-0.1, 0.1), this.y + rnd(-0.1, 0.1)); } } }
   }
   canMove() { return !this.dead && (this.state === 'idle' || this.state === 'walk' || this.state === 'block' || this.state === 'charge') && this.state !== 'work'; }
   faceTo(x, y) { this.face = Math.atan2(y - this.y, x - this.x); }
@@ -8227,7 +8232,7 @@ const Horse = {
     for (let i = 0; i < n; i++) { if (!blocked(h.x + dx / n, h.y)) h.x += dx / n; else bumped = true; if (!blocked(h.x, h.y + dy / n)) h.y += dy / n; else bumped = true; }
     if (bumped && h.spd > 3) { h.spd *= 0.4; Snd.play('thud', 0.3 * (h.vol || 1)); }
     h.walk += dt * (0.6 + h.spd * 0.42);
-    if (h.spd > 0.4) { h.hoofT -= dt * h.spd; if (h.hoofT <= 0) { h.hoofT = 1.6; Snd.play('hoof', clamp(h.spd / 7, 0.2, 1) * (h.vol || 1)); if (h.spd > 5 && Math.random() < 0.6) FX.dust(h.x - Math.cos(h.face) * 0.6, h.y - Math.sin(h.face) * 0.6, 2); } }
+    if (h.spd > 0.4) { h.hoofT -= dt * h.spd; if (h.hoofT <= 0) { h.hoofT = 1.6; Snd.play('hoof', clamp(h.spd / 7, 0.12, 0.55) * (h.vol || 1)); if (h.spd > 5 && Math.random() < 0.6) FX.dust(h.x - Math.cos(h.face) * 0.6, h.y - Math.sin(h.face) * 0.6, 2); } }
   },
   update(dt) {
     const h = G.horse, p = G.player; if (!h || p.mounted) return;
@@ -8550,7 +8555,7 @@ const Traffic = {
         if (!g.fight) { h.x = q.x; h.y = q.y; h.face = q.face; h.spd = g.spd; }
         else h.spd = lerp(h.spd, 0, 1 - Math.pow(0.08, dt));
         h.walk += dt * (0.6 + h.spd * 0.42);
-        if (h.spd > 0.4) { h.hoofT = (h.hoofT || 0) - dt * h.spd; if (h.hoofT <= 0) { h.hoofT = 1.6; Snd.play('hoof', clamp(h.spd / 7, 0.15, 0.55) * (h.vol || 0.18)); } }
+        if (h.spd > 0.4) { h.hoofT = (h.hoofT || 0) - dt * h.spd; if (h.hoofT <= 0) { h.hoofT = 1.6; Snd.play('hoof', clamp(h.spd / 7, 0.1, 0.28) * (h.vol || 0.14)); } }
       }
     }
     this.groups = this.groups.filter(g => !g.dead);
