@@ -10348,7 +10348,7 @@ const Rob = {
 const BEASTS = {
   deer: { name: 'Sika Deer', jp: '鹿', lore: 'Sacred messengers of the kami. They wander the shrine grounds freely, and harming one is a grave crime.', L: 0.36, W: 0.1, H: 14, T: 7, nk: 0.16, nu: 9, hs: 4, mz: 0.13, ear: 3, tl: 0.06, td: 1, tw: 2, col: ['#9a6438', '#6e4426', '#b88452', '#efe6d4'], tip: '#f4efe4', spots: true, walk: 1.2, run: 7.4, r: 0.28, hp: 26, flee: 7, bound: true },
   serow: { name: 'Japanese Serow', jp: '羚羊', lore: 'A solitary goat-antelope of the misty mountain forests, sure-footed on the steepest crags.', L: 0.3, W: 0.12, H: 12, T: 9, nk: 0.12, nu: 5, hs: 5, mz: 0.1, ear: 2, tl: 0.05, td: 1, tw: 2, col: ['#4a4442', '#2c2826', '#6a625c', '#5a524c'], mane: '#ddd8ce', horns: true, walk: 0.9, run: 6.4, r: 0.28, hp: 40, flee: 8 },
-  dog: { name: 'Miso', jp: '犬', hidden: true, lore: 'A scruffy brown stray with one ear up and one folded over. A thief by trade.', L: 0.27, W: 0.08, H: 8, T: 6, nk: 0.15, nu: 3, hs: 6, mz: 0.18, ear: 3, tl: 0.24, td: 4, tw: 3, col: ['#8a5a32', '#5a3a1e', '#b8844e', '#d8b48a'], tip: '#5a3a1e', walk: 1.7, run: 9.4, r: 0.22, hp: 999, flee: 0 },
+  dog: { name: 'Miso', jp: '犬', hidden: true, lore: 'A scruffy brown stray with one ear up and one folded over. A thief by trade.', L: 0.27, W: 0.08, H: 8, T: 6, nk: 0.15, nu: 3, hs: 4, mz: 0.15, ear: 2, tl: 0.24, td: 4, tw: 3, col: ['#8a5a32', '#5a3a1e', '#b8844e', '#d8b48a'], tip: '#5a3a1e', walk: 1.7, run: 9.4, r: 0.22, hp: 999, flee: 0 },
   wolf: { name: 'Honshu Wolf', jp: '狼', lore: 'Ōkami, revered by farmers as Oguchi-no-Magami: the guardian who drives boar and deer from the rice fields.', L: 0.34, W: 0.09, H: 10, T: 7, nk: 0.18, nu: 4, hs: 4, mz: 0.17, ear: 3, tl: 0.32, td: 5, tw: 4, col: ['#7a6c5a', '#4a4036', '#a8987e', '#cfc3aa'], tip: '#3a3028', walk: 1.6, run: 8.2, r: 0.26, hp: 36, flee: 0 },
   fox: { name: 'Kitsune', jp: '狐', lore: 'The red fox, messenger of Inari, god of rice and plenty. An old fox can kindle ghost-light and wear a borrowed face.', L: 0.26, W: 0.07, H: 8, T: 5, nk: 0.13, nu: 4, hs: 3, mz: 0.15, ear: 3, tl: 0.36, td: 3, tw: 5, col: ['#c8642a', '#8a3c18', '#ea8c46', '#f4ece0'], tip: '#f8f4ec', legs: '#2a1a14', earTip: '#2a1a14', walk: 1.4, run: 7.8, r: 0.2, hp: 16, flee: 6 },
   tanuki: { name: 'Tanuki', jp: '狸', lore: 'The jolly raccoon dog. On moonlit nights it drums its belly, and with a leaf on its head it can turn into a teapot.', L: 0.22, W: 0.12, H: 6, T: 8, leg: 0.7, nk: 0.1, nu: 2, hs: 4, mz: 0.08, ear: 2, tl: 0.16, td: 2, tw: 5, col: ['#7c6c56', '#3e342a', '#a89a80', '#8a7c66'], mask: '#1e1a18', legs: '#2a2420', walk: 1.0, run: 4.6, r: 0.22, hp: 18, flee: 5 },
@@ -10785,9 +10785,10 @@ function drawBeast(ctx, X, Y, an, S, t) {
   // head: dropped to graze or sniff, up to howl, dipping in a bow, snapping in a bite
   const bow = pose === 'bow' ? Math.max(0, Math.sin(clamp(pt, 0, 2.4) / 2.4 * TAU * 2)) : 0, graze = pose === 'graze' ? 1 : pose === 'sniff' ? 0.7 : dive ? 1 : 0, howl = pose === 'howl' ? clamp(pt / 0.5, 0, 1) : 0, look = pose === 'look' ? Math.sin(pt * 2) * 0.3 : 0, bite = pose === 'bite' ? Math.max(0, 1 - pt * 4) : 0;
   const neck0 = P(L * 0.95, 0, zf + 1), hz = zf + S.nu - graze * (zf + S.nu - 2) - bow * (S.nu + 4) + howl * 2, ha = L + S.nk * (1 - howl * 0.5) + graze * 0.06 + bite * 0.12, head = P(ha, look * 0.3, hz), muz = P(ha + S.mz * (1 - howl * 0.7), look * 0.4, hz - 1 + howl * 6 - graze * 1.5);
-  const happy = an.sp === 'dog' && (an.wagT || 0) > 0, wagHz = happy ? 14 : an.sp === 'cat' ? 2 : 5;
-  const headFar = head[2] < neck0[2] - 0.05, tail0 = P(-L, 0, zr + 1), wag = Math.sin(t * wagHz + (an.ph || 0)) * (happy ? 0.28 : an.spd > 0.3 ? 0.06 : 0.03);
-  const tail1 = sit ? P(-L - S.tl * 0.8, wag * (happy ? 10 : 2), 1 + (happy ? Math.abs(Math.sin(t * wagHz)) * 5 : 0)) : P(-L - S.tl, wag * (S.tl > 0.2 ? 4 : 1) * (happy ? 3.5 : 1), zr - S.td + (an.sp === 'fox' && k > 0.5 ? 3 : 0) + (happy ? Math.abs(Math.sin(t * wagHz)) * 4 : 0));
+  const happy = an.sp === 'dog' && (an.wagT || 0) > 0;
+  const wagHz = an.sp === 'cat' ? 2 : happy ? 8 : 5;
+  const headFar = head[2] < neck0[2] - 0.05, tail0 = P(-L, 0, zr + 1), wag = Math.sin(t * wagHz + (an.ph || 0)) * (happy ? 0.09 : an.spd > 0.3 ? 0.06 : 0.03);
+  const tail1 = sit ? P(-L - S.tl * 0.8, wag * 2, 1) : P(-L - S.tl, wag * (S.tl > 0.2 ? 4 : 1), zr - S.td + (an.sp === 'fox' && k > 0.5 ? 3 : 0));
   const drawTail = () => { if (S.tl < 0.08) { ctx.fillStyle = S.tip || lite; ctx.fillRect(Math.round(tail0[0]) - 1, Math.round(tail0[1]) - 1, 2, 2); return; } pline(ctx, tail0[0], tail0[1], tail1[0], tail1[1], an.sp === 'cat' ? base : dark, S.tw); pline(ctx, lerp(tail0[0], tail1[0], 0.3), lerp(tail0[1], tail1[1], 0.3) - 1, tail1[0], tail1[1] - 1, base, Math.max(1, S.tw - 2)); if (S.tip) { ctx.fillStyle = S.tip; ctx.fillRect(Math.round(tail1[0]) - 1, Math.round(tail1[1]) - 1, 3, 2); } if (an.sp === 'tanuki') { const m = [lerp(tail0[0], tail1[0], 0.6), lerp(tail0[1], tail1[1], 0.6)]; ctx.fillStyle = S.mask; ctx.fillRect(Math.round(m[0]) - 1, Math.round(m[1]) - 2, 2, 3); } };
   const drawHead = () => {
     pline(ctx, neck0[0], neck0[1], head[0], head[1], base, Math.max(2, S.T - 3));
@@ -10797,28 +10798,11 @@ function drawBeast(ctx, X, Y, an, S, t) {
     ctx.fillStyle = an.sp === 'tanuki' ? S.mask : '#140c0c'; ctx.fillRect(Math.round(muz[0]), Math.round(muz[1]), 1, 1);
     // ears
     const e1 = P(ha - 0.04, -0.05, hz + S.ear + 1), e2 = P(ha - 0.04, 0.05, hz + S.ear + 1);
-    for (const e of [e1, e2]) { ctx.fillStyle = an.sp === 'tanuki' ? dark : (dlook && dlook.patch && e === e2 ? dlook.patch : base); if (an.sp === 'dog' && e === e2) { ctx.fillStyle = dark; ctx.fillRect(Math.round(e[0]), Math.round(e[1]) + S.ear - 1, 2, 1); continue; } ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, S.ear); if (S.earTip) { ctx.fillStyle = S.earTip; ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, 1); } }
+    for (const e of [e1, e2]) { ctx.fillStyle = an.sp === 'tanuki' ? dark : base; if (an.sp === 'dog' && e === e2) { ctx.fillStyle = dark; ctx.fillRect(Math.round(e[0]), Math.round(e[1]) + S.ear - 1, 2, 1); continue; } ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, S.ear); if (S.earTip) { ctx.fillStyle = S.earTip; ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, 1); } }
     // eyes (the tanuki's in its mask)
     const ey = P(ha + 0.03, Math.sign(fx - fy) * 0.04 || 0.04, hz + 1);
     if (an.sp === 'tanuki') { ctx.fillStyle = S.mask; ctx.fillRect(Math.round(ey[0]) - 2, Math.round(ey[1]) - 1, 4, 2); ctx.fillStyle = '#f4ece0'; ctx.fillRect(Math.round(ey[0]) - 2, Math.round(ey[1]) - 2, 4, 1); }
-    if (an.sp === 'dog') {
-      const eL = P(ha + 0.02, -0.055, hz + 1.4), eR = P(ha + 0.02, 0.055, hz + 1.4);
-      const mx = Math.round(muz[0]), my = Math.round(muz[1]);
-      ctx.fillStyle = belly; ctx.fillRect(mx - 1, my - 1, 5, 3);
-      ctx.fillStyle = '#1a1010'; ctx.fillRect(mx + 1, my - 2, 2, 2);
-      ctx.fillStyle = '#fff8ee';
-      ctx.fillRect(Math.round(eL[0]) - 1, Math.round(eL[1]) - 1, 2, 2);
-      ctx.fillRect(Math.round(eR[0]) - 1, Math.round(eR[1]) - 1, 2, 2);
-      ctx.fillStyle = '#0a0608';
-      ctx.fillRect(Math.round(eL[0]), Math.round(eL[1]), 1, 1);
-      ctx.fillRect(Math.round(eR[0]), Math.round(eR[1]), 1, 1);
-      if (happy || pose === 'sit' || dogLie) {
-        ctx.fillStyle = '#d05060';
-        ctx.fillRect(mx, my + 2, 2, happy ? 4 : 3);
-      }
-    } else {
-      ctx.fillStyle = an.sp === 'cat' ? '#d8c040' : '#0a0608'; ctx.fillRect(Math.round(ey[0]), Math.round(ey[1]), 1, 1);
-    }
+    ctx.fillStyle = an.sp === 'cat' ? '#d8c040' : '#0a0608'; ctx.fillRect(Math.round(ey[0]), Math.round(ey[1]), 1, 1);
     if (an.sp === 'monkey') { const fc = P(ha + 0.06, 0, hz); ctx.fillStyle = S.face; ctx.fillRect(Math.round(fc[0]) - 1, Math.round(fc[1]) - 1, 2, 3); }
     if (S.horns) { const h1 = P(ha - 0.03, 0, hz + 3), h2 = P(ha - 0.1, 0, hz + 7); pline(ctx, h1[0], h1[1], h2[0], h2[1], '#141012', 1); }
     if (an.stag) for (const s of [-1, 1]) { const a0 = P(ha - 0.02, s * 0.04, hz + 3), a1 = P(ha - 0.08, s * 0.12, hz + 11), a2 = P(ha + 0.02, s * 0.1, hz + 9); pline(ctx, a0[0], a0[1], a1[0], a1[1], '#c8b48a', 1); pline(ctx, lerp(a0[0], a1[0], 0.5), lerp(a0[1], a1[1], 0.5), a2[0], a2[1], '#c8b48a', 1); }
@@ -16469,7 +16453,7 @@ M({
   recap: 'At a hidden settlement they buried the dead and treated the wounded. Ren sat apart with Genjiro\'s bell. Haru stayed with him all night and let him say what he wished he had said. At dawn Aiko came, Nao left a bowl of rice without a joke, Daichi repaired the broken equipment. Ren tied the bell to Kumo\'s saddle and promised, not to avenge Genjiro, but to make sure the bridge he died protecting led somewhere worth reaching.',
   setup(m) { for (const [id, sp] of [['aiko', 'hidden.fire'], ['haru', 'hidden.wounded'], ['daichi', ['hidden.c', 3, 2]], ['nao', ['hidden.c', -3, 2]]]) m.cast(id, sp); m.spawn('villager', 'hidden.c', 5, { calm: true, tag: 'folk', wanderR: 6, post: false }); m.spawn('kid', 'hidden.c', 2, { calm: true, tag: 'folk', wanderR: 4, post: false }); for (let i = 0; i < 3; i++) { const [a] = m.spawn('villager', ['hidden.wounded', i * 1.5 - 1.5, 1.5], 1, { calm: true, tag: 'wounded', spread: 0.3 }); sickLook(a); } },
   steps: [
-    { t: 'use', ats: [['hidden.graves', 0, 1.5], ['hidden.graves', 2, 1.5], ['hidden.wounded', -1.5, 2.5], ['hidden.wounded', 1.5, 2.5]], label: 'Help', text: 'Help bury the dead and tend the wounded', dur: 1, busy: 'Digging, then binding…', on(m) { const g = m.at('hidden.graves'), w = m.at('hidden.wounded'); m.crewWork('folk', 'dig', null, 'hidden.graves', { pull: true, max: 4 }); const h = m.get('haru'); if (h && w) { h.x = w[0] + 0.8; h.y = w[1] + 0.4; h.mPath = null; m.setWork(h, 'pack', null, w); } if (w) for (const a of m.group('folk').slice(4, 7)) { a.x = w[0] + rnd(-1.5, 1.5); a.y = w[1] + rnd(1, 2.4); a.mPath = null; m.setWork(a, 'pack', null, w); } } },
+    { t: 'use', ats: [['hidden.graves', 0, 1.5], ['hidden.graves', 2, 1.5], ['hidden.wounded', -1.5, 2.5], ['hidden.wounded', 1.5, 2.5]], label: 'Help', text: 'Help bury the dead and tend the wounded', dur: 1, busy: 'Digging, then binding…', on(m) { const g = m.at('hidden.graves'), w = m.at('hidden.wounded'); m.crewWork('folk', 'dig', null, 'hidden.graves', { pull: true, max: 4 }); if (g) { m.prop('grave', [g[0], g[1] + 0.6], { solid: false }); m.prop('grave', [g[0] + 1.6, g[1] + 0.4], { solid: false }); } const h = m.get('haru'); if (h && w) { h.x = w[0] + 0.8; h.y = w[1] + 0.4; h.mPath = null; m.setWork(h, 'pack', null, w); } if (w) for (const a of m.group('folk').slice(4, 7)) { a.x = w[0] + rnd(-1.5, 1.5); a.y = w[1] + rnd(1, 2.4); a.mPath = null; m.setWork(a, 'pack', null, w); } for (const a of m.group('wounded')) sickLook(a); } },
     { t: 'go', at: 'hidden.sit', r: 2, text: 'Sit apart from the others' },
     { t: 'rest', title: 'Night', tod: 0.95 },
     { t: 'scene', on(m) { m.place('haru', ['hidden.sit', 1.5, 0.5]); }, parts: [['ren', 'I never told him he was right. About anything. I argued with every single thing he said.'], ['haru', 'He knew. That is why he argued back.']] },
@@ -16665,7 +16649,7 @@ M({
   n: 85, title: 'The Paper Fox\'s Last Heist Begins', at: 'capital.square', giver: 'nao', tod: 0.55, sites: ['capital'], party: ['aiko', 'daichi'], reward: 160,
   brief: 'Nao goes into the palace records office. Ren gives the guards something else to look at.',
   recap: 'Nao walked into the records office as a senior clerk, with forged papers, a borrowed seal and a list of irritating questions about the tax system. For two hours it worked perfectly. Outside, Ren cut the cart horses loose and set the square in an uproar. Inside, Nao reached Arata\'s private archive, copied the orders that tied Kahn to Kiyohara, and found a second room behind a false wall: the names, safe houses and families of every resistance supporter in every province. Then the door opened, and Arata was standing there.',
-  setup(m) { capCrowd(m, 10); m.cast('nao', ['capital.square', 1, -1.5]); m.prop('wagon', ['capital.square', 4, 1.5], { solid: true }); m.prop('haystack', ['capital.square', -4, 2.5], { solid: true }); m.tied(['capital.square', 4, 1.4], 2, 0); },
+  setup(m) { capCrowd(m, 10); m.cast('nao', ['capital.square', 1, -1.5]); m.prop('wagon', ['capital.square', 4, 1.5], { solid: true }); m.prop('haystack', ['capital.square', -4, 2.5], { solid: true }); m.prop('brazier', ['capital.square', -4, 4], { solid: true }); m.tied(['capital.square', 4, 1.4], 2, 0); },
   steps: [
     { t: 'scene', parts: [['nao', 'Forged documents. A borrowed seal. And a list of questions about the imperial tax system so tedious that the archivists will do anything to make me go away.'], ['ren', 'You wait for my signal.'], ['nao', 'Naturally.']], done(m) { const n = m.get('nao'); if (n) m.walk(n, ['capital.gate'], { run: 0.6 }); } },
     { t: 'use', at: ['capital.square', 4, 3], label: 'Cut the cart horses loose', text: 'Start the diversion: cut the cart horses loose', hint: 'Two horses tied by the wagon.', onUse(m) { if (!m.untie(rnd(TAU))) m.loose(['capital.square', 4, 2], 2); m.remove(m.get('nao')); } },
@@ -16944,7 +16928,17 @@ M({
     { t: 'scene', parts: [['kuroda', 'You. The boy from Kiyohara.', 'Your survival was an unfortunate accident. A careless sergeant. A slow fire.'], ['kuroda', 'Soldiers do not create the wars they are ordered to fight, boy. We carry them out. You hated the wrong man for fifteen years.'], ['ren', 'I was there. Behind the storehouse.', 'You said "Torches."']] },
     { t: 'defeat', who: 'kuroda', at: 30, cp: true, text: 'Defeat General Kuroda', hint: 'He is a soldier\'s soldier: patient, heavy, precise.', on(m) { const k = m.get('kuroda'); if (k) { k.mEnemy = true; k.canYield = true; k.faction = 'imperial'; k.ai.mode = 'fight'; k.ai.target = G.player; k.aware = 1; } m.alarm('*', true); for (const a of m.group('loyal')) { a.mEnemy = true; a.faction = 'imperial'; a.ai.mode = 'fight'; a.ai.target = G.player; } } },
     { t: 'scene', on(m) { const k = m.get('kuroda'); if (k) { k.mEnemy = false; k.ai.mode = 'idle'; k.ai.target = null; k.atk = null; k.state = 'kneel'; k.essential = true; } for (const a of m.group('foe').concat(m.group('loyal'))) { a.mEnemy = false; a.ai.mode = 'idle'; a.state = 'kneel'; a.yieldLock = true; } }, parts: [['Loyalist', '(dropping his spear) The general\'s down! It\'s over! It\'s over!'], ['aiko', 'He goes before the assemblies. With the rest of them.'], ['ren', 'Yes.']] },
-    { t: 'use', ats: ['capital.standard1', 'capital.standard2', 'capital.standard3'], label: 'Pull down the banner', text: 'Pull down the white banners', dur: 0.8, busy: 'The white sun comes down…' },
+    { t: 'use', ats: ['capital.standard1', 'capital.standard2', 'capital.standard3'], label: 'Pull down the banner', text: 'Pull down the white banners', dur: 0.8, busy: 'The white sun comes down…',
+      onUse(m, k) {
+        const keys = ['capital.standard1', 'capital.standard2', 'capital.standard3'], p = m.at(keys[k]); if (!p) return;
+        let best = null, bd = 16;
+        for (let j = Math.floor(p[1] - 3); j <= Math.ceil(p[1] + 3); j++) for (let i = Math.floor(p[0] - 3); i <= Math.ceil(p[0] + 3); i++) {
+          if (!World.in(i, j)) continue;
+          for (const o of World.at(i, j)) if (o.t === 'sunbanner' && !o.used) { const d = dist(o.cx, o.cy, p[0], p[1]); if (d < bd) { bd = d; best = o; } }
+        }
+        if (best) { best.used = true; Missions.removeObj(best); }
+        if (!m.fast) { Snd.play('thud', 0.45); FX.dust(p[0], p[1], 10); G.shake = Math.max(G.shake, 2); }
+      } },
     { t: 'wait', dur: 5, text: '', on(m) { m.look('capital.square', 4); }, talk: [['Townswoman', 'Is my son on the list? Tanaka Shiro? Please look, please...'], ['Clerk', 'Tanaka... Tanaka... Here. Western complex. He\'s alive, mother. He\'s alive.']] },
     { t: 'go', at: ['capital.keepDoor', 0, 2], r: 3.4, text: 'Go to the imperial hall, where the council gathers' },
     { t: 'scene', parts: [['Representative', '...the military government is dissolved. The western complex is closed. Every official answers for what he did. Assemblies in every region by spring.'], ['Former Lord', 'And the provinces that refuse?'], ['Representative', 'Then we argue with them. That is the whole point.'], ['Representative', 'Ren Kisaragi. There is a seat for you at this table.'], ['ren', '...No. Thank you.'], ['aiko', 'Where are you going?'], ['ren', 'Home.']] },
