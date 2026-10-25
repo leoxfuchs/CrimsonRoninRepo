@@ -3767,12 +3767,17 @@ const Realm = {
     if (!(castle || sub === 'market' || (sub === 'village' && R() < 0.34)) || !S.core || !S.gates) return;
     const [x0, y0, x1, y1] = S.core, t = castle ? 'cwall' : 'palisade';
     const ax = Math.round(x0 - 2), ay = Math.round(y0 - 2), bx = Math.round(x1 + 2), by = Math.round(y1 + 2);
-    const gap = (x, y) => S.gates.some(g => dist(x, y, g[0], g[1]) < 4.5);
+    const roadAt = (x, y) => { const tt = World.tileAt(x, y); return tt === TILE.PATH || tt === TILE.STONE || tt === TILE.SNOWPATH || tt === TILE.PAVE || tt === TILE.BRIDGE; };
+    const gap = (x, y, hz) => {
+      if (S.gates.some(g => dist(x, y, g[0], g[1]) < 4.5)) return true;
+      const span = hz ? [[x - 1, y], [x, y], [x + 1, y]] : [[x, y - 1], [x, y], [x, y + 1]];
+      return span.some(([i, j]) => roadAt(i, j));
+    };
     const line = (px, py, qx, qy) => {
       const L = dist(px, py, qx, qy) || 1, hz = Math.abs(qx - px) >= Math.abs(qy - py), step = t === 'cwall' ? 1 : 2;
       for (let d = 0; d <= L; d += step) {
         const u = d / L, x = Math.round(lerp(px, qx, u)), y = Math.round(lerp(py, qy, u));
-        if (gap(x, y)) continue;
+        if (gap(x, y, hz)) continue;
         World.post(t, x, y, hz ? 0 : 1);
       }
     };
@@ -16374,7 +16379,7 @@ M({
     { t: 'sneak', at: 'blackreed.warehouse', r: 2.2, cp: true, text: 'Slip through the dockside warehouses', hint: 'Crouch (C). One guard walks the dock.', why: 'A guard on the dock saw you.', on(m) { m.remove(m.get('haru')); } },
     { t: 'use', at: 'blackreed.warehouseIn', label: 'Take the deployment schedule', text: 'Find the deployment schedule in the warehouse' },
     { t: 'hold', at: 'blackreed.guns1', r: 6, dur: 22, max: 2, every: 9, text: 'Cover Daichi while he pulls the fittings from the gun platforms', hint: 'Anyone who comes too close should not get the chance to shout.', wave(m) { m.spawn('imperial', m.at('blackreed.guns1', rnd(-5, 5), 5), 1); } },
-    { t: 'scene', parts: [['aiko', 'The tide\'s turned early. The boat is sitting in mud.'], ['fortcmd', '(from the gun wall) The guns! Who has touched the guns? Rifles to the wall!']] },
+    { t: 'scene', on(m) { m.place('fortcmd', ['blackreed.main', 0.6, 1.2]); const f = m.get('fortcmd'); const g = m.at('blackreed.yard'); if (f && g) f.faceTo(g[0], g[1]); for (const a of m.group('dock')) m.walk(a, ['blackreed.drain', 'blackreed.beach'], { run: 1 }); }, parts: [['aiko', 'The tide\'s turned early. The boat is sitting in mud.'], ['fortcmd', '(from the gun wall) The guns! Who has touched the guns? Rifles to the wall!']] },
     { t: 'escape', at: 'blackreed.shore', r: 5, cp: true, text: 'Cross the harbour on foot under rifle fire', hint: 'Keep moving. Rifles aim with a red line: roll or guard when it turns red.', on(m) { m.alarm('watch'); m.stay('daichi', ['blackreed.main', 1, 1], { run: 1.2 }); } },
     { t: 'wait', dur: 2.5, text: 'Daichi stayed behind to silence the main gun', on(m) { if (!m.fast) { m.fire(m.at('blackreed.main'), { delay: 1.2, r: 3, dmg: 0, safe: true }); Subs.add([['daichi', '(from the wall) Go! I am right behind you! Mostly!']]); } } },
     { t: 'scene', on(m) { m.place('daichi', ['blackreed.shore', 1.5, 0], { run: 1.3 }); }, parts: [['ren', 'You may be useful.'], ['daichi', 'Highest praise I have ever received.']], done(m) { m.comp('daichi'); } },
