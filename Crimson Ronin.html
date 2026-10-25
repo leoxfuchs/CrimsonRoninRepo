@@ -3715,6 +3715,13 @@ const Realm = {
         x += used;
       }
     }
+    // outskirts: huts and sheds outside the streets, with vacant gaps. The fields stay further out.
+    const shed = (x, y) => {
+      if (S.farms && S.farms.some(f => x > f[0] - 3 && x < f[2] + 3 && y > f[1] - 3 && y < f[3] + 3)) return;
+      add(R() < 0.55 ? 'hut' : 'minka', x, y);
+    };
+    for (let x = cx - L + 4; x < cx + L - 6; x += 16 + Math.round(R() * 8)) if (R() > 0.28) shed(x, last + 9);
+    for (const side of [-1, 1]) for (let i = 0; i < rows; i++) if (R() > 0.45) { const st = streets[i]; shed(side < 0 ? st.x0 - 10 : st.x1 + 2, st.y + 1); }
     if (castle) this.palace(S, R, cx, cy, path);
     const doors = Buildings.list.filter(b => Math.abs(b.x - cx) < L + 20 && b.y > cy - 90 && b.y < last + 20);
     const spot = (x0, y0, x1, y1) => { for (let k = 0; k < 30; k++) { const xx = Math.round(lerp(x0, x1, R())), yy = Math.round(lerp(y0, y1, R())); if (W.free(xx, yy) && !W.bAt(xx, yy) && !doors.some(b => b.doorPt && dist(b.doorPt.outer[0], b.doorPt.outer[1], xx + 0.5, yy + 0.5) < 2)) return [xx, yy]; } return null; };
@@ -3727,6 +3734,7 @@ const Realm = {
       const gate = my > last + 4 ? 'N' : mx < cx - L ? 'E' : mx > cx + L ? 'W' : 'N';
       W.field(x0, y0, w, h, { gate });
     }
+    this.enclose(S, R);
     if (sub === 'fishing') for (let k = 0; k < 6; k++) { q = spot(cx - L - 6, last + 3, cx + L + 6, last + 10); if (q) W.deco(k < 3 ? 'fishrack' : 'boat', q[0], q[1], 1, 1, { solid: k < 3 }); }
     W.keepClear(cx, cy + 1, 4);
     if (S.spots) {
@@ -3734,6 +3742,23 @@ const Realm = {
       const st = streets[0];
       if (st) S.spots.street = [(st.x0 + st.x1) / 2, st.y + 1];
     }
+  },
+  // a wall after the houses, with a gap where each road already enters. It skips any building it would cut.
+  enclose(S, R) {
+    const sub = S.sub, castle = sub === 'castle' || sub === 'edo';
+    if (!(castle || sub === 'market' || (sub === 'village' && R() < 0.34)) || !S.core || !S.gates) return;
+    const [x0, y0, x1, y1] = S.core, t = castle ? 'cwall' : 'palisade';
+    const ax = Math.round(x0 - 2), ay = Math.round(y0 - 2), bx = Math.round(x1 + 2), by = Math.round(y1 + 2);
+    const gap = (x, y) => S.gates.some(g => dist(x, y, g[0], g[1]) < 4.5);
+    const line = (px, py, qx, qy) => {
+      const L = dist(px, py, qx, qy) || 1, hz = Math.abs(qx - px) >= Math.abs(qy - py), step = t === 'cwall' ? 1 : 2;
+      for (let d = 0; d <= L; d += step) {
+        const u = d / L, x = Math.round(lerp(px, qx, u)), y = Math.round(lerp(py, qy, u));
+        if (gap(x, y)) continue;
+        World.post(t, x, y, hz ? 0 : 1);
+      }
+    };
+    line(ax, ay, bx, ay); line(ax, by, bx, by); line(ax, ay, ax, by); line(bx, ay, bx, by);
   },
   // the town square: packed earth in a ragged disc, a well, the notice board, lamps
   square(S, R, cx, cy, r, path) {
@@ -4018,6 +4043,14 @@ const Realm = {
       const k = Math.floor(Math.random() * (S.rows || 1)); return [S.x + rnd(-(S.L || 8) * 0.8, (S.L || 8) * 0.8), S.y + k * 13 + rnd(-0.4, 0.4)];
     };
     for (let i = 0; i < S.folk; i++) mk(S.sub === 'castle' || edo ? pick(['townsfolk', 'townsfolk', 'geisha', 'merchant']) : pick(['farmer', 'townsfolk']), street(), { wanderR: 10, talk: { kind: 'talk' } });
+    if (S.farms && S.farms.length) {
+      let i = 0;
+      for (const a of G.actors) if (a.realm === S.id && a.role === 'farmer' && !a.farmLoop) {
+        const f = S.farms[i % S.farms.length]; i++;
+        a.farmLoop = { field: f, kinds: ['hoe', 'cut', 'haul'], n: i };
+        a.wanderR = 1; a.home = a.home || [a.x, a.y];
+      }
+    }
     for (let i = 0; i < S.guards; i++) mk('guard', street(), { wanderR: (S.L || 10) * 0.5 });
     if (S.lord && S.lord.at && S.sub !== 'edo') {
       keyed(mk(edo ? 'shogun' : 'daimyo', S.lord.at, { name: S.lord.name, post: S.lord.at.slice(), postFace: -PI * 0.75, essential: true, talk: { kind: 'talk', label: 'Address ' + S.lord.name } }), S.lord.key);
