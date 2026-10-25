@@ -2080,6 +2080,15 @@ const World = {
       if (this._stampOn.has(st.id)) return;
       this._stampOn.add(st.id);
       if (this.field) this.field(st.x, st.y, st.w, st.h, { crops: true, gate: st.gate || 'N' });
+      return;
+    }
+    if (st.t === 'gone') {
+      if (this._stampOn.has(st.id)) return;
+      this._stampOn.add(st.id);
+      const r = st.r || 3;
+      for (let j = Math.floor(st.y - r); j <= st.y + r; j++) for (let i = Math.floor(st.x - r); i <= st.x + r; i++) for (const o of this.at(i, j).slice()) if (o.t === st.kind && dist(o.cx || i, o.cy || j, st.x, st.y) < r) {
+        if (typeof Missions !== 'undefined' && Missions.removeObj) Missions.removeObj(o); else this.removeObj(o);
+      }
     }
   },
   stampMilitia(st) {
@@ -17224,7 +17233,7 @@ M({
   },
   steps: [
     { t: 'go', at: ['capital.square', 0, 2], r: 4, text: 'Join the crowd in the square', talk: [['Townsman', 'They read it out in the temple at Asakusa this morning. The whole thing.'], ['Townswoman', 'The rice carters won\'t load army wagons. Not one of them.'], ['Townsman', 'My cousin\'s a clerk at the tax office. He didn\'t go in today.']] },
-    { t: 'use', ats: [['capital.square', 4.2, 5], ['capital.square', 6.2, 5.4]], label: 'Help Haru', text: 'Help Haru with the people overcome by the crowd', dur: 1, busy: 'Water, and somewhere to sit…', on(m) { const p = m.at('capital.square'); const h = m.get('haru'); if (h && p) { h.x = p[0] + 5; h.y = p[1] + 5; h.mPath = null; m.setWork(h, 'pack', null, [p[0] + 5, p[1] + 5], 10); } for (const a of m.group('faint')) { a.state = 'idle'; a.yielded = true; a.lying = true; } } },
+    { t: 'use', ats: [['capital.square', 4.2, 5], ['capital.square', 6.2, 5.4]], label: 'Help Haru', text: 'Help Haru with the people overcome by the crowd', dur: 1, busy: 'Water, and somewhere to sit…', on(m) { const p = m.at('capital.square'); const h = m.get('haru'); if (h && p) { h.x = p[0] + 5; h.y = p[1] + 5; h.mPath = null; m.setWork(h, 'pack', null, [p[0] + 5, p[1] + 5], 10); } for (const a of m.group('faint')) { a.state = 'idle'; a.yielded = true; a.lying = true; a.yieldLock = true; } }, onUse(m, k) { const a = m.group('faint')[k]; const p = m.at('capital.square'); if (!a) return; a.lying = false; a.yielded = false; a.yieldLock = false; a.state = 'idle'; if (p) m.walk(a, [[p[0] + (k ? 2 : -2), p[1] + 3]], { run: 0.45 }); } },
     { t: 'wait', dur: 6, text: 'Listen as the judge reads the Kiyohara orders', on(m) { m.face('judge', [G.player.x, G.player.y]); m.look(['capital.square', 0, -4], 4); }, talk: [['judge', 'Kiyohara refuses the hidden refugees. Punish it.'], ['judge', 'Authorised under the imperial seal.']] },
     { t: 'scene', parts: [['judge', 'The household of Jiro Kisaragi, saddler.'], ['judge', 'His wife, Emi.'], ['judge', 'His daughter, Hana.'], ['Townswoman', '(softly) Hana. Such a little name.']] },
     { t: 'scene', parts: [['daichi', '(looking at the palace) The banners are still up.'], ['daichi', 'Kahn hasn\'t surrendered. Kuroda is pulling every loyal regiment he has left into the capital.'], ['aiko', 'Then we finish it.'], ['haru', 'Four of us.']] },
@@ -17299,7 +17308,7 @@ M({
     { t: 'scene', parts: [['daichi', 'They have put a new lock on the firing mechanism. I cannot take it apart quickly enough. Not before they bring the other guns round.'], ['daichi', 'So I will use it.', 'The old stone retaining wall above the road. One shot, in the right place, and the whole slope comes down across the artillery road. Nothing gets to the city.'], ['ren', 'The recoil will take the platform with it. Get back. That is an order.'], ['daichi', 'No.']] },
     { t: 'hold', at: 'battery.main', r: 8, dur: 25, every: 7, max: 4, cp: true, text: 'Hold them off while Daichi prepares the shot', hint: 'Stay near the gun.', wave(m, i) { m.spawn(i % 3 === 1 ? 'rifleman' : 'imperial', m.at('battery.approach', rnd(-3, 3), rnd(-3, 3)), 2, { spread: 2 }); } },
     { t: 'scene', parts: [['daichi', '(to himself) Two degrees. Full charge. Wind from the east...'], ['daichi', 'The bell tower had a family in it.', 'Not this time.']] },
-    { t: 'wait', dur: 4, text: 'The cannon roars across the ridge', on(m) { m.fire('battery.wall', { delay: 0.3, r: 3, dmg: 0, safe: true }); m.look('battery.wall', 3); if (!m.fast) G.shake = Math.max(G.shake, 8); for (const [dx, dy] of [[0, 0], [2, 1], [-1, 2], [1, -2]]) m.prop('rock', ['battery.wall', dx - 4, dy + 4], { solid: true }); } },
+    { t: 'wait', dur: 4, text: 'The cannon roars across the ridge', on(m) { m.fire('battery.wall', { delay: 0.3, r: 3, dmg: 0, safe: true }); m.look('battery.wall', 3); if (!m.fast) G.shake = Math.max(G.shake, 8); for (const [dx, dy] of [[0, 0], [2, 1], [-1, 2], [1, -2]]) m.stampProp('rock', ['battery.wall', dx - 4, dy + 4], { solid: true }); } },
     { t: 'scene', on(m) { m.cast('aiko', 'battery.signal', { run: 1.35 }); m.bring(m.get('aiko'), m.at('@ren', -2, 1.4), { run: 1.3 }); }, parts: [['aiko', 'The wall\'s down! The road\'s gone! Daichi, you did it!'], ['daichi', 'Yes. And the platform is...'], ['narr', 'Timber splits under the gun.']] },
   ],
 });
@@ -17323,7 +17332,7 @@ M({
   recap: 'Daichi completed the sequence: the ammunition went up, the last guns were wrecked beyond recovery, and the final section of the wall came down across the road. He did not escape the collapse. Aiko caught Ren\'s shoulder; she had lost family too. In Daichi\'s pack was his small set of tools, one handle marked with his family name. His story did not end with forgiveness. It ended with a choice. Ren tied the tools beside Genjiro\'s bell. Three of the six Last Lanterns were gone, and the palace was still ahead.',
   setup(m) { m.cast('aiko', ['battery.sheds', -1.5, 5]); m.burn('battery.main', { size: 1.2, z: 10 }); m.prop('satchel', ['battery.sheds', -2, 3.5], { solid: false }); },
   steps: [
-    { t: 'wait', dur: 4, text: 'The platform collapses', on(m) { for (const [w, d] of [['battery.main', 0.2], ['battery.platform2', 0.9], ['battery.platform1', 1.6], ['battery.sheds', 2.1]]) m.fire(w, { delay: d, r: 3, dmg: 0, safe: true }); m.look('battery.main', 3.5); if (!m.fast) G.shake = Math.max(G.shake, 10); m.burn('battery.main', { size: 1.4, z: 12 }); } },
+    { t: 'wait', dur: 4, text: 'The platform collapses', on(m) { for (const [w, d] of [['battery.main', 0.2], ['battery.platform2', 0.9], ['battery.platform1', 1.6], ['battery.sheds', 2.1]]) m.fire(w, { delay: d, r: 3, dmg: 0, safe: true }); m.look('battery.main', 3.5); if (!m.fast) G.shake = Math.max(G.shake, 10); m.burn('battery.main', { size: 1.4, z: 12 }); m.stampProp('rock', ['battery.main', 1, 0.4], { solid: true }); m.stampProp('rock', ['battery.main', -1.2, 1.1], { solid: true }); } },
     { t: 'go', at: ['battery.sheds', -2, 4], r: 4, text: 'Search the smoke', hint: 'There is no reply.', talk: [['ren', 'Daichi!'], ['ren', 'DAICHI!']] },
     { t: 'scene', parts: [['aiko', 'Ren.'], ['aiko', '...He did the maths. He always did the maths.']] },
     { t: 'use', at: m => { const P = G.player; return [P.x + 0.9, P.y + 0.5]; }, label: 'Take Daichi\'s tools', thing: 'satchel', take: true, text: 'Take the small set of tools Daichi left in his pack' },
@@ -17348,7 +17357,7 @@ M({
   },
   steps: [
     { t: 'ride', at: 'capital.gateW', r: 8, text: 'Ride to the capital\'s west gate with Aiko', hint: 'The coalition is gathering at the west gate.', talk: [['aiko', 'Haru is at the west gate with the wounded. Theirs and ours.'], ['ren', '...'], ['aiko', 'Ren. The tools. Did you tie them on?'], ['ren', 'Next to the bell.'], ['aiko', 'Good.'], ['narr', 'Behind them, the ridge is still smoking.']] },
-    { t: 'scene', on(m) { const r = m.get('Coalition Runner'); if (r) m.bring(r, m.at('@ren', 1.8, 1.2), { run: 1.4 }); }, parts: [['Coalition Runner', 'The north gate\'s open! Our people inside opened it! They\'re handing out the rice stores!'], ['aiko', 'I take the northern force through the merchant quarter. My arrows will mark where our people are.'], ['haru', 'And I stay here with the wounded. All of them.']], done(m) { m.stay('aiko', ['capital.square', 6, -5]); m.remove(m.get('Coalition Runner')); } },
+    { t: 'scene', on(m) { const r = m.get('Coalition Runner'); if (r) m.bring(r, m.at('@ren', 1.8, 1.2), { run: 1.4 }); const sq = m.at('capital.square'); if (sq) { m.prop('ricesacks', [sq[0] + 2, sq[1] - 1], { solid: false }); m.spawn('villager', [sq[0] + 1, sq[1] - 1], 4, { calm: true, tag: 'rice', spread: 1.6 }); m.crewWork('rice', 'haul', 'sack', [sq[0] + 2, sq[1] - 1], { pull: true, max: 4 }); } }, parts: [['Coalition Runner', 'The north gate\'s open! Our people inside opened it! They\'re handing out the rice stores!'], ['aiko', 'I take the northern force through the merchant quarter. My arrows will mark where our people are.'], ['haru', 'And I stay here with the wounded. All of them.']], done(m) { m.stay('aiko', ['capital.square', 6, -5]); m.remove(m.get('Coalition Runner')); } },
     { t: 'talk', who: 'haru', text: 'Speak with Haru at the medical station', parts: [['ren', 'That one is wearing the white sun.'], ['haru', 'He is bleeding the same colour as you.', 'The war will end, Ren. Someone will have to live in the country afterward. I would like there to be people left to do it.']] },
     { t: 'go', at: 'capital.avenue', r: 7, text: 'Push into the city toward the palace district', hint: 'You carry the copied orders. Aiko is on the rooftops.', talk: [['Former Guard', '(throwing down his spear) This way! The garrison is in the rice exchange!']], on(m) { m.cast('aiko', ['capital.square', 6, -5]); const a = m.get('aiko'); if (a) a.aimAt = m.at('capital.avenue'); m.look(['capital.square', 6, -5], 3); } },
     { t: 'kill', tag: 'avenue', cp: true, text: 'Break the defenders on the avenue', spawn(m) { const here = m.group('avenue'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['capital.avenue', 4, -2], 4, { tag: 'avenue', spread: 3 }); m.spawn('rifleman', ['capital.avenue', -4, -3], 1, { tag: 'avenue' }); } } },
@@ -17428,6 +17437,7 @@ M({
           for (const o of World.at(i, j)) if (o.t === 'sunbanner' && !o.used) { const d = dist(o.cx, o.cy, p[0], p[1]); if (d < bd) { bd = d; best = o; } }
         }
         if (best) { best.used = true; Missions.removeObj(best); }
+        m.stamp({ t: 'gone', kind: 'sunbanner', x: p[0], y: p[1], r: 4, id: 'gone:capital:' + keys[k], site: 'capital' });
         if (!m.fast) { Snd.play('thud', 0.45); FX.dust(p[0], p[1], 10); G.shake = Math.max(G.shake, 2); }
       } },
     { t: 'wait', dur: 5, text: '', on(m) { m.look('capital.square', 4); }, talk: [['Townswoman', 'Is my son on the list? Tanaka Shiro? Please look, please...'], ['Clerk', 'Tanaka... Tanaka... Here. Western complex. He\'s alive, mother. He\'s alive.']] },
