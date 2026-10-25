@@ -17391,7 +17391,7 @@ M({
   setup(m) { m.cast('aiko', ['capital.keepDoor', 3.2, 4], { face: PI * 1.25 }); m.cast('kahn', ['capital.keepDoor', 0, -0.6], { face: PI * 0.75 }); },
   steps: [
     { t: 'go', at: ['capital.keepDoor', 0, 2], r: 3, text: 'Cross the palace grounds to the keep', talk: [['narr', 'Gold suns on every beam. Painted screens of governors, kneeling.']] },
-    { t: 'scene', parts: [['aiko', 'I watch the corridor. Nobody comes in behind you.'], ['ren', 'Aiko.'], ['aiko', 'Go on. I will still be here.']] },
+    { t: 'scene', done(m) { m.stay('aiko', ['capital.keepDoor', 3.2, 4]); }, parts: [['aiko', 'I watch the corridor. Nobody comes in behind you.'], ['ren', 'Aiko.'], ['aiko', 'Go on. I will still be here.']] },
     { t: 'go', at: m => { const k = m.get('kahn'); return k ? [k.x + 1.6, k.y + 1.6] : m.at('capital.throne'); }, r: 2.8, text: 'Enter the throne room alone' },
     { t: 'scene', parts: [['narr', 'Kahn is standing beside the throne, not on it. Older than his portraits.'], ['kahn', 'The boy from Kiyohara. Outlaw, rebel, symbol. My officials could never decide which of the three to put on the posters.'], ['kahn', 'I will not insult you by denying it. I authorised the destruction of your village.'], ['kahn', 'Before me, the clans burned a village a week and called it honour. I burned one, once, and the burning stopped.'], ['kahn', 'A hundred villages paid their quota the next month. Not one more battle. Do the sums, Ren Kisaragi. I saved thousands.']] },
     { t: 'choice', ask: ['ren', '...'], options: [['"Did you ever learn their names?"', 'names']], after: [['kahn', '...'], ['ren', 'Jiro. He made saddles.'], ['ren', 'Emi. She made dumplings on festival mornings.'], ['ren', 'Hana. She was six. She wanted to learn to ride.'], ['kahn', '...']] },
@@ -17472,7 +17472,7 @@ M({
     const nb = m.at('kiyo.newbridge') || m.at('kiyo.ford');
     if (nb && k !== 'ash' && !Bridges.near(nb[0] - 8, nb[1] - 8, nb[0] + 8, nb[1] + 8).length) {
       const br = Bridges.add({ ax: nb[0] - 5, ay: nb[1] - 1, bx: nb[0] + 5, by: nb[1] + 1, hw: 1.2, kind: 'arch' });
-      if (br) Bridges.stamp(br);
+      if (br) { Bridges.stamp(br); m.stamp({ t: 'bridge', site: 'kiyo', down: false, id: 'bridge:kiyo:new', ax: br.ax, ay: br.ay, bx: br.bx, by: br.by, hw: br.hw || 1.2, kind: 'arch' }); }
     }
   },
   end() { G.profile.flags.ended = true; Endings.pin(); },
@@ -17487,12 +17487,12 @@ M({
     } },
     { t: 'go', at: 'kiyo.square', r: 6, text: 'Ride into Kiyohara', talk: () => Endings.welcome() },
     { t: 'go', at: 'kiyo.memorial', r: 2.6, foot: true, text: 'Walk to the memorial beneath the cedar', hint: 'Get down from Kumo (E).' },
-    { t: 'use', at: ['kiyo.memorial', 1.2, -0.4], label: 'Carve three names', text: 'Add three names on a separate stone beside it', dur: 2.6, busy: 'Genjiro Takeda. Nao, the Paper Fox. Daichi Mori.' },
+    { t: 'use', at: ['kiyo.memorial', 1.2, -0.4], label: 'Carve three names', text: 'Add three names on a separate stone beside it', dur: 2.6, busy: 'Genjiro Takeda. Nao, the Paper Fox. Daichi Mori.', onUse(m) { m.stampProp('memorial', ['kiyo.memorial', 1.6, -0.2], { solid: false, offering: true }); } },
     { t: 'doc', id: 'names' },
     { t: 'scene', parts: () => Endings.names() },
-    { t: 'use', at: ['kiyo.memorial', -0.8, -0.6], label: 'Place Genjiro\'s bell', text: 'Place Genjiro\'s bronze bell beneath the memorial', on(m) { if (Endings.kind() !== 'ash') { m.place('aiko', ['kiyo.memorial', -2.5, 1.5]); m.place('haru', ['kiyo.memorial', 2.5, 1.5]); } } },
-    { t: 'use', at: ['kiyo.memorial', 0.2, -0.8], label: 'Hang Nao\'s paper charm', text: 'Hang Nao\'s paper charm beside it' },
-    { t: 'use', at: ['kiyo.memorial', 1, -0.2], label: 'Leave Daichi\'s tools', text: 'Leave Daichi\'s old tools on the stone', onUse(m) { m.prop('lanternpost', ['kiyo.memorial', -0.4, -1.6], { light: { r: 30, c: Endings.kind() === 'ash' ? '180,160,140' : '255,190,110' } }); } },
+    { t: 'use', at: ['kiyo.memorial', -0.8, -0.6], label: 'Place Genjiro\'s bell', text: 'Place Genjiro\'s bronze bell beneath the memorial', on(m) { if (Endings.kind() !== 'ash') { m.place('aiko', ['kiyo.memorial', -2.5, 1.5]); m.place('haru', ['kiyo.memorial', 2.5, 1.5]); } }, onUse(m) { m.stampProp('handbell', ['kiyo.memorial', -0.8, -0.2], { solid: false }); } },
+    { t: 'use', at: ['kiyo.memorial', 0.2, -0.8], label: 'Hang Nao\'s paper charm', text: 'Hang Nao\'s paper charm beside it', onUse(m) { m.stampProp('pages', ['kiyo.memorial', 0.2, -0.5], { solid: false }); } },
+    { t: 'use', at: ['kiyo.memorial', 1, -0.2], label: 'Leave Daichi\'s tools', text: 'Leave Daichi\'s old tools on the stone', onUse(m) { m.stampProp('satchel', ['kiyo.memorial', 0.8, 0.2], { solid: false }); m.stampProp('lanternpost', ['kiyo.memorial', -0.4, -1.6], { solid: false, light: { r: 30, c: Endings.kind() === 'ash' ? '180,160,140' : '255,190,110' } }); } },
     { t: 'wait', dur: 5, text: '', on(m) { m.look('kiyo.bank', 5); }, talk: () => Endings.river() },
     { t: 'mount', text: 'Mount Kumo', hint: 'Whistle him (H) if he has wandered.', on(m) { if (!m.fast) m.look('kiyo.cedar', 2.5); } },
     { t: 'scene', parts: () => Endings.leave() },
