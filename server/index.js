@@ -140,7 +140,7 @@ function publicPlayer(p, online) {
   return {
     id: p.id, name: p.name, look: p.look, x: p.x, y: p.y, face: p.face || 0,
     hp: p.hp, maxHp: p.maxHp || 100, wpn: p.wpn, armor: p.armor || 0,
-    pose: p.pose || 'idle', state: p.pose || 'idle',
+    pose: p.pose || 'idle', state: p.pose || 'idle', sleeping: !!p.sleeping,
     armed: !!(p.wpn && p.wpn !== 'fists'),
     atk: p.atk || null, draw: p.draw || null,
     walk: p.walk || 0, moving: !!p.moving, crouch: !!p.crouch,
@@ -240,6 +240,7 @@ function onMsg(ws, raw) {
       p.x = +m.x || p.x; p.y = +m.y || p.y; p.face = +m.face || 0;
       p.hp = m.hp; p.maxHp = m.maxHp; p.wpn = m.wpn; p.armor = m.armor;
       p.pose = m.pose || m.state || p.pose; p.atk = m.atk || null; p.draw = m.draw || null;
+      p.sleeping = !!(m.sleeping || p.pose === 'sleep');
       p.walk = m.walk || 0; p.moving = !!m.moving; p.crouch = !!m.crouch;
       p.armed = m.armed != null ? !!m.armed : !!(p.wpn && p.wpn !== 'fists');
       p.mounted = !!m.mounted; p.seat = m.seat | 0; p.mountOf = m.mountOf || null;
@@ -248,7 +249,7 @@ function onMsg(ws, raw) {
       if (m.dog) p.dog = m.dog; else if (m.dog === null) p.dog = null;
       broadcast({
         t: 'state', id: p.id, x: p.x, y: p.y, face: p.face, hp: p.hp, maxHp: p.maxHp,
-        wpn: p.wpn, armor: p.armor, pose: p.pose, state: p.pose, armed: p.armed,
+        wpn: p.wpn, armor: p.armor, pose: p.pose, state: p.pose, sleeping: !!p.sleeping, armed: p.armed,
         atk: p.atk, draw: p.draw, walk: p.walk, moving: p.moving, crouch: p.crouch,
         look: p.look, mounted: p.mounted, seat: p.seat, mountOf: p.mountOf, horse: p.horse, dog: p.dog || null
       }, ws);
@@ -353,11 +354,10 @@ function onMsg(ws, raw) {
       const gold = (p.gold | 0) + (p.bank | 0);
       if (gold < DOG_COST) { send(ws, { t: 'err', msg: 'Not enough mon (need ' + DOG_COST + ').' }); break; }
       const fromCarry = Math.min(p.gold | 0, DOG_COST); p.gold -= fromCarry; p.bank = (p.bank | 0) - (DOG_COST - fromCarry);
-      g.dog = { name: cleanName(m.name, 'Miso').slice(0, 16), coat: m.coat | 0, buyer: p.id };
+      g.dog = { name: cleanName(m.name, 'Miso').slice(0, 16), coat: ((m.coat | 0) % 7 + 7) % 7, buyer: p.id };
       touch();
       toGang(g, { t: 'gang', gang: publicGang(g), dog: g.dog, who: p.id });
       send(ws, { t: 'paid', gold: p.gold, bank: p.bank });
-      send(ws, { t: 'ok', msg: g.dog.name + ' waits by the fire.' });
       break;
     }
     case 'renameDog': {

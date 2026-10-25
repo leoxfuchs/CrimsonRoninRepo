@@ -130,7 +130,7 @@ em.kw{font-style:normal;color:#ffd24a;}
 .intro-wrap h2{font-family:var(--f-display);font-weight:800;font-size:clamp(26px,5vw,40px);margin:0;letter-spacing:.06em;}
 .intro-wrap p{margin:0;line-height:1.8;color:#d8ccb0;font-size:15px;}
 .intro-wrap .lede{font-size:13px;}
-#prompt{position:absolute;left:50%;bottom:calc(24% + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:#0b080bd9;border:1px solid var(--gold);padding:6px 12px;font-size:13px;pointer-events:none;white-space:nowrap;}
+#prompt{position:absolute;left:50%;bottom:calc(24% + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:#0b080bd9;border:1px solid var(--gold);padding:6px 12px;font-size:13px;pointer-events:none;white-space:normal;max-width:min(640px,90vw);text-align:center;}
 #prompt kbd{font-family:var(--f-ui);background:var(--paper);color:var(--ink);padding:0 5px;margin-right:6px;}
 #banner{position:absolute;left:0;right:0;top:26%;text-align:center;pointer-events:none;opacity:0;transition:opacity .8s;}
 #banner.show{opacity:1;}
@@ -6080,6 +6080,20 @@ const G = {
     const crowd = this.actors.filter(b => !b.dead && b.ai && b.ai.mode === 'fight' && b.ai.target === h.tgt).length;
     h.tgt._tokCool = this.time + 0.55 + Math.min(1.1, 0.18 * Math.max(0, crowd - 1));
   },
+  beginSleep(at) {
+    const p = this.player; if (!p || p.dead) return;
+    if (p.mounted) { try { Horse.dismount(); } catch (e) {} }
+    this.sleeping = true;
+    p.sleeping = true; p.lying = false; p.sitting = false;
+    p.pose = 'sleep'; p.state = 'sleep'; p.moving = false; p._armedT = 0; p.drawAnim = null; p.atk = null;
+    if (at && at[0] != null) { p.x = at[0]; p.y = at[1]; }
+  },
+  endSleep() {
+    this.sleeping = false;
+    const p = this.player; if (!p) return;
+    p.sleeping = false; p.pose = 'idle';
+    if (p.state === 'sleep') p.state = 'idle';
+  },
   hasPerk(id) { return !!(this.profile && this.profile.perks[id]); },
   perkN(id) { return (this.profile && this.profile.perks[id]) || 0; },
   slow(dur, f) { this.slowT = Math.max(this.slowT, dur); this.slowF = Math.min(this.slowF, f); },
@@ -6274,7 +6288,7 @@ const G = {
     for (const a of this.actors) if (!a.dead && a.ai?.target === p && (a.state === 'atk' || a.ai.token)) this.attackers++;
     for (const a of this.actors) { if (a !== p && !a.isP && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) > 60 && !(a.ai && a.ai.mode === 'fight')) continue; if (a !== p && !a.remote) aiUpdate(a, dt); if (a.remote) a.updateVisual(dt); else a.update(dt); }
     const A = this.actors;
-    for (let i = 0; i < A.length; i++) { const a = A[i]; if (a.dead || a.dummy || a.mount) continue; for (let j = i + 1; j < A.length; j++) { const b = A[j]; if (b.dead || b.dummy || b.mount) continue; if ((a === p || b === p) && p.mounted) continue; const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy, m = a.r + b.r; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2), push = (m - d) * 0.5, nx = dx / d, ny = dy / d; if (a !== p || b.isP) moveActor(a, -nx * push, -ny * push, 1); moveActor(b, nx * push, ny * push, 1); } } }
+    for (let i = 0; i < A.length; i++) { const a = A[i]; if (a.dead || a.dummy || a.mount) continue; for (let j = i + 1; j < A.length; j++) { const b = A[j]; if (b.dead || b.dummy || b.mount) continue; if ((a === p || b === p) && (p.mounted || this.sleeping || p.sleeping)) continue; const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy, m = a.r + b.r; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2), push = (m - d) * 0.5, nx = dx / d, ny = dy / d; if (a !== p || b.isP) moveActor(a, -nx * push, -ny * push, 1); moveActor(b, nx * push, ny * push, 1); } } }
     this.actors = this.actors.filter(a => !(a.gone && !a.persistent) && !(a.dead && a.deadT > 30 && !a.linger && GangRide.offscreen(a.x, a.y)));
     for (const a of this.actors) if (a.dead) a.deadT = (a.deadT || 0) + dt;
     this.updatePickups(dt);
@@ -6334,13 +6348,22 @@ const G = {
   updatePlayer(dt) {
     const p = this.player;
     if (this.sleeping) {
-      const q = (Net && Net.gang && Net.gang.buildings && Net.gang.buildings.quarters) || 1;
+      const q = (typeof Net !== 'undefined' && Net.gang && Net.gang.buildings && Net.gang.buildings.quarters) || 1;
       const rate = q >= 3 ? 4 : q >= 2 ? 2 : 1;
       p.hp = Math.min(p.maxHp, p.hp + rate * dt); p.bleed = Math.max(0, p.bleed - dt * 0.2); p.st = Math.min(p.maxSt, p.st + dt * 8);
-      p.moving = false; p.pose = 'sleep';
-      if (Input.hit('KeyE', 'Space', 'Escape')) { this.sleeping = false; UI.toast('You wake.'); }
+      p.sleeping = true; p.moving = false; p.pose = 'sleep'; p.state = 'sleep'; p._armedT = 0;
+      if (Input.hit('KeyE', 'Space', 'Escape')) { this.endSleep(); UI.toast('You wake.'); }
       Systems.findInteract();
       return;
+    }
+    if (p.petT > 0) {
+      p.petT -= dt;
+      const wantOut = Input.hit('Space') || Input.held('KeyW', 'ArrowUp') || Input.held('KeyS', 'ArrowDown') || Input.held('KeyA', 'ArrowLeft') || Input.held('KeyD', 'ArrowRight') || (Input.joy && Input.joy.active);
+      if (p.petT <= 0 || wantOut) {
+        p.petT = 0;
+        if (p.state === 'kneel' || p.state === 'sit' || p.state === 'bow') p.state = 'idle';
+        p.sitting = false;
+      }
     }
     if (UI.isOpen()) { if (!p.mounted) p.move(0, 0, dt); else if (this.horse) this.horse.spd *= 0.9; return; }
     if (Mini.cur && Mini.update(dt)) return;
@@ -6888,7 +6911,10 @@ const Systems = {
       }
     }
     // a mission's own points (and Kumo, when a step needs him) come before anything else
-    const mi = Missions.interactable(); if (mi && !(best && best.kind === 'npc' && Missions.markFor(best.actor))) best = mi;
+    const mi = Missions.interactable(); if (mi && !(best && best.kind === 'npc' && Missions.markFor(best.actor))) {
+      const t = Missions.objText(); if (t) mi.label = t;
+      best = mi;
+    }
     G.interact = best;
     UI.prompt(best ? best.label : null, G.assassin);
   },
@@ -6911,22 +6937,14 @@ const Systems = {
     switch (it.kind) {
       case 'dismount': Horse.dismount(); break;
       case 'mount': Horse.mount(); break;
-      case 'wake': G.sleeping = false; G.player.pose = 'idle'; UI.toast('You wake.'); break;
-      case 'sleep': G.sleeping = true; G.player.pose = 'sleep'; UI.toast('Sleeping · a little health returns each breath'); break;
+      case 'wake': G.endSleep(); UI.toast('You wake.'); break;
+      case 'sleep': G.beginSleep(it.obj ? [it.obj.cx, it.obj.cy] : null); UI.toast('Sleeping · a little health returns each breath'); break;
       case 'clothes': Creator.open(true); Creator.mpFree = true; break;
       case 'campBuy': if (typeof Net !== 'undefined') Net.campBuy(it.key); break;
       case 'campUp': if (typeof Net !== 'undefined') Net.campUp(it.key); break;
       case 'horseBuy': if (typeof Net !== 'undefined') Net.buyHorse(it.tier); break;
-      case 'buyDog': if (typeof Net !== 'undefined') Net.buyDog(); break;
-      case 'dog': {
-        const name = Miso.name();
-        const own = !G.mp || (typeof Net !== 'undefined' && Net.gang && Net.gang.dog && (Net.gang.dog.buyer === Net.id || Net.gang.leader === Net.id));
-        const buttons = [{ label: 'Scratch behind the ear', fn: () => Miso.pet() }];
-        if (own) buttons.push({ label: 'Rename ' + name, fn: () => UI.open('renameDog') });
-        buttons.push({ label: 'Leave', alt: true });
-        UI.open('dialog', { speaker: name, lines: [name + ' looks up at you, tail going.'], buttons });
-        break;
-      }
+      case 'buyDog': UI.open('buyDog'); break;
+      case 'dog': Miso.pet(); break;
       case 'map': UI.open('map'); break;
       case 'yielded': this.spare(it.actor); break;
       case 'beast': Wildlife.use(it); break;
@@ -7224,10 +7242,12 @@ const UI = {
     $('hTime').textContent = 'Day ' + pr.day + ' · Hour of the ' + HOURS[hour] + (G.rain ? ' · rain' : '');
     // the tracker: the mission objective, a tracked quest, or the way to the next mission
     const T = Track.get(), tr = $('tracker');
+    if (typeof Missions !== 'undefined') Missions.objective();
     if (T) {
       let dir = ''; const tgt = T.tgt;
       if (tgt) { const dx = tgt[0] - p.x, dy = tgt[1] - p.y, m = Math.hypot(dx, dy); if (m > 2) { const sa = Math.atan2((dx + dy) / 2, dx - dy); dir = ARROWS[((Math.round(sa / (PI / 4)) % 8) + 8) % 8] + ' ' + (m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'); } else dir = 'here'; }
-      const html = `<div class="tk ${T.kind}">${esc(T.head)}</div><div class="tt">${esc(T.text)}</div>${T.hint && T.kind !== 'activity' ? `<div class="th">${esc(T.hint)}</div>` : ''}<div class="td">${dir}</div>`;
+      const body = T.kind === 'mission' ? Guide.highlight(T.text, (T.text || '').length) : esc(T.text);
+      const html = `<div class="tk ${T.kind}">${esc(T.head)}</div><div class="tt">${body}</div>${T.hint && T.kind !== 'activity' ? `<div class="th">${esc(T.hint)}</div>` : ''}<div class="td">${dir}</div>`;
       if (tr._h !== html) { tr.innerHTML = html; tr._h = html; }
       tr.hidden = false;
     } else tr.hidden = true;
@@ -7406,7 +7426,13 @@ const UI = {
     if (name === 'dialog') { this.panel = name; this.data = data; $('prompt').hidden = true; Talk.open(data); return; }
     this.panel = name; this.data = data; $('panel').hidden = false; $('panel').dataset.kind = name; $('prompt').hidden = true;
     this.render();
-    setTimeout(() => { const b = $('panelBody').querySelector('button'); if (b && !Input.touch) b.focus({ preventScroll: true }); }, 0);
+    setTimeout(() => {
+      const body = $('panelBody'); if (!body) return;
+      const inp = body.querySelector('input[autofocus], #dogName, #meName');
+      const b = body.querySelector('button');
+      if (inp && !Input.touch) inp.focus({ preventScroll: true });
+      else if (b && !Input.touch) b.focus({ preventScroll: true });
+    }, 0);
   },
   close() {
     if (this.panel === 'dialog') Talk.hide();
@@ -7420,6 +7446,13 @@ const UI = {
     $('panelSeal').textContent = r.seal || '印'; $('panelTitle').textContent = r.title; $('panelBody').innerHTML = r.html;
     $('panelBody').querySelectorAll('button[data-act]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); Snd.play('ui'); const res = r.on && r.on(b.dataset.act, b.dataset.arg, b); if (res !== false && this.panel) this.render(); }));
     $('panelBody').querySelectorAll('input[data-act]').forEach(b => b.addEventListener('input', e => { e.stopPropagation(); const res = r.on && r.on(b.dataset.act, b.value, b); if (res !== false && this.panel) this.render(); }));
+    const nameBox = $('dogName');
+    if (nameBox) nameBox.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const b = $('panelBody').querySelector('button[data-act="ok"]');
+      if (b) b.click();
+    });
   },
 };
 const priceMult = () => { const h = G.profile.honor; return h >= 50 ? 0.85 : h < -20 ? 1 + (-h - 20) / 100 : 1; };
@@ -7740,7 +7773,26 @@ const Panels = {
       if (act === 'controls') { G.setControls(G.controls === 'classic' ? 'turn' : 'classic'); UI.toast(G.controls === 'classic' ? 'Classic controls: WASD moves Ren across the screen, he faces the mouse' : 'Turn and walk: W walks the way Ren faces, S steps back, A and D turn him', 'good'); UI.close(); UI.open('pause'); return false; } if (act === 'quit') { Systems.save(); location.reload(); } } };
   },
   barber() { UI.close(); Creator.open(true); return null; },
+  buyDog() {
+    if (!G.mp || typeof Net === 'undefined') return null;
+    if (Net.gang && Net.gang.dog) { UI.toast('The camp already has a dog.'); return null; }
+    if (!Net.canPay(120)) return null;
+    return {
+      title: 'A camp dog', seal: '犬',
+      html: `<p class="lede">Name them first. After that they shake out a colour of their own — brown, black, white, or black and white patched.</p><div class="row"><input id="dogName" maxlength="16" placeholder="A name" autofocus><button class="btn gold" data-act="ok">Call them this</button></div>`,
+      on(act) {
+        if (act === 'ok') {
+          const v = (($('dogName') && $('dogName').value) || '').trim();
+          if (!v) { UI.toast('They need a name.'); return; }
+          const coat = Math.random() < 0.38 ? 3 : rndi(0, DOG_COATS.length - 1);
+          Net.buyDog(v.slice(0, 16), coat);
+          UI.close(); return false;
+        }
+      }
+    };
+  },
   renameDog() {
+    if (!G.mp) { UI.toast('She is Miso.'); return null; }
     const n = Miso.name();
     return {
       title: 'The dog', seal: '犬',
@@ -7748,9 +7800,8 @@ const Panels = {
       on(act) {
         if (act === 'ok') {
           const v = (($('dogName') && $('dogName').value) || '').trim();
-          if (v) {
-            if (G.mp && typeof Net !== 'undefined') Net.renameDog(v);
-            else if (Miso.dog) Miso.dog.name = v.slice(0, 16);
+          if (v && typeof Net !== 'undefined') {
+            Net.renameDog(v);
             UI.toast('The dog answers to ' + (v.slice(0, 16)) + '.', 'good');
           }
           UI.close(); return false;
@@ -10297,7 +10348,7 @@ const Rob = {
 const BEASTS = {
   deer: { name: 'Sika Deer', jp: '鹿', lore: 'Sacred messengers of the kami. They wander the shrine grounds freely, and harming one is a grave crime.', L: 0.36, W: 0.1, H: 14, T: 7, nk: 0.16, nu: 9, hs: 4, mz: 0.13, ear: 3, tl: 0.06, td: 1, tw: 2, col: ['#9a6438', '#6e4426', '#b88452', '#efe6d4'], tip: '#f4efe4', spots: true, walk: 1.2, run: 7.4, r: 0.28, hp: 26, flee: 7, bound: true },
   serow: { name: 'Japanese Serow', jp: '羚羊', lore: 'A solitary goat-antelope of the misty mountain forests, sure-footed on the steepest crags.', L: 0.3, W: 0.12, H: 12, T: 9, nk: 0.12, nu: 5, hs: 5, mz: 0.1, ear: 2, tl: 0.05, td: 1, tw: 2, col: ['#4a4442', '#2c2826', '#6a625c', '#5a524c'], mane: '#ddd8ce', horns: true, walk: 0.9, run: 6.4, r: 0.28, hp: 40, flee: 8 },
-  dog: { name: 'Miso', jp: '犬', hidden: true, lore: 'A scruffy brown stray with one ear up and one folded over. A thief by trade.', L: 0.27, W: 0.08, H: 8, T: 6, nk: 0.15, nu: 3, hs: 4, mz: 0.15, ear: 2, tl: 0.24, td: 4, tw: 3, col: ['#8a5a32', '#5a3a1e', '#b8844e', '#d8b48a'], tip: '#5a3a1e', walk: 1.7, run: 9.4, r: 0.22, hp: 999, flee: 0 },
+  dog: { name: 'Miso', jp: '犬', hidden: true, lore: 'A scruffy brown stray with one ear up and one folded over. A thief by trade.', L: 0.27, W: 0.08, H: 8, T: 6, nk: 0.15, nu: 3, hs: 6, mz: 0.18, ear: 3, tl: 0.24, td: 4, tw: 3, col: ['#8a5a32', '#5a3a1e', '#b8844e', '#d8b48a'], tip: '#5a3a1e', walk: 1.7, run: 9.4, r: 0.22, hp: 999, flee: 0 },
   wolf: { name: 'Honshu Wolf', jp: '狼', lore: 'Ōkami, revered by farmers as Oguchi-no-Magami: the guardian who drives boar and deer from the rice fields.', L: 0.34, W: 0.09, H: 10, T: 7, nk: 0.18, nu: 4, hs: 4, mz: 0.17, ear: 3, tl: 0.32, td: 5, tw: 4, col: ['#7a6c5a', '#4a4036', '#a8987e', '#cfc3aa'], tip: '#3a3028', walk: 1.6, run: 8.2, r: 0.26, hp: 36, flee: 0 },
   fox: { name: 'Kitsune', jp: '狐', lore: 'The red fox, messenger of Inari, god of rice and plenty. An old fox can kindle ghost-light and wear a borrowed face.', L: 0.26, W: 0.07, H: 8, T: 5, nk: 0.13, nu: 4, hs: 3, mz: 0.15, ear: 3, tl: 0.36, td: 3, tw: 5, col: ['#c8642a', '#8a3c18', '#ea8c46', '#f4ece0'], tip: '#f8f4ec', legs: '#2a1a14', earTip: '#2a1a14', walk: 1.4, run: 7.8, r: 0.2, hp: 16, flee: 6 },
   tanuki: { name: 'Tanuki', jp: '狸', lore: 'The jolly raccoon dog. On moonlit nights it drums its belly, and with a leaf on its head it can turn into a teapot.', L: 0.22, W: 0.12, H: 6, T: 8, leg: 0.7, nk: 0.1, nu: 2, hs: 4, mz: 0.08, ear: 2, tl: 0.16, td: 2, tw: 5, col: ['#7c6c56', '#3e342a', '#a89a80', '#8a7c66'], mask: '#1e1a18', legs: '#2a2420', walk: 1.0, run: 4.6, r: 0.22, hp: 18, flee: 5 },
@@ -10306,6 +10357,16 @@ const BEASTS = {
   bakeneko: { name: 'Bakeneko', jp: '化け猫', lore: 'A cat that has lived too long. Its tail splits in two, and on dark nights it rises on its hind legs to dance.', L: 0.17, W: 0.06, H: 6, T: 4, nk: 0.08, nu: 3, hs: 3, mz: 0.05, ear: 2, tl: 0.28, td: -4, tw: 2, walk: 0.7, run: 4, r: 0.18, hp: 999, flee: 0 },
 };
 const CAT_COATS = [['#f2ece0', '#d8d0c0', '#ffffff', '#f4eee4'], ['#2a2628', '#1a1618', '#3e383a', '#2a2628'], ['#d8843a', '#a85a22', '#f0a85a', '#f2e4cc'], ['#8a8278', '#5e5850', '#aaa298', '#d8d2c6']];
+const DOG_COATS = [
+  { name: 'brown', label: 'a scruffy brown coat', col: ['#8a5a32', '#5a3a1e', '#b8844e', '#d8b48a'] },
+  { name: 'black', label: 'a black coat', col: ['#2a2426', '#141012', '#4a4448', '#3a3436'] },
+  { name: 'white', label: 'a white coat', col: ['#e8e2d6', '#c4bcae', '#f6f0e6', '#fff8ee'] },
+  { name: 'patched', label: 'a black and white patched coat', col: ['#2a2426', '#141012', '#4a4448', '#e8e2d6'], patch: '#e8e2d6' },
+  { name: 'saddle', label: 'a white coat with black patches', col: ['#e8e2d6', '#c4bcae', '#f6f0e6', '#2a2426'], patch: '#2a2426' },
+  { name: 'tan', label: 'a tan coat', col: ['#c89a52', '#8a5a28', '#e8b86a', '#f4e4c4'] },
+  { name: 'brindle', label: 'a brindle coat', col: ['#6a4a32', '#3a2818', '#8a6a4a', '#c8a888'] }
+];
+function dogLook(an) { return (an && an.coat != null && DOG_COATS[an.coat]) || DOG_COATS[0]; }
 const Wildlife = {
   list: [], anchors: new Map(), spawnT: 1, said: 0,
   reset() { this.list = []; this.anchors = new Map(); },
@@ -10700,12 +10761,15 @@ const Wildlife = {
 };
 // a four-legged body in projected strokes: legs in gait, body, neck and head, ears, tail, and each kind's own marks
 function drawBeast(ctx, X, Y, an, S, t) {
-  const fx = Math.cos(an.face), fy = Math.sin(an.face), lift = an.z || 0, C = an.coat !== undefined ? CAT_COATS[an.coat] : S.col, [base, dark, lite, belly] = C;
+  const fx = Math.cos(an.face), fy = Math.sin(an.face), lift = an.z || 0;
+  const dlook = an.sp === 'dog' ? dogLook(an) : null;
+  const C = dlook ? dlook.col : (an.coat !== undefined ? CAT_COATS[an.coat] : S.col), [base, dark, lite, belly] = C;
   const P = (a, b, z) => { const dx = fx * a - fy * b, dy = fy * a + fx * b; return [X + (dx - dy) * 16, Y + (dx + dy) * 8 - z - lift, dx + dy]; };
   const k = clamp(an.spd / S.run, 0, 1), g = (an.gait || 0) * TAU, pose = an.pose, pt = an.pt || 0, L = S.L, W = S.W, H = S.H;
-  if (pose === 'lie') { const r0 = P(-L, 0, 2), r1 = P(L, 0, 2); if (lift < 8) { ctx.fillStyle = 'rgba(8,6,12,0.3)'; ctx.beginPath(); ctx.ellipse(X, Y, L * 22 + 2, L * 8 + 1.5, 0, 0, TAU); ctx.fill(); } pline(ctx, r0[0], r0[1], r1[0], r1[1], base, S.T); pline(ctx, r0[0], r0[1] + 2, r1[0], r1[1] + 2, dark, 2); const hd = P(L + 0.12, 0.05, 2); ctx.fillStyle = base; ctx.fillRect(Math.round(hd[0]) - 2, Math.round(hd[1]) - 2, S.hs, S.hs - 1); for (const a of [0.8, -0.8]) { const h0 = P(a * L, W, 3), h1 = P(a * L + 0.12, W + 0.25, 1); pline(ctx, h0[0], h0[1], h1[0], h1[1], dark, 1); } if (an.item) drawMisoItem(ctx, hd[0] + 3, hd[1] + 1, an.item); return; }
+  const dogLie = an.sp === 'dog' && pose === 'lie';
+  if (pose === 'lie' && !dogLie) { const r0 = P(-L, 0, 2), r1 = P(L, 0, 2); if (lift < 8) { ctx.fillStyle = 'rgba(8,6,12,0.3)'; ctx.beginPath(); ctx.ellipse(X, Y, L * 22 + 2, L * 8 + 1.5, 0, 0, TAU); ctx.fill(); } pline(ctx, r0[0], r0[1], r1[0], r1[1], base, S.T); pline(ctx, r0[0], r0[1] + 2, r1[0], r1[1] + 2, dark, 2); const hd = P(L + 0.12, 0.05, 2); ctx.fillStyle = base; ctx.fillRect(Math.round(hd[0]) - 2, Math.round(hd[1]) - 2, S.hs, S.hs - 1); for (const a of [0.8, -0.8]) { const h0 = P(a * L, W, 3), h1 = P(a * L + 0.12, W + 0.25, 1); pline(ctx, h0[0], h0[1], h1[0], h1[1], dark, 1); } if (an.item) drawMisoItem(ctx, hd[0] + 3, hd[1] + 1, an.item); return; }
   ctx.fillStyle = `rgba(8,6,12,${0.32 * clamp(1 - lift / 40, 0.35, 1)})`; ctx.beginPath(); ctx.ellipse(X, Y, L * 22 + 2, L * 8 + 1.5, 0, 0, TAU); ctx.fill();
-  const bob = Math.abs(Math.sin(g)) * k * 1.4, sit = pose === 'sit' || pose === 'howl' || pose === 'drum' || pose === 'groom' ? 1 : 0, crouch = pose === 'crouch' ? 1 : 0, dive = pose === 'dive' ? 1 : 0;
+  const bob = Math.abs(Math.sin(g)) * k * 1.4, sit = pose === 'sit' || pose === 'howl' || pose === 'drum' || pose === 'groom' || dogLie ? 1 : 0, crouch = pose === 'crouch' ? 1 : 0, dive = pose === 'dive' ? 1 : 0;
   const zr = H * (S.leg || 1) * (1 - sit * 0.6) - crouch * 3 + bob, zf = H * (S.leg || 1) + sit * 2 - crouch * 2 + bob + dive * 2;
   const legsDraw = [[1, -1, 0], [1, 1, PI], [-1, -1, PI * 0.5], [-1, 1, PI * 1.5]].map(([fr, sd, off]) => {
     // a bounding deer moves front and hind pairs together; everyone else walks the diagonal pairs
@@ -10721,8 +10785,9 @@ function drawBeast(ctx, X, Y, an, S, t) {
   // head: dropped to graze or sniff, up to howl, dipping in a bow, snapping in a bite
   const bow = pose === 'bow' ? Math.max(0, Math.sin(clamp(pt, 0, 2.4) / 2.4 * TAU * 2)) : 0, graze = pose === 'graze' ? 1 : pose === 'sniff' ? 0.7 : dive ? 1 : 0, howl = pose === 'howl' ? clamp(pt / 0.5, 0, 1) : 0, look = pose === 'look' ? Math.sin(pt * 2) * 0.3 : 0, bite = pose === 'bite' ? Math.max(0, 1 - pt * 4) : 0;
   const neck0 = P(L * 0.95, 0, zf + 1), hz = zf + S.nu - graze * (zf + S.nu - 2) - bow * (S.nu + 4) + howl * 2, ha = L + S.nk * (1 - howl * 0.5) + graze * 0.06 + bite * 0.12, head = P(ha, look * 0.3, hz), muz = P(ha + S.mz * (1 - howl * 0.7), look * 0.4, hz - 1 + howl * 6 - graze * 1.5);
-  const headFar = head[2] < neck0[2] - 0.05, tail0 = P(-L, 0, zr + 1), wag = Math.sin(t * (an.sp === 'cat' ? 2 : 5) + an.ph) * (an.spd > 0.3 ? 0.06 : 0.03);
-  const tail1 = sit ? P(-L - S.tl * 0.8, wag * 2, 1) : P(-L - S.tl, wag * (S.tl > 0.2 ? 4 : 1), zr - S.td + (an.sp === 'fox' && k > 0.5 ? 3 : 0));
+  const happy = an.sp === 'dog' && (an.wagT || 0) > 0, wagHz = happy ? 14 : an.sp === 'cat' ? 2 : 5;
+  const headFar = head[2] < neck0[2] - 0.05, tail0 = P(-L, 0, zr + 1), wag = Math.sin(t * wagHz + (an.ph || 0)) * (happy ? 0.28 : an.spd > 0.3 ? 0.06 : 0.03);
+  const tail1 = sit ? P(-L - S.tl * 0.8, wag * (happy ? 10 : 2), 1 + (happy ? Math.abs(Math.sin(t * wagHz)) * 5 : 0)) : P(-L - S.tl, wag * (S.tl > 0.2 ? 4 : 1) * (happy ? 3.5 : 1), zr - S.td + (an.sp === 'fox' && k > 0.5 ? 3 : 0) + (happy ? Math.abs(Math.sin(t * wagHz)) * 4 : 0));
   const drawTail = () => { if (S.tl < 0.08) { ctx.fillStyle = S.tip || lite; ctx.fillRect(Math.round(tail0[0]) - 1, Math.round(tail0[1]) - 1, 2, 2); return; } pline(ctx, tail0[0], tail0[1], tail1[0], tail1[1], an.sp === 'cat' ? base : dark, S.tw); pline(ctx, lerp(tail0[0], tail1[0], 0.3), lerp(tail0[1], tail1[1], 0.3) - 1, tail1[0], tail1[1] - 1, base, Math.max(1, S.tw - 2)); if (S.tip) { ctx.fillStyle = S.tip; ctx.fillRect(Math.round(tail1[0]) - 1, Math.round(tail1[1]) - 1, 3, 2); } if (an.sp === 'tanuki') { const m = [lerp(tail0[0], tail1[0], 0.6), lerp(tail0[1], tail1[1], 0.6)]; ctx.fillStyle = S.mask; ctx.fillRect(Math.round(m[0]) - 1, Math.round(m[1]) - 2, 2, 3); } };
   const drawHead = () => {
     pline(ctx, neck0[0], neck0[1], head[0], head[1], base, Math.max(2, S.T - 3));
@@ -10732,11 +10797,28 @@ function drawBeast(ctx, X, Y, an, S, t) {
     ctx.fillStyle = an.sp === 'tanuki' ? S.mask : '#140c0c'; ctx.fillRect(Math.round(muz[0]), Math.round(muz[1]), 1, 1);
     // ears
     const e1 = P(ha - 0.04, -0.05, hz + S.ear + 1), e2 = P(ha - 0.04, 0.05, hz + S.ear + 1);
-    for (const e of [e1, e2]) { ctx.fillStyle = an.sp === 'tanuki' ? dark : base; if (an.sp === 'dog' && e === e2) { ctx.fillStyle = dark; ctx.fillRect(Math.round(e[0]), Math.round(e[1]) + S.ear - 1, 2, 1); continue; } ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, S.ear); if (S.earTip) { ctx.fillStyle = S.earTip; ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, 1); } }
+    for (const e of [e1, e2]) { ctx.fillStyle = an.sp === 'tanuki' ? dark : (dlook && dlook.patch && e === e2 ? dlook.patch : base); if (an.sp === 'dog' && e === e2) { ctx.fillStyle = dark; ctx.fillRect(Math.round(e[0]), Math.round(e[1]) + S.ear - 1, 2, 1); continue; } ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, S.ear); if (S.earTip) { ctx.fillStyle = S.earTip; ctx.fillRect(Math.round(e[0]) - 1, Math.round(e[1]), 2, 1); } }
     // eyes (the tanuki's in its mask)
     const ey = P(ha + 0.03, Math.sign(fx - fy) * 0.04 || 0.04, hz + 1);
     if (an.sp === 'tanuki') { ctx.fillStyle = S.mask; ctx.fillRect(Math.round(ey[0]) - 2, Math.round(ey[1]) - 1, 4, 2); ctx.fillStyle = '#f4ece0'; ctx.fillRect(Math.round(ey[0]) - 2, Math.round(ey[1]) - 2, 4, 1); }
-    ctx.fillStyle = an.sp === 'cat' ? '#d8c040' : '#0a0608'; ctx.fillRect(Math.round(ey[0]), Math.round(ey[1]), 1, 1);
+    if (an.sp === 'dog') {
+      const eL = P(ha + 0.02, -0.055, hz + 1.4), eR = P(ha + 0.02, 0.055, hz + 1.4);
+      const mx = Math.round(muz[0]), my = Math.round(muz[1]);
+      ctx.fillStyle = belly; ctx.fillRect(mx - 1, my - 1, 5, 3);
+      ctx.fillStyle = '#1a1010'; ctx.fillRect(mx + 1, my - 2, 2, 2);
+      ctx.fillStyle = '#fff8ee';
+      ctx.fillRect(Math.round(eL[0]) - 1, Math.round(eL[1]) - 1, 2, 2);
+      ctx.fillRect(Math.round(eR[0]) - 1, Math.round(eR[1]) - 1, 2, 2);
+      ctx.fillStyle = '#0a0608';
+      ctx.fillRect(Math.round(eL[0]), Math.round(eL[1]), 1, 1);
+      ctx.fillRect(Math.round(eR[0]), Math.round(eR[1]), 1, 1);
+      if (happy || pose === 'sit' || dogLie) {
+        ctx.fillStyle = '#d05060';
+        ctx.fillRect(mx, my + 2, 2, happy ? 4 : 3);
+      }
+    } else {
+      ctx.fillStyle = an.sp === 'cat' ? '#d8c040' : '#0a0608'; ctx.fillRect(Math.round(ey[0]), Math.round(ey[1]), 1, 1);
+    }
     if (an.sp === 'monkey') { const fc = P(ha + 0.06, 0, hz); ctx.fillStyle = S.face; ctx.fillRect(Math.round(fc[0]) - 1, Math.round(fc[1]) - 1, 2, 3); }
     if (S.horns) { const h1 = P(ha - 0.03, 0, hz + 3), h2 = P(ha - 0.1, 0, hz + 7); pline(ctx, h1[0], h1[1], h2[0], h2[1], '#141012', 1); }
     if (an.stag) for (const s of [-1, 1]) { const a0 = P(ha - 0.02, s * 0.04, hz + 3), a1 = P(ha - 0.08, s * 0.12, hz + 11), a2 = P(ha + 0.02, s * 0.1, hz + 9); pline(ctx, a0[0], a0[1], a1[0], a1[1], '#c8b48a', 1); pline(ctx, lerp(a0[0], a1[0], 0.5), lerp(a0[1], a1[1], 0.5), a2[0], a2[1], '#c8b48a', 1); }
@@ -10752,6 +10834,12 @@ function drawBeast(ctx, X, Y, an, S, t) {
   if (S.spots) for (let i = 0; i < 6; i++) { const q = P(-L * 0.7 + i * L * 0.28, (i % 2 ? 0.03 : -0.03), (zr + zf) / 2 + 2); ctx.fillStyle = '#f2ead8'; ctx.fillRect(Math.round(q[0]), Math.round(q[1]), 1, 1); }
   if (S.spots) { const q = P(-L, 0, zr - 1); ctx.fillStyle = '#f4efe4'; ctx.fillRect(Math.round(q[0]) - 1, Math.round(q[1]) - 1, 3, 3); }
   if (an.sp === 'cat' && an.coat === 0) { const q = P(0, 0, (zr + zf) / 2 + 1); ctx.fillStyle = '#d8843a'; ctx.fillRect(Math.round(q[0]) - 2, Math.round(q[1]) - 1, 3, 2); ctx.fillStyle = '#2a2628'; ctx.fillRect(Math.round(q[0]) + 2, Math.round(q[1]), 2, 2); }
+  if (an.sp === 'dog' && dlook && dlook.patch) {
+    for (const [a, b, w, h] of [[-0.1, 0.05, 4, 3], [0.06, -0.04, 3, 2], [0.16, 0.03, 3, 3]]) {
+      const q = P(a, b, (zr + zf) / 2 + 2);
+      ctx.fillStyle = dlook.patch; ctx.fillRect(Math.round(q[0]) - 1, Math.round(q[1]) - 1, w, h);
+    }
+  }
   // belly drumming: the paws come up and beat
   if (pose === 'drum') { const beat = Math.abs(Math.sin(pt * 9.4)), q = P(L * 0.5, 0, zf - 2); ctx.fillStyle = belly; ctx.fillRect(Math.round(q[0]) - 3, Math.round(q[1]) - 2, 6, 5); ctx.fillStyle = dark; ctx.fillRect(Math.round(q[0]) - 4, Math.round(q[1]) - 3 + Math.round(beat * 2), 2, 2); ctx.fillRect(Math.round(q[0]) + 2, Math.round(q[1]) - 3 + Math.round((1 - beat) * 2), 2, 2); }
   if (!tailFar) drawTail();
@@ -11212,7 +11300,7 @@ const Miso = {
     if (G.mp) return !!(typeof Net !== 'undefined' && Net.gang && Net.gang.dog);
     const s = G.profile && G.profile.story; return !!s && (s.n > 10 || (s.n === 10 && G.profile.flags.miso)) && !(Missions.cur && Missions.cur.def.noDog);
   },
-  name() { return (G.mp && typeof Net !== 'undefined' && Net.gang && Net.gang.dog && Net.gang.dog.name) || (this.dog && this.dog.name) || 'Miso'; },
+  name() { return (G.mp && typeof Net !== 'undefined' && Net.gang && Net.gang.dog && Net.gang.dog.name) || 'Miso'; },
   mine() {
     if (!G.mp) return true;
     const d = typeof Net !== 'undefined' && Net.gang && Net.gang.dog;
@@ -11222,12 +11310,34 @@ const Miso = {
     return !ownerOn && Net.gang.leader === Net.id;
   },
   pet() {
-    const d = this.dog; if (!d) return;
-    d.pose = 'sit'; d.idleT = 0; d.sitT = 2.6; d.spd = 0;
-    G.player.faceTo(d.x, d.y);
-    FX.text(d.x, d.y, this.name(), '#efe3c8');
+    const d = this.dog, p = G.player; if (!d || !p) return;
+    const nm = this.name();
+    d.pose = 'sit'; d.idleT = 0; d.sitT = 3.2; d.spd = 0; d.wagT = 3.2; d.nav = null;
+    p.faceTo(d.x, d.y);
+    d.face = Math.atan2(p.y - d.y, p.x - d.x);
+    if (!p.mounted && !G.sleeping && !p.sleeping) {
+      const way = pick(['kneel', 'kneel', 'kneelL', 'kneelR', 'sit', 'bow']);
+      const pose = way === 'sit' ? 'sit' : way === 'bow' ? 'bow' : 'kneel';
+      const ang = Math.atan2(d.y - p.y, d.x - p.x);
+      const side = way === 'kneelL' ? -0.5 : way === 'kneelR' ? 0.5 : rnd(-0.22, 0.22);
+      const reach = way === 'bow' ? 0.95 : way === 'sit' ? 0.82 : 0.62;
+      const nx = d.x - Math.cos(ang) * reach - Math.sin(ang) * side;
+      const ny = d.y - Math.sin(ang) * reach + Math.cos(ang) * side;
+      if (!blockedCircle(nx, ny, p.r || 0.27)) { p.x = nx; p.y = ny; }
+      p.faceTo(d.x, d.y);
+      p.sitting = pose === 'sit';
+      p.state = pose;
+      p.petT = 2.8;
+      p.moving = false;
+    }
+    FX.text(d.x, d.y, nm, '#efe3c8');
     Snd.play('ui');
-    UI.toast('You scratch ' + this.name() + ' behind the ear.', 'good');
+    UI.toast(pick([
+      'You kneel and scratch ' + nm + ' behind the ear.',
+      'You drop to one knee and rumple ' + nm + '\'s scruff.',
+      'You sit and they lean into your hand.',
+      'You bow your head and ' + nm + ' licks your wrist.'
+    ]), 'good');
   },
   reset() { this.dog = null; this.off(); },
   off() { this.mount = null; this.mountZ = 0; this.item = null; this.chewing = false; this.lead = null; this.stay = false; },
@@ -11237,13 +11347,32 @@ const Miso = {
   place(x, y) {
     // he trots in from out of sight rather than appearing at your heel
     const q = Nav.offstage(x, y, rnd(TAU), { reach: false }) || World.randomWalkable(x, y, 1, 2.5, 30) || [x + 1, y];
-    this.dog = { sp: 'dog', x: q[0], y: q[1], face: 0, spd: 0, gait: 0, pose: 'stand', z: 0, idleT: 0, sniffT: rnd(14, 30), bark: 0, gone: 0, item: null, name: this.name() };
+    const gd = G.mp && typeof Net !== 'undefined' && Net.gang && Net.gang.dog;
+    this.dog = { sp: 'dog', x: q[0], y: q[1], face: 0, spd: 0, gait: 0, pose: 'stand', z: 0, idleT: 0, sniffT: rnd(14, 30), bark: 0, gone: 0, item: null, name: this.name(), ph: rnd(TAU), coat: gd && gd.coat != null ? gd.coat : undefined };
+  },
+  pack() {
+    const d = this.dog; if (!this.mine() || !d) return null;
+    return { x: +d.x.toFixed(2), y: +d.y.toFixed(2), face: d.face, pose: d.pose, spd: d.spd, wagT: +(d.wagT || 0).toFixed(2), coat: d.coat };
+  },
+  fromNet(n) {
+    if (!n || !this.with()) return;
+    if (!this.dog) this.place(n.x, n.y);
+    const d = this.dog;
+    const petting = (d.sitT || 0) > 0 || (d.wagT || 0) > 0;
+    if (!petting) {
+      d.x = n.x; d.y = n.y; d.face = n.face; d.pose = n.pose || d.pose; d.spd = n.spd || 0;
+      if (n.wagT != null) d.wagT = n.wagT;
+    }
+    if (n.coat != null) d.coat = n.coat;
   },
   update(dt) {
     const p = G.player;
     if (!p || !this.with()) { this.dog = null; return; }
     if (!this.dog) this.place(p.x, p.y);
     this.dog.name = this.name();
+    const rec = G.mp && typeof Net !== 'undefined' && Net.gang && Net.gang.dog;
+    if (rec && rec.coat != null) this.dog.coat = rec.coat;
+    if (this.dog.wagT > 0) this.dog.wagT -= dt;
     if (this.dog.sitT > 0) { this.dog.sitT -= dt; this.dog.pose = 'sit'; this.dog.spd = 0; if (this.dog.sitT > 0) return; }
     if (G.mp && !this.mine()) return;
     const d = this.dog;
@@ -13014,7 +13143,7 @@ class MCtx {
     const p = this.at(w), out = []; if (!p) return out;
     for (let i = 0; i < n; i++) {
       const q = this.near(p, over.spread ?? (n > 1 ? 2.6 : 0.8));
-      const a = makeNPC(type, q[0], q[1], Object.assign({ persistent: true, tag: 'foe', aggroR: 11, coward: false, canYield: false }, over));
+      const a = makeNPC(type, q[0], q[1], Object.assign({ persistent: true, tag: over.calm ? 'npc' : 'foe', aggroR: 11, coward: false, canYield: false }, over));
       a.x = q[0]; a.y = q[1];
       if (over.watch) { a.watch = true; a.mEnemy = false; a.faction = 'imperial'; a.post = over.post === false ? null : (over.post || q.slice()); if (over.face !== undefined) { a.face = over.face; a.postFace = over.face; } }
       else if (over.calm) { a.mEnemy = false; if (a.faction === 'imperial' || a.faction === 'guard') a.faction = 'civ'; if (over.face !== undefined) { a.face = over.face; a.postFace = over.face; } a.post = over.post === false ? null : q.slice(); }
@@ -13037,7 +13166,8 @@ class MCtx {
     return out;
   }
   group(tag) { return this.actors.filter(a => a.tag === tag && !a.dead && !a.gone && G.actors.includes(a)); }
-  alive(tag) { return this.group(tag).filter(a => !a.yielded && !a.downed); }
+  alive(tag) { const src = tag ? this.actors.filter(a => a.tag === tag) : this.actors; return src.filter(a => !a.dead && !a.gone && !a.yielded && !a.downed && G.actors.includes(a)); }
+  foes(tag) { return this.alive(tag).filter(a => !a.isP && !a.ally && !a.comp && (a.mEnemy || a.hostileToP())); }
   remove(a, now) {
     if (!a) return; for (const k in this.reg) if (this.reg[k] === a) delete this.reg[k];
     G.gang = G.gang.filter(b => b !== a);
@@ -13294,19 +13424,24 @@ const STEPS = {
   horse: { tick: m => m.st.ok },
   use: {
     // thing: what is used, set down at each point (a pile of firewood, a lost page); take: it goes once used
-    begin(m, s) { m.placeStep(s); const pts = s.ats || [s.at]; m.st.need = s.n || pts.length; m.st.got = 0; m.st.pts = pts.map((w, k) => m.usePoint(w, s.label || 'Use', k, s)); if (s.thing) m.st.marks = m.st.pts.map((o, k) => o && m.prop(typeof s.thing === 'function' ? s.thing(k) : s.thing, [o.cx, o.cy], { solid: false })); },
+    begin(m, s) { m.placeStep(s); const pts = s.ats || [s.at]; m.st.need = s.n || pts.length; m.st.got = 0; m.st.pts = pts.map((w, k) => m.usePoint(w, s.label || s.text || 'Use', k, s)); if (s.thing) m.st.marks = m.st.pts.map((o, k) => o && m.prop(typeof s.thing === 'function' ? s.thing(k) : s.thing, [o.cx, o.cy], { solid: false })); },
     tick: m => m.st.got >= m.st.need
   },
   kill: {
-    begin(m, s) { if (s.spawn) s.spawn(m); m.st.total = Math.max(1, m.alive(s.tag || 'foe').length); },
-    tick(m, s) { const n = m.alive(s.tag || 'foe').length; m.st.left = n; return n === 0; }
+    begin(m, s) {
+      if (s.spawn) s.spawn(m);
+      const tag = s.tag;
+      if (!m.foes(tag).length) for (const a of (tag ? m.alive(tag) : [])) { a.mEnemy = true; if (a.faction === 'civ') a.faction = 'imperial'; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; }
+      m.st.total = Math.max(1, m.foes(tag).length);
+    },
+    tick(m, s) { const n = m.foes(s.tag).length; m.st.left = n; return n === 0; }
   },
   defeat: { begin(m, s) { if (s.spawn) s.spawn(m); }, tick(m, s) { const a = m.get(s.who); return !a || a.dead || a.yielded || a.downed || a.hp <= (s.at || 0); } },
   survive: {
     begin(m, s) { m.st.T = s.dur; m.st.w = 0; m.st.wt = 0; if (s.barrage) Cannon.startBarrage(s.barrage); },
     tick(m, s, dt) {
-      if (s.wave && (m.st.wt -= dt) <= 0 && m.alive(s.tag || 'foe').length < (s.max || 4)) { s.wave(m, m.st.w++); m.st.wt = s.every || 9; }
-      m.st.T -= dt; return m.st.T <= 0 && (!s.clear || !m.alive(s.tag || 'foe').length);
+      if (s.wave && (m.st.wt -= dt) <= 0 && m.foes(s.tag).length < (s.max || 4)) { s.wave(m, m.st.w++); m.st.wt = s.every || 9; }
+      m.st.T -= dt; return m.st.T <= 0 && (!s.clear || !m.foes(s.tag).length);
     },
     end(m, s) { if (s.barrage) Cannon.stopBarrage(); }
   },
@@ -13410,8 +13545,8 @@ const STEPS = {
     begin(m, s) { m.st.T = 0; m.st.w = 0; m.st.wt = 2; },
     tick(m, s, dt) {
       const p = m.at(s.at), P = G.player; if (p && dist(P.x, P.y, p[0], p[1]) < (s.r || 8)) m.st.T += dt;
-      if (s.wave && (m.st.wt -= dt) <= 0 && m.alive(s.tag || 'foe').length < (s.max || 4)) { s.wave(m, m.st.w++); m.st.wt = s.every || 9; }
-      return m.st.T >= s.dur && (!s.clear || !m.alive(s.tag || 'foe').length);
+      if (s.wave && (m.st.wt -= dt) <= 0 && m.foes(s.tag).length < (s.max || 4)) { s.wave(m, m.st.w++); m.st.wt = s.every || 9; }
+      return m.st.T >= s.dur && (!s.clear || !m.foes(s.tag).length);
     }
   },
 };
@@ -13582,7 +13717,7 @@ const Missions = {
     const idle = !UI.panel && !UI.queue.length && !Talk.d;
     if (m._say && m._say.wait) { const r = m._say; if (!m.late(r.parts) || (r.waitT += dt) > 16) { r.wait = false; r.t = 0; this.ghostCheck(r.parts, 8); Story.scene(m.parts(r.parts), r.done); } }
     else if (m._say) { if (!idle) m._say.t = 0; else if ((m._say.t += dt) > 1.5) { const r = m._say; r.t = 0; console.warn('Mission ' + m.def.n + ': reopening a lost scene'); Story.scene(m.parts(r.parts), r.done); } }
-    const s = m.step; if (!s || !m.st.live) return;
+    const s = m.step; if (!s || !m.st.live) { this.objective(); return; }
     if (idle && !m._say && !m.st.ok && (s.t === 'choice' || s.t === 'doc')) { if ((m.st.lostT = (m.st.lostT || 0) + dt) > 1.5) { m.st.lostT = 0; mSafe(m, 'begin', () => STEPS[s.t].begin(m, s)); } } else m.st.lostT = 0;
     m.stepT += dt;
     if (m.def.each) mSafe(m, 'each', () => m.def.each(m, dt));
@@ -13591,6 +13726,7 @@ const Missions = {
     const T = STEPS[s.t]; let done = false;
     try { done = T.tick(m, s, dt); m.tickErr = 0; } catch (e) { console.error('Mission ' + m.def.n + '.' + m.i + ' (' + s.t + '):', e && e.message); if ((m.tickErr = (m.tickErr || 0) + 1) > 30) done = true; }
     if (this.cur !== m || this.failing) return;
+    this.objective();
     if (done) this.finishStep();
   },
   // walk into the marker to begin
@@ -13834,7 +13970,7 @@ const Missions = {
     if (t === 'talk' || t === 'follow' || t === 'chase') { const a = m.get(s.who); return a ? [a.x, a.y] : m.at(s.at); }
     if (t === 'horse') return G.horse && !P.mounted ? [G.horse.x, G.horse.y] : null;
     if (t === 'mount') return G.horse && !P.mounted ? [G.horse.x, G.horse.y] : null;
-    if (t === 'kill') { let best = null, bd = 1e9; for (const a of m.alive(s.tag || 'foe')) { const d = dist(a.x, a.y, P.x, P.y); if (d < bd) { bd = d; best = [a.x, a.y]; } } return best; }
+    if (t === 'kill') { let best = null, bd = 1e9; for (const a of m.foes(s.tag)) { const d = dist(a.x, a.y, P.x, P.y); if (d < bd) { bd = d; best = [a.x, a.y]; } } return best; }
     if (t === 'defeat') { const a = m.get(s.who); return a ? [a.x, a.y] : null; }
     if (t === 'pursuit') { const R = m.st.route; return R ? R[R.length - 1] : null; }
     if (t === 'escort') {
@@ -13847,15 +13983,17 @@ const Missions = {
     return null;
   },
   objText() {
-    const m = this.cur; if (!m || !m.step || !m.st.live) return '';
+    const m = this.cur; if (!m || !m.step) return '';
     const s = m.step; let t = typeof s.text === 'function' ? s.text(m) : s.text || '';
-    if (s.t === 'kill' && m.st.total > 1) t += ' (' + (m.st.total - (m.st.left ?? m.st.total)) + '/' + m.st.total + ')';
-    if (s.t === 'use' && m.st.need > 1) t += ' (' + m.st.got + '/' + m.st.need + ')';
-    if (s.t === 'event' && (s.n || 1) > 1) t += ' (' + m.st.n + '/' + s.n + ')';
-    if (s.t === 'hide') t += m.st.inside ? ' · ' + Math.max(0, Math.ceil((s.dur || 8) - m.st.T)) + 's' : '';
-    if ((s.t === 'survive') && m.st.T > 0) t += ' · ' + Math.ceil(m.st.T) + 's';
-    if (s.t === 'hold' && m.st.T < s.dur) t += ' · ' + Math.ceil(s.dur - m.st.T) + 's';
-    if (s.t === 'ride' && (Subs.cur || Subs.q.length)) { const p = m.at(s.at), P = G.player; if (p && dist(P.x, P.y, p[0], p[1]) < (s.r || 6)) t = 'Let them finish talking'; }
+    if (m.st.live) {
+      if (s.t === 'kill' && m.st.total > 1) t += ' (' + (m.st.total - (m.st.left ?? m.st.total)) + '/' + m.st.total + ')';
+      if (s.t === 'use' && m.st.need > 1) t += ' (' + m.st.got + '/' + m.st.need + ')';
+      if (s.t === 'event' && (s.n || 1) > 1) t += ' (' + m.st.n + '/' + s.n + ')';
+      if (s.t === 'hide') t += m.st.inside ? ' · ' + Math.max(0, Math.ceil((s.dur || 8) - m.st.T)) + 's' : '';
+      if ((s.t === 'survive') && m.st.T > 0) t += ' · ' + Math.ceil(m.st.T) + 's';
+      if (s.t === 'hold' && m.st.T < s.dur) t += ' · ' + Math.ceil(s.dur - m.st.T) + 's';
+      if (s.t === 'ride' && (Subs.cur || Subs.q.length)) { const p = m.at(s.at), P = G.player; if (p && dist(P.x, P.y, p[0], p[1]) < (s.r || 6)) t = 'Let them finish talking'; }
+    }
     return t;
   },
   objective() {
@@ -14280,7 +14418,7 @@ const Missions = {
         const nPts = Math.max(1, (m.st.pts && m.st.pts.length) || (s.ats && s.ats.length) || 1);
         for (let k = 0; k < nPts; k++) { try { if (s.onUse) s.onUse(m, k); } catch (e) {} }
       }
-      if (s.t === 'kill' || s.t === 'hold' || s.t === 'survive') for (const a of m.alive(s.tag || 'foe')) { a.hp = 0; a.dead = true; a.yielded = true; }
+      if (s.t === 'kill' || s.t === 'hold' || s.t === 'survive') for (const a of m.foes(s.tag)) { a.hp = 0; a.dead = true; a.yielded = true; }
       if (s.t === 'defeat') { const a = m.get(s.who); if (a) { a.yielded = true; a.hp = Math.min(a.hp, 0); a.downed = true; } }
       if (s.t === 'mount' && G.horse && !G.player.mounted) { try { Horse.mount(); } catch (e) {} }
       if (s.t === 'dismount' && G.player.mounted) { try { Horse.dismount(); } catch (e) {} }
@@ -14477,7 +14615,7 @@ const Missions = {
         }
       }
       if (s.t === 'event') m.st.n = s.n || 1;
-      if (s.t === 'kill' || s.t === 'hold' || s.t === 'survive') for (const a of m.alive(s.tag || 'foe')) { a.hp = 0; a.dead = true; a.yielded = true; }
+      if (s.t === 'kill' || s.t === 'hold' || s.t === 'survive') for (const a of m.foes(s.tag)) { a.hp = 0; a.dead = true; a.yielded = true; }
       if (s.t === 'defeat') { const a = m.get(s.who); if (a) { a.yielded = true; a.hp = Math.min(a.hp, 0); a.downed = true; } }
       if (s.t === 'mount' && G.horse && !G.player.mounted) { try { Horse.mount(); } catch (e) { note(n, i, 'throw', e.message); } }
       if (s.t === 'dismount' && G.player.mounted) { try { Horse.dismount(); } catch (e) { note(n, i, 'throw', e.message); } }
@@ -14558,7 +14696,7 @@ const Track = {
       return { kind: d.kind, head: (d.kind === 'activity' ? 'Activity' : 'Quest') + ' · ' + d.title, text: st.text + (st.n > 1 ? ' (' + s.n + '/' + st.n + ')' : ''), hint: st.hint, tgt: Quests.target(id), quest: id };
     }
     const m = Missions.cur;
-    if (m) { const t = Missions.objText(); return t ? { kind: 'mission', head: 'Mission ' + m.def.n + ' · ' + m.def.title, text: t, hint: m.step && m.step.hint, tgt: Missions.target() } : { kind: 'mission', head: 'Mission ' + m.def.n + ' · ' + m.def.title, text: '…', tgt: null }; }
+    if (m) { const t = Missions.objText(); return { kind: 'mission', head: 'Mission ' + m.def.n + ' · ' + m.def.title, text: t || '', hint: m.step && m.step.hint, tgt: Missions.target() }; }
     const P = G.profile, id = P && P.track && Quests.st(P.track) && !Quests.isDone(P.track) ? P.track : null;
     if (id) { const d = QDEFS[id], st = Quests.cur(id), s = Quests.st(id); return { kind: d.kind, head: (d.kind === 'activity' ? 'Activity' : 'Quest') + ' · ' + d.title, text: st.text + (st.n > 1 ? ' (' + s.n + '/' + st.n + ')' : ''), hint: st.hint, tgt: Quests.target(id), quest: id }; }
     const d = Missions.nextDef();
@@ -15283,7 +15421,7 @@ M({
   setup(m) { const p = midway(m, 'convoy.farB', 'mtnshrine.c', 0.45); m.spawn('imperial', [p[0] + 6, p[1] + 4], 3, { calm: true, tag: 'patrol', spread: 2 }); m.spawn('rifleman', [p[0] + 9, p[1] + 2], 1, { calm: true, tag: 'patrol' }); },
   steps: [
     { t: 'go', at: m => midway(m, 'convoy.farB', 'mtnshrine.c', 0.45), r: 6, mounted: true, text: 'Ride the eastern road into the mountains with Aiko', hint: 'Steep cedar forests and villages emptied by the levies.', talk: [['aiko', 'Toma carried a wooden sword everywhere. Ridiculous thing. He would hit you with it if you said good morning wrong.'], ['ren', 'Kumo refuses to move when he is frightened. You learn to wait.'], ['aiko', 'And you? What do you do when you are frightened?'], ['ren', 'Ride faster.']] },
-    { t: 'kill', tag: 'patrol', cp: true, text: 'Aiko has spotted a patrol on the road', hint: 'Four of them. She takes the archers.', spawn(m) { for (const a of m.group('patrol')) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } if (!m.alive('patrol').length) { const p = midway(m, 'convoy.farB', 'mtnshrine.c', 0.45); m.spawn('imperial', [p[0] + 6, p[1] + 4], 3, { spread: 2 }); m.spawn('rifleman', [p[0] + 9, p[1] + 2], 1); } }, on(m) { const p = midway(m, 'convoy.farB', 'mtnshrine.c', 0.45); if (p) { m.stay('aiko', [p[0] - 7, p[1] - 5]); const a = m.get('aiko'), rifles = m.group('patrol').filter(x => x.type === 'rifleman'); if (a && rifles[0]) a.aimAt = rifles[0]; } }, done(m) { const a = m.get('aiko'); if (a) a.aimAt = null; m.comp('aiko'); }, after: [['aiko', 'You take unnecessary risks when they wear imperial armour. Did you know that?'], ['ren', 'No.'], ['aiko', 'You do.']] },
+    { t: 'kill', tag: 'patrol', cp: true, text: 'Aiko has spotted a patrol on the road', hint: 'Four of them. She takes the archers.', spawn(m) { for (const a of m.group('patrol')) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } if (!m.alive('patrol').length) { const p = midway(m, 'convoy.farB', 'mtnshrine.c', 0.45); m.spawn('imperial', [p[0] + 6, p[1] + 4], 3, { tag: 'patrol', spread: 2 }); m.spawn('rifleman', [p[0] + 9, p[1] + 2], 1, { tag: 'patrol' }); } }, on(m) { const p = midway(m, 'convoy.farB', 'mtnshrine.c', 0.45); if (p) { m.stay('aiko', [p[0] - 7, p[1] - 5]); const a = m.get('aiko'), rifles = m.group('patrol').filter(x => x.type === 'rifleman'); if (a && rifles[0]) a.aimAt = rifles[0]; } }, done(m) { const a = m.get('aiko'); if (a) a.aimAt = null; m.comp('aiko'); }, after: [['aiko', 'You take unnecessary risks when they wear imperial armour. Did you know that?'], ['ren', 'No.'], ['aiko', 'You do.']] },
     { t: 'use', at: m => midway(m, 'convoy.farB', 'mtnshrine.c', 0.45), label: 'Make camp for the night', text: 'Make camp off the road', onUse(m) { const P = G.player; m.prop('campfire', [P.x + 1, P.y + 0.6], { light: { r: 54, c: '255,140,60' } }); m.prop('bedroll', [P.x - 1.2, P.y + 0.8]); } },
     { t: 'rest', title: 'Night', tod: 0.9 },
     { t: 'scene', parts: [['aiko', 'Your father. Your horse. Saddle straps. You never talk about the village.'], ['ren', 'Road looks clear tomorrow. We should sleep.'], ['aiko', '...Goodnight, Ren.']] },
@@ -15352,7 +15490,7 @@ M({
     { t: 'go', at: 'stables.out', r: 3, text: 'Wait outside while they talk', hint: 'Out past the fence.', on(m) { const a = m.get('aiko'); if (a) { G.gang = G.gang.filter(b => b !== a); a.faction = 'civ'; a.comp = false; a.post = m.at('stables.toma', 1, 0); } } },
     { t: 'rest', title: 'Dawn', sub: 'Raised voices from the stable until the birds start.', tod: 0.25 },
     { t: 'scene', on(m) { m.place('aiko', ['stables.out', 1.5, 1]); m.place('toma', ['stables.out', 2.5, 0]); }, parts: [['toma', 'I\'ll come.', 'But I\'m not swearing anything to your cause. I decide what I do now. Me.'], ['aiko', '...Good.']] },
-    { t: 'kill', cp: true, text: 'The dawn patrol found the empty bunk. Fight them off', hint: 'Toma will not fight his old comrades. You and Aiko will.', on(m) { m.comp('aiko'); }, spawn(m) { const here = m.group('dawn'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', m.at('stables.gate', 4, 4), 3); m.spawn('officer', m.at('stables.gate', 6, 3), 1, { name: 'Stable Master' }); } } },
+    { t: 'kill', tag: 'dawn', cp: true, text: 'The dawn patrol found the empty bunk. Fight them off', hint: 'Toma will not fight his old comrades. You and Aiko will.', on(m) { m.comp('aiko'); }, spawn(m) { const here = m.group('dawn'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', m.at('stables.gate', 4, 4), 3, { tag: 'dawn' }); m.spawn('officer', m.at('stables.gate', 6, 3), 1, { tag: 'dawn', name: 'Stable Master' }); } } },
     { t: 'go', at: m => midway(m, 'stables.out', 'refuge.path', 0.5), r: 8, mounted: true, text: 'Ride away with Aiko and Toma', on(m) { const t = m.get('toma'); if (t) t.mTag = true; } },
   ],
 });
@@ -15521,7 +15659,7 @@ M({
     { t: 'use', at: 'stonebridge.farA', label: 'Build a false roadblock', thing: 'lumber', take: true, text: 'Block the road to keep the convoy back', dur: 1.2, busy: 'Dragging timber…', onUse(m) { m.prop('stakes', ['stonebridge.farA', 0, 1], { solid: true }); } },
     { t: 'escort', who: m => m.group('families'), path: ['stonebridge.endA', 'stonebridge.deck', 'stonebridge.endB', 'stonebridge.bankB'], text: 'Get the families across', hint: 'Haru carries the children. Aiko leads the adults. They follow when you are near.' },
     { t: 'escape', at: m => midway(m, 'stonebridge.farA', 'stonebridge.endA', 1.6, 'lure'), r: 4, cp: true, text: 'A patrol has found you. Draw them away from the bridge', hint: 'Run back along the road, away from the families.', spawn(m) { const here = m.group('lure'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', m.at('stonebridge.farA', 3, 3), 3); m.spawn('rifleman', m.at('stonebridge.farA', 5, 1), 2); } } },
-    { t: 'kill', text: 'Finish the patrol', hint: 'Shots crack through the darkness.' },
+    { t: 'kill', tag: 'lure', text: 'Finish the patrol', hint: 'Shots crack through the darkness.', spawn(m) { const here = m.group('lure'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', m.at('stonebridge.farA', 3, 3), 3, { tag: 'lure' }); m.spawn('rifleman', m.at('stonebridge.farA', 5, 1), 2, { tag: 'lure' }); } } },
     { t: 'go', at: 'stonebridge.endB', r: 3.5, text: 'Get back across the bridge', hint: 'Haru will not leave until the last old man is over.' },
     { t: 'wait', dur: 2.4, text: 'The bridge is breaking', on(m) { StoryMap.collapse('stonebridge'); m.look('stonebridge.deck', 3); } },
     { t: 'scene', parts: [['haru', '...Everyone is across. Twenty-three. I counted.'], ['aiko', 'And the guns aren\'t.']] },
@@ -15874,7 +16012,7 @@ M({
   steps: [
     { t: 'fn', run(m) { const P = G.profile; P.flags.purse = (P.flags.purse || 0) + P.gold; P.gold = 0; } },
     { t: 'scene', parts: [['ren', 'My purse.'], ['daichi', 'Two coins from my tool bag.'], ['haru', 'My spare bandages.'], ['aiko', 'My map of the western district. And your customs pass.'], ['narr', 'A note on the table: YOU SHOULD LEARN TO WATCH YOUR POCKETS. — N'], ['ren', 'I will kill him.'], ['aiko', 'I am impressed.'], ['daichi', 'Someone should check the roof.'], ['haru', 'Do you think the thief might be hungry?'], ['ren', 'Anyone who steals a man\'s money before breakfast is beyond redemption.']] },
-    { t: 'talk', who: 'Fish Vendor', text: 'Ask around the fish market', parts: [['Fish Vendor', 'N? Oh, the Paper Fox. Robs officers and fat merchants, then the rice turns up outside the houses where they took the ration tokens.', 'Nobody here will sell him to you. Nobody here could catch him.']] },
+    { t: 'talk', who: 'Fish Vendor', at: 'kagetsuki.fish', text: 'Ask around the fish market', on(m) { const p = m.at('kagetsuki.fish'); m.fillCrowd(p, { min: 5, kids: 0, tag: 'folk' }); m.place('Fish Vendor', p || 'kagetsuki.fish'); }, parts: [['Fish Vendor', 'N? Oh, the Paper Fox. Robs officers and fat merchants, then the rice turns up outside the houses where they took the ration tokens.', 'Nobody here will sell him to you. Nobody here could catch him.']] },
     { t: 'talk', who: 'Gambler', at: 'kagetsuki.gamble', text: 'Ask in the gamblers\' quarter', parts: [['Gambler', 'Lost your purse? Then you have met the Fox. He works the canal side. Courtyards nobody can find twice.'], ['ren', 'Which canal?'], ['Gambler', 'That information costs money. Which, I gather, you no longer have.']] },
     { t: 'use', at: ['kagetsuki.square', -4, -1], label: 'Read the wanted poster', text: 'Read the wanted posters on the square', after: [['narr', 'THE PAPER FOX. Expert lockbreaker. Master of disguise. Enemy of the state.', 'And, according to one particularly frustrated officer: walks with an irritating amount of confidence.']] },
     { t: 'go', at: 'foxden.door', r: 3, text: 'Follow the trail to the warehouse by the canal', hint: 'Through the hidden courtyards.' },
@@ -15911,7 +16049,7 @@ M({
   setup(m) { m.cast('nao', ['kagetsuki.gamble', 0, 2]); m.cast('gamblemgr', 'kagetsuki.gambleIn', { face: PI * 0.25 }); m.spawn('villager', 'kagetsuki.gambleIn', 4, { calm: true, tag: 'gamblers', spread: 2 }); m.spawn('villager', ['kagetsuki.gambleIn', 2, 1], 1, { calm: true, tag: 'gamblers', key: 'Gambler', name: 'Gambler' }); m.spawn('mercenary', ['kagetsuki.gamble', 2, 1], 2, { calm: true, tag: 'bouncers', spread: 1 }); const [d] = m.spawn('villager', ['kagetsuki.gamble', -2, 2], 1, { calm: true, key: 'Dockworker', name: 'Injured Dockworker' }); sickLook(d); m.spawn('villager', 'kagetsuki.gateE', 1, { calm: true, key: 'Messenger', name: 'Fumi the Messenger' }); },
   steps: [
     { t: 'go', at: 'kagetsuki.gambleIn', r: 2.5, text: 'Go in as a group of merchants', on(m) { m.remove(m.get('nao')); } },
-    { t: 'wait', dur: 8, text: 'Watch the exits while Nao goes upstairs', hint: 'Aiko is keeping the manager busy. Daichi is examining the imported firearms. Haru is helping an injured dockworker by the back door.', talk: [['aiko', 'And then the dealer swore it was a double six. On his mother\'s grave. Which, it turns out, is empty.'], ['gamblemgr', 'Ha! Ha ha. Another cup, madam?']] },
+    { t: 'wait', dur: 8, text: 'Watch the exits while Nao goes upstairs', hint: 'Aiko is keeping the manager busy. Daichi is examining the imported firearms. Haru is helping an injured dockworker by the back door.', on(m) { m.stay('aiko', 'kagetsuki.gambleIn'); const mgr = m.get('gamblemgr'), aiko = m.get('aiko'); if (aiko && mgr) aiko.faceTo(mgr.x, mgr.y); m.stay('daichi', ['kagetsuki.gambleIn', 2.2, -0.6]); const d = m.get('daichi'); if (d) m.setWork(d, 'pack', null, null, 10); const dock = m.get('Injured Dockworker') || m.get('Dockworker'); if (dock) { m.stay('haru', [dock.x + 1.1, dock.y + 0.4]); m.setWork(m.get('haru'), 'pack', null, [dock.x, dock.y], 10); } else m.stay('haru', ['kagetsuki.gamble', -2, 2]); m.look('kagetsuki.gambleIn', 6); }, talk: [['aiko', 'And then the dealer swore it was a double six. On his mother\'s grave. Which, it turns out, is empty.'], ['gamblemgr', 'Ha! Ha ha. Another cup, madam?']] },
     { t: 'scene', on(m) { m.cast('nao', ['kagetsuki.gambleIn', 1, -1]); const n = m.get('nao'); if (n) n.look = lk({ hat: 10, hair: 0, top: 7, bottom: 7, sash: 6, robe: '#2c2a36', crest: 'sun', face: 0 }); }, parts: [
       ['nao', 'This establishment has violated three regulations. Unlicensed dice. Untaxed sake. And a door of unauthorised width.', 'Its private records are to be surrendered for inspection.'],
       ['gamblemgr', 'Inspector! There must be some misunderstanding. Please, accept this small... and this... and from my associate...'],
@@ -15933,7 +16071,7 @@ M({
     { t: 'use', at: 'kagetsuki.informantIn', label: 'Open the hidden drawer', text: 'Find the hidden ledger', dur: 1.2, busy: 'Nao picks the drawer…' },
     { t: 'doc', id: 'informants' },
     { t: 'scene', parts: [['nao', '...'], ['ren', 'Nao?'], ['nao', 'Seki.', 'He was a street messenger. He taught me the routes under the city when we were children. They arrested him years ago for stealing food from an imperial storehouse.'], ['nao', 'It says he is a paid informant.', 'No. They forced him. They must have forced him. The jail. If anyone knows, the jail knows.']] },
-    { t: 'talk', who: 'Jailer', text: 'Ask at the harbour jail', parts: [['nao', 'A prisoner called Seki. Former informant.'], ['Jailer', 'Seki... Seki... Here. Died in the cells. Fever. Six years ago.'], ['nao', 'Six years.'], ['aiko', 'The payments in the ledger began three years ago.'], ['nao', 'He\'s been paying a dead man.'], ['aiko', 'He\'s been paying nobody. The names are there so that everyone wonders about everyone.']] },
+    { t: 'talk', who: 'Jailer', at: 'kagetsuki.jail', text: 'Ask at the harbour jail', on(m) { m.place('Jailer', ['kagetsuki.jail', 1, 1]); const j = m.get('Jailer'); if (j) { j.mStay = true; j.post = [j.x, j.y]; } }, parts: [['nao', 'A prisoner called Seki. Former informant.'], ['Jailer', 'Seki... Seki... Here. Died in the cells. Fever. Six years ago.'], ['nao', 'Six years.'], ['aiko', 'The payments in the ledger began three years ago.'], ['nao', 'He\'s been paying a dead man.'], ['aiko', 'He\'s been paying nobody. The names are there so that everyone wonders about everyone.']] },
     { t: 'go', at: 'foxden.roof', r: 2.5, text: 'Nao has gone up onto the warehouse roof', on(m) { m.stay('nao', 'foxden.roof'); const n = m.get('nao'); if (n) n.sitting = true; } },
     { t: 'use', at: ['foxden.roof', 0.9, 0.7], label: 'Bring him a cup of tea', text: 'Bring Nao a cup of tea', hint: 'He is sitting at the edge of the roof.' },
     { t: 'scene', parts: [['nao', '...'], ['nao', 'Steal first. Laugh second. Leave before anyone decides to sell you. That was the whole rule.'], ['ren', 'I know the rule.'], ['nao', 'You? A man who considers friendship a contagious disease?'], ['ren', 'I\'m recovering.']] },
@@ -16000,7 +16138,7 @@ M({
     { t: 'go', at: m => midway(m, 'kagetsuki.gateW', 'monastery.gate', 0.55, 'cart'), r: 7, mounted: true, text: 'Ride for the mountain provinces', talk: [['aiko', 'Patrols on every road. Now they say we\'re paid by foreign merchants. Three villages wouldn\'t open their doors this week.'], ['ren', 'We need a target big enough that they have to answer for it in public.'], ['aiko', 'We need time to protect the people who hide us.'], ['daichi', 'Supply routes. Cut the supply routes.'], ['nao', 'The bureaucracy is so tangled it may defeat itself without our help.']] },
     { t: 'scene', parts: [['haru', 'We have been arguing beside an abandoned cart for an entire afternoon.'], ['aiko', 'Then a rule. Every operation has a clear objective, a safe route for civilians, and a plan for retreat.'], ['haru', 'And nobody abandons a wounded member to save equipment.'], ['ren', 'That last one is unnecessary.'], ['aiko', '...'], ['ren', 'Fine.']] },
     { t: 'go', at: 'pass.start', r: 5, text: 'Ride on to the mountain pass', talk: [['nao', 'Travellers say an armed group collects unauthorised tolls up here. I have a professional objection to unauthorised tolls.']] },
-    { t: 'kill', cp: true, text: 'Deal with the toll collectors on the pass', hint: 'Outlaws, not soldiers. They yield when beaten.', spawn(m) { const here = m.group('toll'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'bandit'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; a.canYield = true; } } else { m.spawn('bandit', 'pass.mid', 4, { spread: 2.5, name: 'Toll Collector' }); m.spawn('boss', ['pass.mid', 2, 1], 1, { name: 'Iron Kaneda', canYield: true }); } } },
+    { t: 'kill', tag: 'toll', cp: true, text: 'Deal with the toll collectors on the pass', hint: 'Outlaws, not soldiers. They yield when beaten.', spawn(m) { const here = m.group('toll'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'bandit'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; a.canYield = true; } } else { m.spawn('bandit', 'pass.mid', 4, { tag: 'toll', spread: 2.5, name: 'Toll Collector' }); m.spawn('boss', ['pass.mid', 2, 1], 1, { tag: 'toll', name: 'Iron Kaneda', canYield: true }); } } },
     { t: 'scene', on(m) { const t = m.get('Traveller'); if (t) m.bring(t, m.at('@ren', 1.8, 1.4), { run: 1.1 }); }, parts: [['Traveller', 'You cleared the pass? Then you\'ll be going up to the monastery.'], ['nao', 'Will we?'], ['Traveller', 'Everyone who fights them ends up at the monastery. The old guardian sees to that.']] },
   ],
 });
@@ -16113,7 +16251,7 @@ M({
     { t: 'ride', at: 'bigbridge.farA', r: 8, text: 'Ride to the great wooden bridge', hint: 'North, where the road crosses the great river.', talk: [['nao', 'One halt order, sealed by the provincial office. The seal is real. The office is... optimistic.'], ['genjiro', 'The convoy carries the artillery plans for the capital. The bridge carries the whole village to market every seventh day.'], ['haru', 'Today is the seventh day.'], ['genjiro', 'Yes.'], ['daichi', 'A wooden deck under a gun carriage that size will sag a hand\'s width.'], ['ren', 'Is that bad?'], ['daichi', 'It is a number. Whether it is bad depends on who is underneath.']] },
     { t: 'scene', parts: [['daichi', 'If we wreck the convoy, we wreck the bridge, and the families using it lose the only way out of the occupied towns. I can stop it without bringing the structure down.'], ['aiko', 'My scouts will turn the civilians back.'], ['nao', 'And I have a beautiful document ordering the convoy to halt for inspection. Very official. I cried a little when I finished the seal.'], ['genjiro', 'Ren and I take the lead wagon.']] },
     { t: 'talk', who: 'Convoy Officer', text: 'Walk out onto the bridge with Nao\'s forged order', parts: [['nao', 'Halt, by order of the Regional Commission for Cargo Irregularities. Your wagons will be inspected.'], ['Convoy Officer', 'The Regional Commission for... Let me see that seal.', '...This seal is a forgery. A good one. But the Commission was abolished in spring.'], ['nao', 'Ah.'], ['Convoy Officer', 'FIRE!']] },
-    { t: 'hold', at: 'bigbridge.underA', r: 9, dur: 40, max: 4, every: 8, cp: true, text: 'Take cover below the bridge and hold while Daichi disconnects the brake', hint: 'Genjiro and Aiko hold the far end. Keep them off Daichi.', on(m) { m.alarm('watch'); const o = m.get('Convoy Officer'); if (o) { o.mEnemy = true; o.ai.mode = 'fight'; o.ai.target = G.player; } }, wave(m, i) { m.spawn(i % 2 ? 'rifleman' : 'imperial', m.at('bigbridge.endB', rnd(-3, 3), rnd(-3, 3)), 2); } },
+    { t: 'hold', at: 'bigbridge.underA', r: 9, dur: 40, max: 4, every: 8, cp: true, text: 'Take cover below the bridge and hold while Daichi disconnects the brake', hint: 'Genjiro and Aiko hold the far end. Keep them off Daichi.', on(m) { m.alarm('watch'); const o = m.get('Convoy Officer'); if (o) { o.mEnemy = true; o.ai.mode = 'fight'; o.ai.target = G.player; } const u = m.at('bigbridge.underA'); m.stay('daichi', u || 'bigbridge.underA'); const d = m.get('daichi'); if (d && u) { d.x = u[0] + 0.8; d.y = u[1] + 0.4; d.mPath = null; m.setWork(d, 'heave', null, u, 40); } m.stay('aiko', 'bigbridge.endB'); m.stay('genjiro', ['bigbridge.endB', -2, 1]); if (u) m.look(u, 5); }, wave(m, i) { m.spawn(i % 2 ? 'rifleman' : 'imperial', m.at('bigbridge.endB', rnd(-3, 3), rnd(-3, 3)), 2); } },
     { t: 'defeat', who: 'Convoy Officer', cp: true, text: 'Capture the officer carrying the original orders', hint: 'Beat him until he yields. He needs to be able to talk.', on(m) { const o = m.get('Convoy Officer'); if (o) { o.mEnemy = true; o.canYield = true; o.ai.mode = 'fight'; o.ai.target = G.player; } } },
     { t: 'scene', parts: [['Convoy Officer', 'Enough. ENOUGH. Take the orders. Take the guns. Just stop.'], ['genjiro', '(reading) The whole province before the harvest. Then south, and every resistance network that remains.'], ['daichi', 'The harvest is six weeks away.']] },
   ],
@@ -16224,7 +16362,7 @@ M({
     { t: 'survive', dur: 40, at: 'walltown.inner', max: 5, every: 6, cp: true, barrage: { every: 3, near: 5, far: 12, safe: true }, text: 'The third attack: hold the inner wall', wave(m, i) { m.spawn(i % 3 === 1 ? 'rifleman' : 'imperial', m.at('walltown.outer', rnd(-6, 6), rnd(-2, 2)), 2); } },
     { t: 'wait', dur: 2.5, text: 'A child is crying for a missing parent', on(m) { const c = m.group('child')[0]; if (c) m.look([c.x, c.y], 2.5); if (!m.fast) { G.slow(2.5, 0.35); UI.hurt(0.5); Card.black(true); setTimeout(() => Card.black(false), 400); } } },
     { t: 'scene', parts: [['Child', 'MOTHER! MOTHER!'], ['ren', '...Hana...'], ['genjiro', 'Ren. Look at me.', 'We cannot save everyone by remembering everyone. We save whoever is in front of us.']] },
-    { t: 'kill', cp: true, text: 'Return to the fight', spawn(m) { const here = m.group('assault'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; m.walk(a, [['walltown.inner', rnd(-3, 3), rnd(4, 8)]], { run: 1.2 }); } } else { m.spawn('imperial', ['walltown.inner', 3, 6], 3, { spread: 3 }); m.spawn('officer', ['walltown.inner', 0, 8], 1, { name: 'Assault Captain' }); } } },
+    { t: 'kill', tag: 'assault', cp: true, text: 'Return to the fight', spawn(m) { const here = m.group('assault'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; m.walk(a, [['walltown.inner', rnd(-3, 3), rnd(4, 8)]], { run: 1.2 }); } } else { m.spawn('imperial', ['walltown.inner', 3, 6], 3, { tag: 'assault', spread: 3 }); m.spawn('officer', ['walltown.inner', 0, 8], 1, { tag: 'assault', name: 'Assault Captain' }); } } },
     { t: 'scene', parts: [['Kohara Defender', 'They\'re pulling back! The town\'s still ours!'], ['genjiro', 'For tonight. Count the arrows and count the wounded. They will be back before either number gets better.']] },
   ],
 });
@@ -16247,15 +16385,40 @@ M({
   n: 73, title: 'The City Beside the River', at: 'prisonroad.ambush', atR: 7, giver: 'genjiro', sites: ['rivercity', 'oldbridge'], party: ['genjiro', ...LANTERNS], reward: 200,
   brief: 'A river city and its bridges: whoever holds them moves troops, grain and guns.',
   recap: 'Kawabata\'s merchants offered help if the Last Lanterns would protect the commercial district from reprisals, and Ren promised. Genjiro warned it would be a hard promise to keep. They fortified the riverbank and the bridge approaches. At dawn the imperial commander threatened to burn the city if it did not surrender the crossing. Ren told the merchants surrender might save their warehouses today but not their families tomorrow. The city chose to resist.',
-  setup(m) { m.spawn('merchant', 'rivercity.merchants', 1, { calm: true, key: 'Merchant Elder', name: 'Elder Tanba' }); m.spawn('merchant', 'rivercity.merchants', 4, { calm: true, tag: 'folk', wanderR: 5, post: false }); m.spawn('villager', 'rivercity.square', 8, { calm: true, tag: 'citizens', wanderR: 8, post: false }); m.spawn('kid', 'rivercity.square', 2, { calm: true, tag: 'citizens', wanderR: 5, post: false }); m.spawn('officer', 'rivercity.gateW', 1, { calm: true, key: 'Imperial Commander', name: 'Imperial Commander' }); m.spawn('imperial', ['rivercity.gateW', -4, 0], 6, { calm: true, tag: 'army', spread: 4 }); },
+  setup(m) { m.spawn('merchant', 'rivercity.merchants', 1, { calm: true, tag: 'folk', key: 'Merchant Elder', name: 'Elder Tanba' }); m.spawn('merchant', 'rivercity.merchants', 4, { calm: true, tag: 'folk', wanderR: 5, post: false }); m.spawn('villager', 'rivercity.square', 8, { calm: true, tag: 'citizens', wanderR: 8, post: false }); m.spawn('kid', 'rivercity.square', 2, { calm: true, tag: 'citizens', wanderR: 5, post: false }); },
   steps: [
     { t: 'ride', at: 'rivercity.gateW', r: 8, text: 'Ride west to Kawabata', hint: 'The river city to the west.', talk: [['nao', 'Seven prisoners, one carriage, and not a single thank-you.'], ['haru', 'Three of them thanked you.'], ['nao', 'In the wrong tone.'], ['genjiro', 'Kawabata. Three bridges, one river, and a thousand merchants who think every war is a change in prices.'], ['aiko', 'Is it?'], ['genjiro', 'For them it usually is. Let us make it something else.']] },
-    { t: 'talk', who: 'Merchant Elder', text: 'Meet the merchants\' coalition', parts: [['Merchant Elder', 'The governor has ordered every boat in Kawabata surrendered. We will help you hold the crossing.', 'On one condition. You protect the commercial district from reprisals afterward.']] },
+    { t: 'talk', who: 'Merchant Elder', at: 'rivercity.merchants', text: 'Meet the merchants\' coalition', on(m) { m.place('Merchant Elder', 'rivercity.merchants'); m.fillCrowd(m.at('rivercity.merchants'), { min: 4, kids: 0, tag: 'folk' }); }, parts: [['Merchant Elder', 'The governor has ordered every boat in Kawabata surrendered. We will help you hold the crossing.', 'On one condition. You protect the commercial district from reprisals afterward.']] },
     { t: 'choice', ask: ['genjiro', '(quietly) That promise will be hard to keep. The warehouses hold military supplies. He may burn the crossing rather than lose it.'], options: [['"You have my word."', 'promise']], after: [['Merchant Elder', 'Then we are agreed.']] },
-    { t: 'use', ats: ['rivercity.defense1', 'rivercity.defense2', 'rivercity.defense3'], label: 'Set the position', text: 'Set up the defences along the river street', hint: 'Aiko\'s archers on the bank. Daichi\'s captured guns covering the bridge. Small groups that can fall back without being cut off.' },
-    { t: 'rest', title: 'Dawn', tod: 0.26, then(m) { m.place('Merchant Elder', m.at('@ren', 1.6, 1)); } },
+    { t: 'use', ats: ['rivercity.defense1', 'rivercity.defense2', 'rivercity.defense3'], label: 'Set up the defences along the river street', text: 'Set up the defences along the river street', hint: 'Aiko\'s archers on the bank. Daichi\'s captured guns covering the bridge. Small groups that can fall back without being cut off.',
+      on(m) { m.fillCrowd(m.at('rivercity.square'), { min: 6, kids: 1, tag: 'citizens' }); },
+      onUse(m, k) {
+        const keys = ['rivercity.defense1', 'rivercity.defense2', 'rivercity.defense3'], p = m.at(keys[k]); if (!p) return;
+        if (k === 0) {
+          m.prop('cannon', p, { dir: 0 }); m.prop('crates', [p[0] - 1.6, p[1] + 0.8], { solid: true });
+          m.stay('daichi', [p[0] + 1.2, p[1] + 0.5]); const d = m.get('daichi'); if (d) m.setWork(d, 'hammer', null, p, 24);
+        } else if (k === 1) {
+          m.prop('barrels', p, { solid: true }); m.prop('crates', [p[0] + 1.5, p[1] + 0.2], { solid: true });
+          m.stay('aiko', [p[0] - 1.1, p[1] + 0.8]); const a = m.get('aiko'); if (a) a.aimAt = m.at('rivercity.gateW');
+        } else {
+          m.prop('crates', p, { solid: true }); m.prop('barrels', [p[0] - 1.4, p[1] + 0.5], { solid: true });
+          if (!m.group('militia').length) m.spawn('ronin', p, 3, { calm: true, tag: 'militia', faction: 'civ', ally: true, spread: 1.4, appear: false, here: true, exact: true });
+        }
+        if (!m.fast) { Snd.play('thud', 0.45); FX.dust(p[0], p[1] + 0.6, 10); }
+        m.look(p, 2.4);
+      } },
+    { t: 'rest', title: 'Dawn', tod: 0.26, then(m) {
+      m.place('Merchant Elder', m.at('@ren', 1.6, 1));
+      const g = m.at('rivercity.gateW') || m.at('rivercity.street');
+      if (!m.group('army').length && g) {
+        m.spawn('officer', [g[0] - 6, g[1]], 1, { tag: 'army', key: 'Imperial Commander', name: 'Imperial Commander', appear: false, here: true, exact: true });
+        m.spawn('imperial', [g[0] - 8, g[1]], 6, { tag: 'army', spread: 2.2, appear: false, here: true, exact: true });
+      }
+    } },
     { t: 'scene', on(m) { m.look('rivercity.gateW', 12); }, parts: [['Imperial Commander', 'Return the river crossing to imperial control, or this city burns.'], ['Merchant Elder', '...Perhaps if we...'], ['ren', 'Hand him the bridge, and he\'s back for your sons next spring.'], ['Merchant Elder', '...Bar the street.']] },
-    { t: 'kill', cp: true, text: 'The battle for the river street begins', hint: 'Hold the street. Fall back in groups, never one by one.', on(m) { for (const a of m.group('army')) { a.mEnemy = true; a.ai.mode = 'fight'; a.ai.target = G.player; a.tag = 'foe'; } const c = m.get('Imperial Commander'); if (c) { c.tag = 'foe'; c.mEnemy = true; c.ai.mode = 'fight'; c.ai.target = G.player; } } },
+    { t: 'kill', tag: 'army', cp: true, text: 'The battle for the river street begins', hint: 'Hold the street. Fall back in groups, never one by one.',
+      on(m) { const g = m.at('rivercity.gateW'); if (!m.group('army').length && g) { m.spawn('officer', [g[0] - 6, g[1]], 1, { tag: 'army', key: 'Imperial Commander', name: 'Imperial Commander', here: true, exact: true }); m.spawn('imperial', [g[0] - 8, g[1]], 6, { tag: 'army', spread: 2.2, here: true, exact: true }); } for (const a of m.group('army')) { a.mEnemy = true; a.faction = 'imperial'; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } },
+      spawn(m) { const here = m.group('army'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { const g = m.at('rivercity.gateW') || [G.player.x + 8, G.player.y]; m.spawn('imperial', g, 6, { tag: 'army', spread: 2.2 }); m.spawn('officer', g, 1, { tag: 'army', name: 'Imperial Commander' }); } } },
     { t: 'scene', parts: [['genjiro', '(looking downriver) They will not leave it there. Guns on those hills by morning.']] },
   ],
 });
@@ -16265,7 +16428,7 @@ M({
   recap: 'Driven out of the riverfront, they fell back to the old stone bridge to the safer road. Its supports were weakened by decades of floods; the imperial guns were going up on the eastern hill. Genjiro would stay to hold the bridge while the refugees escaped. Ren accused him of treating his life as expendable because he was old. "A life does not become worthless when it reaches its later years. I am choosing to spend my remaining strength on something that will outlast me." The first cannon fired. Genjiro asked Ren to remember the people who made the journey possible, and walked to the bridge.',
   setup(m) { m.cast('genjiro', 'rivercity.riverfront', { faction: 'civ', wpn: 'katana' }); for (const w of ['rivercity.square', 'rivercity.merchants', 'rivercity.temple']) m.burn(w, { size: 1.5, z: 24 }); m.spawn('villager', 'rivercity.square', 6, { calm: true, tag: 'refugees', spread: 4 }); m.spawn('kid', 'rivercity.square', 2, { calm: true, tag: 'refugees', spread: 3 }); m.spawn('imperial', 'rivercity.gateW', 3, { watch: true, tag: 'pursue', spread: 3 }); },
   steps: [
-    { t: 'escape', at: 'oldbridge.endA', r: 4, cp: true, text: 'Fall back to the old stone bridge', hint: 'The riverfront is burning. Civilians are running for the western bank.', barrage: { every: 3.2, near: 6, far: 13, safe: true }, spawn(m) { const here = m.group('pursue'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', 'rivercity.square', 3, { spread: 3 }); } }, on(m) { m.place('genjiro', ['oldbridge.endA', -1, 1], { run: 1.1 }); for (const a of m.group('refugees')) m.walk(a, [['oldbridge.endA', rnd(-3, 3), rnd(-3, 3)]], { run: 1.1 }); } },
+    { t: 'escape', at: 'oldbridge.endA', r: 4, cp: true, text: 'Fall back to the old stone bridge', hint: 'The riverfront is burning. Civilians are running for the western bank.', barrage: { every: 3.2, near: 6, far: 13, safe: true }, spawn(m) { const here = m.group('pursue'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', 'rivercity.square', 3, { spread: 3 }); } }, on(m) { const A = m.at('oldbridge.endA'), B = m.at('oldbridge.endB'); if (A && B && !Bridges.near(Math.min(A[0], B[0]) - 6, Math.min(A[1], B[1]) - 6, Math.max(A[0], B[0]) + 6, Math.max(A[1], B[1]) + 6).length) { const br = Bridges.add({ ax: A[0], ay: A[1], bx: B[0], by: B[1], hw: 1.5, kind: 'arch' }); if (br) Bridges.stamp(br); } m.place('genjiro', ['oldbridge.endA', -1, 1], { run: 1.1 }); for (const a of m.group('refugees')) m.walk(a, [['oldbridge.endA', rnd(-3, 3), rnd(-3, 3)]], { run: 1.1 }); } },
     { t: 'scene', parts: [['genjiro', 'I know this bridge. I crossed it twenty years ago with another army. The stone supports are rotten from the floods. One good shot and it goes.'], ['daichi', 'They are putting guns on the eastern hill. Now.'], ['ren', 'Then everyone crosses. All of us. You first, old man.'], ['genjiro', 'No. Someone stays at the bridge, or the soldiers overtake the refugees on the road.', 'I have been telling you for months what a leader does. Let me do it once.'], ['ren', 'You are treating your life as something to spend, because you are old!'], ['genjiro', 'A life does not become worthless when it reaches its later years.', 'I am not seeking death. I am choosing to spend my remaining strength on something that will outlast me.']] },
     { t: 'wait', dur: 2, text: 'The first imperial cannon fires', on(m) { const b = m.at('oldbridge.deck'); m.fire([b[0] + 2, b[1] + 2], { delay: 0.8, r: 2, dmg: 0, safe: true }); } },
     { t: 'scene', parts: [['narr', 'Genjiro draws his sword.'], ['genjiro', 'Ren. Remember the people who made the journey possible.']], done(m) { m.walk(m.get('genjiro'), ['oldbridge.deck'], { run: 0.8 }); } },
@@ -16341,7 +16504,7 @@ M({
     { t: 'go', at: 'tunnel.end', r: 2.2, text: 'Follow the tunnel to its end' },
     { t: 'use', at: 'tunnel.end', label: 'Climb up into the cellar', text: 'Climb up into the cellar', onUse(m) { m.cutTo(() => { if (!m.fast) Card.show('', 'Up the shaft', 'An iron ladder, forty rungs, and a trapdoor under the old archive.', 3, 'time'); m.put('archive.hatch'); }); } },
     { t: 'scene', parts: [['nao', 'Cellar. Old archive. Nobody upstairs. Genjiro\'s map was right.'], ['narr', 'The cellar door slams. Somewhere above, a mechanical alarm starts to ring.'], ['nao', 'Oh.', 'That\'s new.']] },
-    { t: 'kill', tag: 'stairs', cp: true, text: 'Fight off the guards coming down the stairs', spawn(m) { const here = m.group('stairs'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['archive.hatch', 5, 3], 3, { spread: 2, name: 'Archive Guard' }); m.spawn('imperial', ['archive.hatch', 7, -2], 2, { spread: 2, name: 'Archive Guard' }); } } },
+    { t: 'kill', tag: 'stairs', cp: true, text: 'Fight off the guards coming down the stairs', spawn(m) { const here = m.group('stairs'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['archive.hatch', 5, 3], 3, { tag: 'stairs', spread: 2, name: 'Archive Guard' }); m.spawn('imperial', ['archive.hatch', 7, -2], 2, { tag: 'stairs', spread: 2, name: 'Archive Guard' }); } } },
   ],
 });
 M({
@@ -16436,7 +16599,7 @@ M({
   },
   steps: [
     { t: 'scene', parts: [['nao', 'The secret prison: political advisers, rebel couriers, former officers, merchants accused of undermining the imperial economy. Most held for years. No trials.'], ['nao', 'The records are kept by a handful of clerks who answer to Arata. Nobody else.'], ['aiko', 'I make noise on the northern rooftops. Ren and Daichi take the outer gate mechanism. Haru waits in the drain with medicine and blankets.'], ['nao', 'And I find the records office, and the names of everyone scheduled for transfer.']] },
-    { t: 'go', at: 'prison.gate', r: 4, text: 'Get into position at the outer gate', hint: 'Wait for Aiko.', on(m) { m.place('aiko', ['prison.records', 0, -6]); m.remove(m.get('nao')); } },
+    { t: 'go', at: 'prison.gate', r: 4, text: 'Get into position at the outer gate', hint: 'Wait for Aiko.', on(m) { m.stay('aiko', ['prison.records', 0, -6]); m.remove(m.get('nao')); } },
     { t: 'wait', dur: 5, text: 'Wait for Aiko\'s signal', on(m) { m.look(['prison.records', 0, -4], 3); const f = m.at('prison.records', 0, -6); if (f && !m.fast) FX.text(f[0], f[1], 'Fire! On the roofs!', '#ff8a7a'); for (const a of m.group('watch').filter(a => a.gateG)) m.walk(a, [['prison.records', -3 + rnd(-1, 1), 3]], { run: 0.9 }); }, talk: [['Guard', 'ROOFTOPS! North side! Someone\'s on the roofs!'], ['daichi', 'That is Aiko\'s idea of subtle.']] },
     { t: 'sneak', at: 'prison.lever', r: 2.2, onSpot: 'fight', cp: true, text: 'Slip inside to the gate mechanism', hint: 'Crouch (C). One patrol still walks the yard.' },
     { t: 'use', at: 'prison.lever', label: 'Jam the mechanism', text: 'Disable the outer gate mechanism with Daichi', dur: 2, busy: 'Daichi wedges the gears…', each(m, dt) { alarmIfSeen(m, dt); } },
@@ -16560,11 +16723,11 @@ M({
   setup(m) { const a = m.cast('nao', ['archive.sealedIn', 1.2, 0.6], { appear: true }); if (a) sickLook(a); m.prop('satchel', ['archive.sealedIn', 0.4, 1.2], { solid: false }); m.spawn('imperial', ['archive.passage', 3, 1], 3, { calm: true, tag: 'corridor', spread: 2, name: 'Archive Guard' }); m.spawn('rifleman', ['archive.yard', -3, -2], 1, { calm: true, tag: 'corridor' }); m.spawn('imperial', ['archive.offices', 0, 2.5], 3, { calm: true, tag: 'control', spread: 2, name: 'Archive Guard' }); m.spawn('officer', ['archive.offices', 2, 3], 1, { calm: true, tag: 'control', key: 'Archive Captain', name: 'Archive Captain' }); },
   steps: [
     { t: 'scene', parts: [['aiko', 'It says the originals are safe. It doesn\'t say he got out.'], ['aiko', 'Daichi\'s making noise by the artillery yard. Haru has a boat at the end of the drain.'], ['ren', 'I\'m not leaving without him.'], ['aiko', 'I know. That\'s why I\'m still here.']] },
-    { t: 'kill', tag: 'corridor', cp: true, text: 'Force your way through the service corridor', spawn(m) { const here = m.group('corridor'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['archive.passage', 3, 1], 3, { spread: 2, name: 'Archive Guard' }); m.spawn('rifleman', ['archive.yard', -3, -2], 1); } } },
+    { t: 'kill', tag: 'corridor', cp: true, text: 'Force your way through the service corridor', spawn(m) { const here = m.group('corridor'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['archive.passage', 3, 1], 3, { tag: 'corridor', spread: 2, name: 'Archive Guard' }); m.spawn('rifleman', ['archive.yard', -3, -2], 1, { tag: 'corridor' }); } } },
     { t: 'go', at: 'archive.sealed', r: 2.8, text: 'Reach the sealed archive door', on(m) { m.fire(['archive.gate', 18, 10], { delay: 0.4, r: 2, dmg: 0, safe: true }); } },
     { t: 'wait', dur: 5, text: 'Listen at the door', talk: [['narr', 'A faint tapping from the other side.'], ['narr', 'It stops.']] },
     { t: 'scene', parts: [['aiko', 'Emergency doors. They only open from the control room.'], ['aiko', 'There will be another way in. A vent, a roof, something...'], ['ren', 'The control room.'], ['aiko', 'Ren, it\'s full of...'], ['ren', 'The control room.']] },
-    { t: 'kill', tag: 'control', cp: true, text: 'Break into the control room', spawn(m) { const here = m.group('control'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['archive.offices', 0, 2.5], 3, { spread: 2, name: 'Archive Guard' }); m.spawn('officer', ['archive.offices', 2, 3], 1, { name: 'Archive Captain' }); } } },
+    { t: 'kill', tag: 'control', cp: true, text: 'Break into the control room', spawn(m) { const here = m.group('control'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['archive.offices', 0, 2.5], 3, { tag: 'control', spread: 2, name: 'Archive Guard' }); m.spawn('officer', ['archive.offices', 2, 3], 1, { tag: 'control', name: 'Archive Captain' }); } } },
     { t: 'use', at: 'archive.officesIn', label: 'Release the lock', text: 'Release the emergency lock', dur: 2, busy: 'Forcing the lock gears back…' },
     { t: 'go', at: 'archive.sealedIn', r: 2.6, text: 'Into the archive\'s outer chamber', on(m) { m.burn(['archive.sealed', -3, 0], { size: 0.9, z: 6 }); m.burn(['archive.sealed', 3, -1], { size: 0.8, z: 6 }); } },
     { t: 'scene', parts: [['narr', 'Smoke. Burning cabinets. Nao by the service passage, his satchel held against his chest.'], ['ren', 'Nao. Nao, look at me. Haru has a boat, we\'ll...'], ['nao', 'Did you get the papers?'], ['ren', '...Yes.'], ['nao', 'Good.', 'I would hate to have died for bad paperwork.']] },
@@ -16655,7 +16818,7 @@ M({
   recap: 'Ren fought through the lower trenches while Aiko, on a narrow platform over the road, took down the signal officers before they could coordinate the guns. Daichi reached the main cannon and found its firing lock reinforced: it could not be dismantled in time. So he would use it. Firing into the ridge\'s old stone retaining wall would bring down the artillery road. Ren ordered him back; Daichi refused. He thought of the town he had helped bombard, adjusted the elevation, and fired. The wall came down across the road. The platform shuddered, and began to collapse around him.',
   setup(m) { m.spawn('imperial', ['battery.platform2', 3, 2], 3, { calm: true, tag: 'trench', spread: 2.5 }); m.spawn('rifleman', ['battery.sheds', 3, -2], 2, { calm: true, tag: 'trench', spread: 2 }); m.spawn('officer', 'battery.signal', 2, { calm: true, tag: 'signal', spread: 2, name: 'Signal Officer' }); },
   steps: [
-    { t: 'kill', tag: 'trench', cp: true, text: 'Fight through the trenches and walkways', hint: 'Break their formation. The guns cannot fire while you are among them.', spawn(m) { const here = m.group('trench'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['battery.platform2', 3, 2], 3, { spread: 2.5 }); m.spawn('rifleman', ['battery.sheds', 3, -2], 2, { spread: 2 }); } } },
+    { t: 'kill', tag: 'trench', cp: true, text: 'Fight through the trenches and walkways', hint: 'Break their formation. The guns cannot fire while you are among them.', spawn(m) { const here = m.group('trench'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['battery.platform2', 3, 2], 3, { tag: 'trench', spread: 2.5 }); m.spawn('rifleman', ['battery.sheds', 3, -2], 2, { tag: 'trench', spread: 2 }); } } },
     { t: 'kill', tag: 'signal', text: 'Take the signal officers before they coordinate the guns', hint: 'Aiko has one. The other is yours.', on(m) { m.stay('aiko', 'battery.signal'); const a = m.get('aiko'); if (a) { const sig = m.group('signal')[0]; if (sig) a.aimAt = sig; } m.look('battery.signal', 3); }, done(m) { const a = m.get('aiko'); if (a) a.aimAt = null; m.comp('aiko'); }, spawn(m) { const here = m.group('signal'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('officer', 'battery.signal', 2, { tag: 'signal', spread: 2, name: 'Signal Officer' }); } } },
     { t: 'go', at: ['battery.main', -1.5, 1.5], r: 2.8, text: 'Reach the main cannon with Daichi' },
     { t: 'scene', parts: [['daichi', 'They have put a new lock on the firing mechanism. I cannot take it apart quickly enough. Not before they bring the other guns round.'], ['daichi', 'So I will use it.', 'The old stone retaining wall above the road. One shot, in the right place, and the whole slope comes down across the artillery road. Nothing gets to the city.'], ['ren', 'The recoil will take the platform with it. Get back. That is an order.'], ['daichi', 'No.']] },
@@ -16713,7 +16876,7 @@ M({
     { t: 'scene', on(m) { const r = m.get('Coalition Runner'); if (r) m.bring(r, m.at('@ren', 1.8, 1.2), { run: 1.4 }); }, parts: [['Coalition Runner', 'The north gate\'s open! Our people inside opened it! They\'re handing out the rice stores!'], ['aiko', 'I take the northern force through the merchant quarter. My arrows will mark where our people are.'], ['haru', 'And I stay here with the wounded. All of them.']], done(m) { m.stay('aiko', ['capital.square', 6, -5]); m.remove(m.get('Coalition Runner')); } },
     { t: 'talk', who: 'haru', text: 'Speak with Haru at the medical station', parts: [['ren', 'That one is wearing the white sun.'], ['haru', 'He is bleeding the same colour as you.', 'The war will end, Ren. Someone will have to live in the country afterward. I would like there to be people left to do it.']] },
     { t: 'go', at: 'capital.avenue', r: 7, text: 'Push into the city toward the palace district', hint: 'You carry the copied orders. Aiko is on the rooftops.', talk: [['Former Guard', '(throwing down his spear) This way! The garrison is in the rice exchange!']], on(m) { m.cast('aiko', ['capital.square', 6, -5]); const a = m.get('aiko'); if (a) a.aimAt = m.at('capital.avenue'); m.look(['capital.square', 6, -5], 3); } },
-    { t: 'kill', tag: 'avenue', cp: true, text: 'Break the defenders on the avenue', spawn(m) { const here = m.group('avenue'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['capital.avenue', 4, -2], 4, { spread: 3 }); m.spawn('rifleman', ['capital.avenue', -4, -3], 1); } } },
+    { t: 'kill', tag: 'avenue', cp: true, text: 'Break the defenders on the avenue', spawn(m) { const here = m.group('avenue'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['capital.avenue', 4, -2], 4, { tag: 'avenue', spread: 3 }); m.spawn('rifleman', ['capital.avenue', -4, -3], 1, { tag: 'avenue' }); } } },
     { t: 'scene', on(m) { for (const a of m.group('surrender')) sickLook(a); }, parts: [['Conscript', 'Hold at any cost, they said! The palace said hold at any cost! We\'re done! We\'re DONE!'], ['Fighter', 'These are the ones who burned the grain at Hatakemura. I know that face. Every one of them gets what they gave.']] },
     { t: 'choice', key: 'surrender', ask: ['ren', '...'], options: [
       ['"Stop."', 'spare'],
@@ -16733,7 +16896,7 @@ M({
       : [['ren', 'Bind their hands. The assemblies can judge them.'], ['Fighter', 'And if they let them go?'], ['ren', 'Then they let them go.'], ['narr', 'The spear stays up.']]
     ) },
     { t: 'go', at: ['capital.palaceGate', 0, 5], r: 5, text: 'Make for the palace gates' },
-    { t: 'kill', tag: 'palace', cp: true, text: 'Clear the last guards at the palace gate', spawn(m) { const here = m.group('palace'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['capital.palaceGate', 0, 3], 3, { spread: 2.5, name: 'Palace Guard' }); m.spawn('officer', ['capital.palaceGate', 1, 2], 1, { name: 'Guard Captain' }); } } },
+    { t: 'kill', tag: 'palace', cp: true, text: 'Clear the last guards at the palace gate', spawn(m) { const here = m.group('palace'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['capital.palaceGate', 0, 3], 3, { tag: 'palace', spread: 2.5, name: 'Palace Guard' }); m.spawn('officer', ['capital.palaceGate', 1, 2], 1, { tag: 'palace', name: 'Guard Captain' }); } } },
     { t: 'scene', on(m) { m.cast('aiko', ['capital.palaceGate', 1.5, 3], { run: 1.2 }); }, parts: [['aiko', 'You\'re bleeding.'], ['ren', 'So are you.'], ['aiko', '...The doors are open.']] },
   ],
 });
@@ -16776,7 +16939,7 @@ M({
   setup(m) { m.cast('kuroda', 'capital.courtyard', { face: PI * 0.25, faction: 'imperial', essential: false, wpn: 'katana' }); m.spawn('imperial', ['capital.courtyard', 3, 2], 2, { calm: true, tag: 'loyal', spread: 1.5 }); m.spawn('imperial', ['capital.courtyard', -2, 2], 1, { calm: true, tag: 'loyal', key: 'Loyalist', name: 'Loyalist' }); m.spawn('imperial', ['capital.gateE', -4, 0], 4, { calm: true, tag: 'gateLoyal', spread: 3 }); m.spawn('rifleman', ['capital.gateE', -6, 2], 1, { calm: true, tag: 'gateLoyal' }); capCrowd(m, 10); m.spawn('villager', ['capital.square', 1, 1.5], 1, { calm: true, key: 'Townswoman', name: 'Townswoman', face: -PI * 0.75 }); m.spawn('official', ['capital.square', 2.2, 0.6], 1, { calm: true, key: 'Clerk', name: 'Clerk', face: PI * 0.25 }); m.spawn('villager', ['capital.gateE', 2, 2], 1, { calm: true, key: 'Coalition Runner', name: 'Coalition Runner' }); m.spawn('official', ['capital.keepDoor', -1.5, 1], 1, { calm: true, key: 'Representative', name: 'Representative' }); m.spawn('daimyo', ['capital.keepDoor', 1.5, 1], 1, { calm: true, key: 'Former Lord', name: 'Former Lord' }); },
   steps: [
     { t: 'scene', on(m) { const r = m.get('Coalition Runner'); if (r) m.bring(r, m.at('@ren', 1.8, 1.2), { run: 1.4 }); }, parts: [['Coalition Runner', 'Officers are handing over their swords in the streets! They caught Arata\'s secretary at the river with a cart full of files!'], ['haru', 'And Kuroda?'], ['Coalition Runner', 'The eastern gate. Every loyalist he has left.']] },
-    { t: 'kill', cp: true, text: 'Break the loyalist line at the eastern gate', spawn(m) { const here = m.group('gateLoyal'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['capital.gateE', -4, 0], 4, { spread: 3 }); m.spawn('rifleman', ['capital.gateE', -6, 2], 1); } } },
+    { t: 'kill', tag: 'gateLoyal', cp: true, text: 'Break the loyalist line at the eastern gate', spawn(m) { const here = m.group('gateLoyal'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['capital.gateE', -4, 0], 4, { tag: 'gateLoyal', spread: 3 }); m.spawn('rifleman', ['capital.gateE', -6, 2], 1, { tag: 'gateLoyal' }); } } },
     { t: 'go', at: m => { const k = m.get('kuroda'); return k ? [k.x + 2, k.y + 2] : m.at('capital.courtyard'); }, r: 3.4, text: 'Find Kuroda in the courtyard of the imperial standards' },
     { t: 'scene', parts: [['kuroda', 'You. The boy from Kiyohara.', 'Your survival was an unfortunate accident. A careless sergeant. A slow fire.'], ['kuroda', 'Soldiers do not create the wars they are ordered to fight, boy. We carry them out. You hated the wrong man for fifteen years.'], ['ren', 'I was there. Behind the storehouse.', 'You said "Torches."']] },
     { t: 'defeat', who: 'kuroda', at: 30, cp: true, text: 'Defeat General Kuroda', hint: 'He is a soldier\'s soldier: patient, heavy, precise.', on(m) { const k = m.get('kuroda'); if (k) { k.mEnemy = true; k.canYield = true; k.faction = 'imperial'; k.ai.mode = 'fight'; k.ai.target = G.player; k.aware = 1; } m.alarm('*', true); for (const a of m.group('loyal')) { a.mEnemy = true; a.faction = 'imperial'; a.ai.mode = 'fight'; a.ai.target = G.player; } } },
@@ -17094,7 +17257,7 @@ function figOf(a, t) {
     : a.remote
       ? (a.armed !== false && a.wpn && a.wpn !== 'fists') || a.state === 'atk' || a.state === 'block' || a.state === 'charge'
       : (a.ai && (a.ai.mode === 'fight' || a.dueling)) || a.state === 'atk' || a.state === 'block' || a.faction === 'gang' && a.ai?.mode === 'fight';
-  if (a.sleeping || a.lying || a.state === 'sleep') pose = 'sleep';
+  if (a.sleeping || a.lying || a.state === 'sleep' || a.pose === 'sleep' || (a === G.player && G.sleeping)) pose = 'sleep';
   else if (a.sitting || a.state === 'sit') pose = 'sit';
   else if (a.state === 'atk' && a.atk) {
     const k = a.atk, ph = k.phase;
@@ -17127,7 +17290,8 @@ function figOf(a, t) {
   if (likeP && a.state !== 'work' && !a.carry) {
     const was = a._wasArmed;
     if (a === G.player) {
-      if (!armed) a._armedT = (a._armedT || 0) - 0.016; else a._armedT = 4;
+      if (down) a._armedT = 0;
+      else if (!armed) a._armedT = (a._armedT || 0) - 0.016; else a._armedT = 4;
       if ((a._armedT || 0) > 0 && a.wpn !== 'fists') armed = true;
     } else if (a.wpn && a.wpn !== 'fists' && a.armed !== false) armed = true;
     const blade = a.wpn !== 'fists' ? a.wpn : (a.lastBlade || (G.profile && G.profile.lastBlade));
@@ -17686,7 +17850,12 @@ const Net = {
       this.ensureGangNpc();
       if (m.joined) this.upsert(m.joined);
       if (m.hired) UI.toast((m.hired.name || 'A blade') + ' has sworn to the gang.', 'good');
-      if (m.dog && m.who && m.who !== this.id) UI.toast('The camp has a dog now: ' + m.dog.name, 'good');
+      if (m.dog) {
+        const look = DOG_COATS[m.dog.coat] || DOG_COATS[0];
+        const coat = look ? ' in ' + look.label : '';
+        if (m.who === this.id) UI.toast(m.dog.name + ' waits by the fire' + coat + '.', 'good');
+        else if (m.who) UI.toast('The camp has a dog now: ' + m.dog.name + coat + '.', 'good');
+      }
       return;
     }
     if (m.t === 'worldSync') { this.applyWorld(m); return; }
@@ -17763,7 +17932,10 @@ const Net = {
     a.armed = p.armed != null ? !!p.armed : (a.wpn && a.wpn !== 'fists');
     a.walk = p.walk != null ? p.walk : a.walk; a.moving = !!p.moving; a.crouch = !!p.crouch;
     const st = p.state || p.pose;
-    if (st) {
+    a.sleeping = !!(p.sleeping || st === 'sleep');
+    a.pose = a.sleeping ? 'sleep' : (p.pose || a.pose);
+    if (a.sleeping) { a.state = 'sleep'; a.atk = null; a.moving = false; }
+    else if (st) {
       if (st === 'atk' && p.atk) {
         if (a.state !== 'atk' || !a.atk || a.atk.phase !== p.atk.phase) {
           a.state = 'atk';
@@ -17773,10 +17945,7 @@ const Net = {
     }
     if (p.draw) a.drawAnim = { dir: p.draw.dir, t: p.draw.t || 0, dur: p.draw.dur || 0.3, wpn: p.draw.wpn || a.wpn };
     a.mounted = !!p.mounted; a.mpSeat = p.seat | 0; a.mountOf = p.mountOf; a.gangId = p.gangId;
-    if (p.dog && !Miso.mine() && Miso.with()) {
-      if (!Miso.dog) Miso.place(p.dog.x, p.dog.y);
-      Miso.dog.x = p.dog.x; Miso.dog.y = p.dog.y; Miso.dog.face = p.dog.face; Miso.dog.pose = p.dog.pose || Miso.dog.pose; Miso.dog.spd = p.dog.spd || 0;
-    }
+    if (p.dog && !Miso.mine()) Miso.fromNet(p.dog);
     if (p.horse) {
       if (!r.horse) r.horse = Horse.make(p.horse.x || p.x, p.horse.y || p.y, p.horse.coat || 0, p.horse);
       Object.assign(r.horse, p.horse); r.horse.ownerId = p.id;
@@ -17825,13 +17994,14 @@ const Net = {
       const p = G.player, h = (p.mpSeat === 0 ? (p.mpMount || G.horse) : G.horse), pr = G.profile;
       const atk = p.atk && p.state === 'atk' ? { phase: p.atk.phase, t: +p.atk.t.toFixed(3), heavy: !!p.atk.heavy, wind: p.atk.wind, spin: !!p.atk.spin } : null;
       const draw = p.drawAnim ? { dir: p.drawAnim.dir, t: +p.drawAnim.t.toFixed(3), dur: p.drawAnim.dur, wpn: p.drawAnim.wpn } : null;
+      const sleep = !!(G.sleeping || p.sleeping);
       this.send({
         t: 'state', x: +p.x.toFixed(2), y: +p.y.toFixed(2), face: +p.face.toFixed(3),
-        hp: p.hp, maxHp: p.maxHp, wpn: p.wpn, armor: pr.armor, pose: p.state, state: p.state,
-        armed: !!(p.wpn && p.wpn !== 'fists'), atk, draw, walk: p.walk, moving: !!p.moving, crouch: !!p.crouch, look: p.look,
+        hp: p.hp, maxHp: p.maxHp, wpn: p.wpn, armor: pr.armor, pose: sleep ? 'sleep' : p.state, state: sleep ? 'sleep' : p.state,
+        sleeping: sleep, armed: !sleep && !!(p.wpn && p.wpn !== 'fists'), atk: sleep ? null : atk, draw: sleep ? null : draw, walk: p.walk, moving: !sleep && !!p.moving, crouch: !!p.crouch, look: p.look,
         mounted: !!p.mounted, seat: p.mpSeat || 0, mountOf: (p.mpMount && p.mpMount.ownerId) || (p.mounted ? this.id : null),
         horse: h ? { x: h.x, y: h.y, face: h.face, spd: h.spd, coat: h.coat, name: h.name, spdMul: h.spdMul, seats: h.seats } : null,
-        dog: Miso.mine() && Miso.dog ? { x: +Miso.dog.x.toFixed(2), y: +Miso.dog.y.toFixed(2), face: Miso.dog.face, pose: Miso.dog.pose, spd: Miso.dog.spd } : null
+        dog: Miso.pack()
       });
     }
     this.syncT = (this.syncT || 0) + dt;
@@ -17888,10 +18058,12 @@ const Net = {
     this.send({ t: 'questStart', id, at, title: d ? d.title : id });
   },
   questEnd(id) { this.send({ t: 'questEnd', id, ret: this.questRet || World.spots.mpCamp }); },
-  buyDog() {
+  buyDog(name, coat) {
     if (this.gang && this.gang.dog) { UI.toast('The camp already has a dog.', 'shame'); return; }
     if (!this.canPay(120)) return;
-    this.send({ t: 'buyDog', name: 'Miso' });
+    const n = (name || '').trim().slice(0, 16);
+    if (!n) { UI.toast('They need a name.'); return; }
+    this.send({ t: 'buyDog', name: n, coat: coat | 0 });
   },
   renameDog(name) { this.send({ t: 'renameDog', name }); },
   sendTrack(id) { this.send({ t: 'track', id }); },
@@ -17938,10 +18110,7 @@ const Net = {
     if (m.track !== undefined) G.profile.track = m.track;
     if (m.quests) this.applyQuests(m.quests);
     if (m.npcPose) this.applyNpcPose(m.npcPose);
-    if (m.dog && !Miso.mine() && Miso.with()) {
-      if (!Miso.dog) Miso.place(m.dog.x, m.dog.y);
-      Miso.dog.x = m.dog.x; Miso.dog.y = m.dog.y; Miso.dog.face = m.dog.face; Miso.dog.pose = m.dog.pose || 'stand'; Miso.dog.spd = m.dog.spd || 0;
-    }
+    if (m.dog && !Miso.mine()) Miso.fromNet(m.dog);
     if (m.actors) this.applyActors(m.actors);
   },
   applyQuests(quests) {
@@ -18022,7 +18191,7 @@ const Net = {
         state: npc.state, wpn: npc.wpn, armed: npc.wpn !== 'fists', walk: npc.walk, moving: !!npc.moving,
         atk: npc.atk && npc.state === 'atk' ? { phase: npc.atk.phase, t: npc.atk.t, heavy: !!npc.atk.heavy, wind: npc.atk.wind } : null
       } : null,
-      dog: Miso.mine() && Miso.dog ? { x: +Miso.dog.x.toFixed(2), y: +Miso.dog.y.toFixed(2), face: Miso.dog.face, pose: Miso.dog.pose, spd: Miso.dog.spd } : null,
+      dog: Miso.pack(),
       actors
     });
   }
