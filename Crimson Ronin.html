@@ -2094,6 +2094,32 @@ const World = {
     }
     for (let j = y0; j < y0 + h; j++) for (let i = x0; i < x0 + w; i++) if (this.in(i, j)) { const cur = this.tileAt(i, j); if (TINFO[cur].water) continue; if (cur !== TILE.BRIDGE) this.set(i, j, t); this.setClear(i, j); if (this.solidAt(i, j) === 2) this.setSolid(i, j, 0); }
   },
+  // a road that follows the land: discs along a polyline, so streets bend instead of printing as rectangles
+  lane(pts, hw, t) {
+    for (let s = 0; s < pts.length - 1; s++) {
+      const [ax, ay] = pts[s], [bx, by] = pts[s + 1], L = dist(ax, ay, bx, by) || 1;
+      let wet0 = -1;
+      for (let d = 0; d <= L; d += 0.4) {
+        const u = d / L, x = lerp(ax, bx, u), y = lerp(ay, by, u);
+        this.disc(x, y, hw, (i, j) => {
+          const cur = this.tileAt(i, j); if (!this.in(i, j) || TINFO[cur].water) return;
+          if (cur !== TILE.BRIDGE) this.set(i, j, t); this.setClear(i, j); if (this.solidAt(i, j) === 2) this.setSolid(i, j, 0);
+        });
+        const wet = TINFO[this.tileAt(Math.floor(x), Math.floor(y))].water;
+        if (wet && wet0 < 0) wet0 = u;
+        if ((!wet || d + 0.4 > L) && wet0 >= 0) {
+          const u1 = wet ? u : Math.max(wet0, u - 0.4 / L);
+          const A = [lerp(ax, bx, wet0), lerp(ay, by, wet0)], B = [lerp(ax, bx, u1), lerp(ay, by, u1)];
+          const dx = B[0] - A[0], dy = B[1] - A[1], n = Math.hypot(dx, dy) || 1;
+          A[0] -= dx / n * 1.3; A[1] -= dy / n * 1.3; B[0] += dx / n * 1.3; B[1] += dy / n * 1.3;
+          if (n >= 1.5 && n <= 80 && !Bridges.near(Math.min(A[0], B[0]) - 4, Math.min(A[1], B[1]) - 4, Math.max(A[0], B[0]) + 4, Math.max(A[1], B[1]) + 4).some(o => segDist(A, B, [o.ax, o.ay], [o.bx, o.by]) < hw + o.hw + 1.2)) {
+            const b = Bridges.add({ ax: A[0], ay: A[1], bx: B[0], by: B[1], hw: hw + 0.15, kind: n <= 12 ? 'arch' : 'flat' }); if (b) Bridges.stamp(b);
+          }
+          wet0 = -1;
+        }
+      }
+    }
+  },
   disc(cx, cy, r, fn, clip) {
     let i0 = Math.floor(cx - r), i1 = Math.ceil(cx + r), j0 = Math.floor(cy - r), j1 = Math.ceil(cy + r);
     if (clip) { i0 = Math.max(i0, clip[0]); j0 = Math.max(j0, clip[1]); i1 = Math.min(i1, clip[2] - 1); j1 = Math.min(j1, clip[3] - 1); }
@@ -2435,7 +2461,10 @@ const World = {
     const cores = (this.feat.get(k) || {}).cores || NONE;
     for (let y = y0; y < y0 + CK; y++) for (let x = x0; x < x0 + CK; x++) {
       if (x < WMIN + 2 || y < WMIN + 2 || x > WMAX - 3 || y > WMAX - 3 || this.heart(x, y)) continue;
-      let d = 99; for (const c of cores) d = Math.min(d, Math.max(c[0] - x, x - c[2], c[1] - y, y - c[3], 0));
+      let d = 99; for (const c of cores) {
+        const cx = (c[0] + c[2]) * 0.5, cy = (c[1] + c[3]) * 0.5, rx = Math.max(2, (c[2] - c[0]) * 0.5), ry = Math.max(2, (c[3] - c[1]) * 0.5);
+        d = Math.min(d, Math.max(0, (Math.hypot((x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry) - 1) * Math.min(rx, ry)));
+      }
       if (d < 3) continue;
       const t = this.growth(x, y, R);
       if (t && d < 14 && R() > (d - 3) / 11) continue;
@@ -3193,7 +3222,7 @@ const Realm = {
       add(cx - L + 4, last + 18, 18, 10); add(cx + 8, last + 18, 18, 10);
     }
   },
-  // Edo: the Shogun's city, a grid of seven streets below the great castle and its moat, a river crossed by Nihonbashi
+  // Edo: the Shogun's city, seven streets below the great castle and its moat, a river crossed by Nihonbashi
   edoPlan(R) {
     const [cx, cy] = this.edo, L = 62, rows = 7, deep = (rows - 1) * 13 + 2, north = 80;
     const S = this.site({ id: 'edo', kind: 'town', sub: 'edo', p: 0, x: cx, y: cy + 1, r: 80, L, rows, short: 'Edo', homes: [], keepers: [], folk: 14, guards: 10, monks: [], bb: [cx - L - 40, cy - north - 24, cx + L + 40, cy + deep + 30], c: [cx, cy + 1], builder: 'edo', kemari: true });
@@ -3519,8 +3548,7 @@ const Realm = {
     if (S.tower) World.tower(S.tower.towerId, Math.round(S.tower.cx), Math.round(S.tower.cy), S.tower.tname);
     Ground.invalidateRect(x0, y0, x1, y1);
   },
-  // streets every 13 tiles with houses on the north side of each, facing it; an avenue down the middle, cross streets at
-  // the ends; a castle town (and Edo) keeps its lord's palace behind walls to the north
+  // streets follow the ground: bent lanes, staggered lots, vacant gaps; a castle town (and Edo) keeps its lord's palace to the north
   // a settlement's open ground is planted, not wild: a tree here and there in the lots, well clear of houses and streets
   garden(S, R) {
     const W = World, [x0, y0, x1, y1] = S.core, bare = new Set([TILE.PATH, TILE.STONE, TILE.GRAVEL, TILE.FLOOR, TILE.SNOWPATH, TILE.PADDY, TILE.SAND, TILE.BRIDGE, TILE.PAVE]);
@@ -3534,15 +3562,34 @@ const Realm = {
   },
   build_town(S, R) {
     const W = World, P = this.provinces[S.p], cx = S.x, cy = S.y - 1, L = S.L, sub = S.sub, edo = sub === 'edo', castle = sub === 'castle' || edo, snow = P.b === B.SNOW || sub === 'mountain';
-    const path = snow ? TILE.SNOWPATH : castle ? TILE.STONE : TILE.PATH, rows = S.rows, last = cy + (rows - 1) * 13, wide = L >= 30;
-    W.street(cx - L - 3, cy, L * 2 + 6, 2, path);
-    for (let k = 1; k < rows; k++) W.street(cx - L + 1, cy + k * 13, L * 2 - 2, 2, path);
-    if (rows > 1) { W.street(cx - 1, cy, 2, last - cy + 2, path); if (wide) for (const x of [cx - L + 1, cx + L - 3]) W.street(x, cy, 2, last - cy + 2, path); }
+    const path = snow ? TILE.SNOWPATH : castle ? TILE.STONE : TILE.PATH, rows = S.rows, wide = L >= 30, jit = n => Math.round((R() - 0.5) * n);
+    const streets = S.streets = [];
+    let y = cy;
+    for (let k = 0; k < rows; k++) {
+      if (k) y += 10 + Math.round(R() * 5);
+      const xL = cx - L - 2 + (k ? jit(8) : jit(2)), xR = cx + L + 2 + (k ? jit(8) : jit(2));
+      const yL = y + (k ? jit(3) : 0), yR = y + (k ? jit(3) : 0), mx = cx + jit(6), my = y + jit(k ? 3 : 1);
+      W.lane([[xL, yL], [mx, my], [xR, yR]], 1.05 + R() * 0.35, path);
+      streets.push({ x0: xL, x1: xR, y: my, yL, yR, mx });
+    }
+    const last = streets[rows - 1].y;
+    if (rows > 1) {
+      const ave = streets.map(st => [st.mx + jit(3), st.y]);
+      W.lane([[ave[0][0], streets[0].y - 1], ...ave, [ave[ave.length - 1][0], last + 2]], 1.15, path);
+      if (wide) for (const side of [-1, 1]) {
+        const sx = cx + side * (L - 3) + jit(6);
+        W.lane([[sx, streets[0].y], [sx + jit(5), (streets[0].y + last) / 2], [sx + jit(5), last]], 0.95, path);
+      }
+    }
     const names = { inn: S.short + ' Inn', shop: SHOPS[S.shop].name, smith: castle ? SHOPS[S.smith].name : S.short + ' Smithy', headman: 'Headman\'s House', dojo: S.short + ' Dojo', teahouse: 'Teahouse' };
     let inns = 0;
     const add = (kind, x, y) => {
       let [w, h] = BSIZE[kind] || [8, 6]; if (kind === 'minka' || kind === 'machiya' || kind === 'hut') w += Math.round(R() * 2);
-      const b = this.B(kind, x, y - h, w, h, { snow, name: names[kind] || '', shop: kind === 'shop' ? S.shop : kind === 'smith' && castle ? S.smith : undefined });
+      const opt = { snow, name: names[kind] || '', shop: kind === 'shop' ? S.shop : kind === 'smith' && castle ? S.smith : undefined };
+      let b = null;
+      for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [2, 0], [0, -1], [0, 1], [3, 0], [-2, 0]]) {
+        b = this.B(kind, x + dx, y + dy - h, w, h, opt); if (b) break;
+      }
       if (!b) return 3;
       const sp = b.spots;
       if (sp.home) S.homes.push(sp.home.slice());
@@ -3554,12 +3601,14 @@ const Realm = {
       if (kind === 'headman' && sp.master && S.headman) S.headman.at = sp.master.slice();
       return w + 2 + Math.round(R() * 2);
     };
-    // lots kept free: the avenue, the town square, the kemari court, (in Edo) the temple grounds
-    const keep = [[cx - 3, cx + 3, 0, rows]], free = (x, w, k) => !keep.some(([a, b, k0, k1]) => k >= k0 && k < k1 && x < b && x + w > a);
+    const keep = [], occupy = (x0, y0, x1, y1) => keep.push([x0, y0, x1, y1]);
+    const free = (x, y, w, h) => !keep.some(([a, b, c, d]) => x < c && x + w > a && y < d && y + h > b);
+    for (const st of streets) occupy(st.mx - 3.5, st.y - 10, st.mx + 3.5, st.y + 3);
     if (rows > 1) {
-      const sqx = cx - (edo ? 26 : wide ? 20 : 17); keep.push([sqx, sqx + 14, 1, 2]); this.square(S, R, sqx, cy + 3, 14, 9, path);
-      if (S.kemari) { const kx = cx + 6; keep.push([kx, kx + 15, 1, 2]); this.kemariCourt(S, R, kx + 1, cy + 3, 13, 9); }
-      if (edo) { keep.push([cx - L + 4, cx - L + 26, 3, 4]); this.edoTemple(S, R, cx - L + 5, cy + 3 * 13 - 1); }
+      const sqx = streets[1].x0 + 10 + jit(8), sqy = streets[1].y - 5;
+      occupy(sqx - 8, sqy - 7, sqx + 8, sqy + 6); this.square(S, R, sqx, sqy, 6.4 + R(), path);
+      if (S.kemari) { const kx = streets[1].mx + 8 + jit(4), ky = streets[1].y - 6; occupy(kx - 2, ky - 2, kx + 15, ky + 11); this.kemariCourt(S, R, kx, ky, 13, 9); }
+      if (edo) { const tx = cx - L + 6, ty = streets[Math.min(3, rows - 1)].y - 1; occupy(tx - 2, ty - 12, tx + 22, ty + 2); this.edoTemple(S, R, tx, ty); }
     }
     const rowKinds = k => {
       if (k === 0) return edo ? ['dojo', 'inn', 'shop', 'teahouse', 'smith', 'machiya', 'teahouse', 'inn', 'machiya', 'shop', 'kura'] : castle ? ['dojo', 'inn', 'shop', 'smith', 'teahouse', 'machiya', 'kura'] : sub === 'market' ? ['headman', 'inn', 'shop', 'smith', 'teahouse', 'machiya'] : sub === 'fishing' ? ['headman', 'shop', 'hut', 'hut'] : ['headman', 'shop', S.inn ? 'inn' : 'minka', 'minka'];
@@ -3569,21 +3618,25 @@ const Realm = {
     };
     const filler = () => sub === 'fishing' ? 'hut' : castle ? (R() < 0.18 ? 'kura' : 'machiya') : sub === 'market' ? (R() < 0.5 ? 'machiya' : 'minka') : 'minka';
     for (let k = 0; k < rows; k++) {
-      const y = cy + k * 13 - 1, x1 = cx + L - (wide ? 4 : 2), list = rowKinds(k);
-      let x = cx - L + (wide ? 4 : 2);
+      const st = streets[k], yFace = Math.round((st.yL + st.yR) * 0.5), x1 = st.x1 - 4, list = rowKinds(k);
+      let x = st.x0 + 3 + Math.round(R() * 3);
       while (x < x1 - 5) {
-        const kind = list.length ? list[0] : filler(), w = (BSIZE[kind] || [8])[0] + 2;
-        if (x + w > x1) { if (!list.length) break; list.shift(); continue; }
-        if (!free(x, w, k)) { x++; continue; }
+        if (!list.length && R() < 0.1) { x += 3 + Math.round(R() * 5); continue; }
+        const kind = list.length ? list[0] : filler(), bw = (BSIZE[kind] || [8])[0] + 2, bh = (BSIZE[kind] || [8, 6])[1];
+        if (x + bw > x1) { if (!list.length) break; list.shift(); continue; }
+        const setback = list.length ? 0 : Math.round(R() * 2), yDoor = yFace - setback;
+        if (!free(x, yDoor - bh, bw, bh + setback + 1)) { x++; continue; }
+        const used = add(kind, x, yDoor);
+        if (used <= 3) { x++; continue; }
         if (list.length) list.shift();
-        x += add(kind, x, y);
+        if (setback) W.lane([[x + 2, yFace], [x + 2, yDoor]], 0.7, path);
+        x += used;
       }
     }
     if (castle) this.palace(S, R, cx, cy, path);
-    // lamps along the streets, carts and crates, a roadside shrine at the edge, paddies round the farms
     const doors = Buildings.list.filter(b => Math.abs(b.x - cx) < L + 20 && b.y > cy - 90 && b.y < last + 20);
     const spot = (x0, y0, x1, y1) => { for (let k = 0; k < 30; k++) { const xx = Math.round(lerp(x0, x1, R())), yy = Math.round(lerp(y0, y1, R())); if (W.free(xx, yy) && !W.bAt(xx, yy) && !doors.some(b => b.doorPt && dist(b.doorPt.outer[0], b.doorPt.outer[1], xx + 0.5, yy + 0.5) < 2)) return [xx, yy]; } return null; };
-    for (let k = 0; k < rows; k++) for (let n = 0; n < (castle ? 5 : 3); n++) { const q = spot(cx - L, cy + k * 13 + 2, cx + L, cy + k * 13 + 4); if (q) n % 2 ? W.lamp(q[0], q[1]) : W.deco(R.pick(['cart', 'barrels', 'crates', 'rack']), q[0], q[1]); }
+    for (const st of streets) for (let n = 0; n < (castle ? 5 : 3); n++) { const q = spot(st.x0, st.y + 1, st.x1, st.y + 3); if (q) n % 2 ? W.lamp(q[0], q[1]) : W.deco(R.pick(['cart', 'barrels', 'crates', 'rack']), q[0], q[1]); }
     let q = spot(cx + L + 2, cy - 4, cx + L + 6, cy + 4); if (q) W.deco('hokora', q[0], q[1], 1, 1, { interact: { kind: 'pray', label: 'Pray at the roadside shrine' } });
     if (S.farms) for (const f of S.farms) {
       const [x0, y0, x1, y1] = f, w = x1 - x0, h = y1 - y0;
@@ -3595,20 +3648,31 @@ const Realm = {
     if (sub === 'fishing') for (let k = 0; k < 6; k++) { q = spot(cx - L - 6, last + 3, cx + L + 6, last + 10); if (q) W.deco(k < 3 ? 'fishrack' : 'boat', q[0], q[1], 1, 1, { solid: k < 3 }); }
     W.keepClear(cx, cy + 1, 4);
   },
-  // the town square: stone or packed earth, a well, the notice board, lamps
-  square(S, R, x0, y0, w, h, path) {
-    const W = World; W.paint(x0, y0, w, h, path === TILE.PATH ? TILE.GRAVEL : path);
-    W.deco('well', x0 + (w >> 1), y0 + (h >> 1));
-    W.deco('board', x0 + 2, y0 + 1, 1, 1, { interact: { kind: 'bounty', label: 'Read the bounty board' } });
-    for (const [dx, dy] of [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]) W.lamp(x0 + dx, y0 + dy, 'stonelantern');
-    if (R() < 0.7) W.deco('sakura', x0 + w - 3, y0 + 2);
-    S.square = [x0 + w / 2, y0 + h / 2];
+  // the town square: packed earth in a ragged disc, a well, the notice board, lamps
+  square(S, R, cx, cy, r, path) {
+    const W = World, t = path === TILE.PATH ? TILE.GRAVEL : path;
+    W.disc(cx, cy, r + 1.2, (i, j) => {
+      if (TINFO[W.tileAt(i, j)].water || W.bAt(i, j)) return;
+      if (dist(i + 0.5, j + 0.5, cx, cy) > r - R() * 1.6) return;
+      W.set(i, j, t); W.setClear(i, j); if (W.solidAt(i, j) === 2) W.setSolid(i, j, 0);
+    });
+    W.deco('well', Math.round(cx), Math.round(cy));
+    W.deco('board', Math.round(cx) - 3, Math.round(cy) - 2, 1, 1, { interact: { kind: 'bounty', label: 'Read the bounty board' } });
+    for (const a of [0.4, 1.9, 3.6, 5.2]) W.lamp(Math.round(cx + Math.cos(a) * (r - 1.2)), Math.round(cy + Math.sin(a) * (r - 1.2)), 'stonelantern');
+    if (R() < 0.7) W.deco('sakura', Math.round(cx + r * 0.45), Math.round(cy - r * 0.25));
+    S.square = [cx, cy];
   },
-  // a kemari court: raked gravel with the four trees of the game at its corners (pine, cherry, willow, maple)
+  // a kemari court: raked gravel in a disc with the four trees of the game around the rim (pine, cherry, willow, maple)
   kemariCourt(S, R, x0, y0, w, h) {
-    const W = World; W.paint(x0, y0, w, h, TILE.GRAVEL);
-    const tr = ['pine', 'sakura', 'willow', 'maple']; [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]].forEach(([dx, dy], i) => W.deco(tr[i], x0 + dx, y0 + dy));
-    S.court = { x0, y0, w, h, cx: x0 + w / 2, cy: y0 + h / 2 };
+    const W = World, cx = x0 + w / 2, cy = y0 + h / 2, r = Math.max(w, h) * 0.58;
+    W.disc(cx, cy, r, (i, j) => {
+      if (TINFO[W.tileAt(i, j)].water || W.bAt(i, j)) return;
+      if (dist(i + 0.5, j + 0.5, cx, cy) > r - R() * 1.2) return;
+      W.set(i, j, TILE.GRAVEL); W.setClear(i, j);
+    });
+    const tr = ['pine', 'sakura', 'willow', 'maple'];
+    [[-0.85, -0.4], [0.8, -0.5], [-0.7, 0.75], [0.65, 0.7]].forEach(([dx, dy], i) => W.deco(tr[i], Math.round(cx + dx * r), Math.round(cy + dy * r)));
+    S.court = { x0, y0, w, h, cx, cy };
     S.keepers.push({ at: [x0 - 0.3, y0 + h / 2], type: 'townsfolk', key: 'km_' + S.id, name: 'Kemari Master ' + R.pick(NAMES_G), talk: { kind: 'mini', game: 'kemari', site: S.id, label: 'Talk about kemari' } });
   },
   edoTemple(S, R, x0, yb) {
@@ -3629,15 +3693,28 @@ const Realm = {
     }
     // a vermilion arched bridge over the moat to the main gate
     if (edo) { const br = Bridges.add({ ax: cx, ay: y1 + 0.6, bx: cx, by: y1 + 5.4, hw: 2, kind: 'arch' }); if (br) Bridges.stamp(br); }
-    W.paint(x0 + 1, y0 + 1, x1 - x0 - 1, y1 - y0 - 1, TILE.GRAVEL);
-    W.street(cx - 2, y0 + 1, 4, cy - y0 - 1, TILE.STONE);
+    W.disc((x0 + x1) / 2, (y0 + y1) / 2, Math.max(x1 - x0, y1 - y0) * 0.52, (i, j) => {
+      if (i <= x0 || i >= x1 || j <= y0 || j >= y1 || TINFO[W.tileAt(i, j)].water || W.bAt(i, j)) return;
+      W.set(i, j, TILE.GRAVEL); W.setClear(i, j);
+    });
+    W.lane([[cx, y0 + 2], [cx + (R() - 0.5) * 3, (y0 + y1) / 2], [cx, cy]], 1.6, TILE.STONE);
     const kw = edo ? 22 : 15, kh = edo ? 17 : 12, keep = this.B('keep', cx - (kw >> 1), y0 + 4, kw, kh, { name: edo ? 'Edo Castle' : S.short + ' Palace', at: (kw >> 1) - 1 });
     if (keep) {
       const sp = keep.spots; S.lord.at = sp.lord && sp.lord.slice(); S.lady.at = sp.lady && sp.lady.slice(); if (S.aideKey) S.aideKey.at = sp.aide && sp.aide.slice(); S.keepDoor = keep.doorPt.outer.slice();
       S.inner = ['guard1', 'guard2'].filter(k => sp[k]).map(k => sp[k].slice());
     }
-    for (let x = x0; x <= x1; x++) { if (x < cx - 2 || x > cx + 1) W.deco('cwall', x, y1, 1, 1, { dir: 0 }); W.deco('cwall', x, y0, 1, 1, { dir: 0 }); }
-    for (let y = y0 + 1; y < y1; y++) { W.deco('cwall', x0, y, 1, 1, { dir: 1 }); W.deco('cwall', x1, y, 1, 1, { dir: 1 }); }
+    const wall = (ax, ay, bx, by, skip) => {
+      const L = dist(ax, ay, bx, by) || 1, hz = Math.abs(bx - ax) >= Math.abs(by - ay), j0 = Math.round((R() - 0.5) * 4), j1 = Math.round((R() - 0.5) * 4);
+      for (let d = 0; d <= L; d++) {
+        const t = d / L, off = lerp(j0, j1, t), x = Math.round(lerp(ax, bx, t) + (hz ? 0 : off)), y = Math.round(lerp(ay, by, t) + (hz ? off : 0));
+        if (skip && skip(x, y)) continue;
+        W.deco('cwall', x, y, 1, 1, { dir: hz ? 0 : 1 });
+      }
+    };
+    wall(x0, y1, x1, y1, (x) => x >= cx - 2 && x <= cx + 1);
+    wall(x0, y0, x1, y0);
+    wall(x0, y0 + 1, x0, y1 - 1);
+    wall(x1, y0 + 1, x1, y1 - 1);
     W.addObj('gatehouse', cx - 2, y1, 4, 1, { solid: false, dir: 0 });
     for (const dx of [-4, 3]) W.lamp(cx + dx, y1 + 1, 'stonelantern');
     for (const [dx, dy] of [[-hw + 3, 3], [hw - 4, 3], [-hw + 3, depth - 5], [hw - 4, depth - 5]]) W.deco(R() < 0.5 ? 'sakura' : 'pine', cx + dx, y0 + dy);
@@ -3819,7 +3896,11 @@ const Realm = {
     for (const h of homes) if (Math.random() < 0.8) mk(Math.random() < 0.5 && !edo ? 'farmer' : 'townsfolk', h, { home: h.slice(), talk: { kind: 'talk' } });
     for (const k of S.keepers) { const a = keyed(mk(k.type, k.at, { name: k.name, post: k.at.slice(), postFace: PI * 0.25, essential: true, talk: k.talk }), k.key); if (k.faction) a.faction = k.faction; }
     if (S.headman) { const a = keyed(mk('townsfolk', S.headman.at, { name: S.headman.name, post: S.headman.at.slice(), postFace: PI * 0.25, essential: true }), S.headman.key); a.look.hair = 3; a.look.face = 2; }
-    const street = () => { const k = Math.floor(Math.random() * (S.rows || 1)); return [S.x + rnd(-(S.L || 8) * 0.8, (S.L || 8) * 0.8), S.y + k * 13 + rnd(-0.4, 0.4)]; };
+    const street = () => {
+      const L = S.streets;
+      if (L && L.length) { const s = L[Math.floor(Math.random() * L.length)]; return [rnd(s.x0 + 1, s.x1 - 1), s.y + rnd(-0.4, 0.4)]; }
+      const k = Math.floor(Math.random() * (S.rows || 1)); return [S.x + rnd(-(S.L || 8) * 0.8, (S.L || 8) * 0.8), S.y + k * 13 + rnd(-0.4, 0.4)];
+    };
     for (let i = 0; i < S.folk; i++) mk(S.sub === 'castle' || edo ? pick(['townsfolk', 'townsfolk', 'geisha', 'merchant']) : pick(['farmer', 'townsfolk']), street(), { wanderR: 10, talk: { kind: 'talk' } });
     for (let i = 0; i < S.guards; i++) mk('guard', street(), { wanderR: (S.L || 10) * 0.5 });
     if (S.lord && S.lord.at && S.sub !== 'edo') {
@@ -3860,12 +3941,14 @@ const Towns = {
   copy(b, from, to) { if (b && b.spots[from]) World.spots[to] = b.spots[from].slice(); },
   village(R) {
     const W = World;
-    W.street(62, 100, 49, 2, TILE.PATH); W.street(86, 88, 2, 24, TILE.PATH); W.street(62, 109, 47, 2, TILE.PATH);
-    const inn = this.B('inn', 64, 92, 10, 8, { name: 'Kusamura Inn' }); this.copy(inn, 'keeper', 'innkeeper'); this.copy(inn, 'guest', 'kenta');
-    const shop = this.B('shop', 76, 95, 7, 5, { shop: 'village', name: 'Tokubei\'s Goods' }); this.copy(shop, 'keeper', 'merchant');
-    const hm = this.B('headman', 89, 93, 10, 7, { name: 'Headman\'s House' }); this.copy(hm, 'master', 'gensai');
-    this.B('minka', 100, 94, 8, 6);
-    for (const x of [64, 74, 90, 99]) this.B('minka', x, 103, 8, 6);
+    W.lane([[60, 99], [86, 101], [114, 98]], 1.2, TILE.PATH);
+    W.lane([[84, 88], [87, 100], [85, 114]], 1.05, TILE.PATH);
+    W.lane([[62, 110], [88, 108], [112, 111]], 1.1, TILE.PATH);
+    const inn = this.B('inn', 64, 91, 10, 8, { name: 'Kusamura Inn' }); this.copy(inn, 'keeper', 'innkeeper'); this.copy(inn, 'guest', 'kenta');
+    const shop = this.B('shop', 76, 94, 7, 5, { shop: 'village', name: 'Tokubei\'s Goods' }); this.copy(shop, 'keeper', 'merchant');
+    const hm = this.B('headman', 90, 91, 10, 7, { name: 'Headman\'s House' }); this.copy(hm, 'master', 'gensai');
+    this.B('minka', 102, 93, 8, 6);
+    this.B('minka', 64, 102, 8, 6); this.B('minka', 75, 104, 8, 6); this.B('minka', 88, 101, 8, 6); this.B('minka', 100, 103, 8, 6);
     W.field(64, 122, 18, 10, { gate: 'N' }); W.field(96, 122, 18, 10, { gate: 'N' });
     W.field(54, 72, 14, 12, { tile: TILE.DGRASS, crops: true, gate: 'S' });
     W.deco('well', 84, 102); W.deco('board', 88, 102, 1, 1, { interact: { kind: 'bounty', label: 'Read the bounty board' } });
@@ -3889,12 +3972,12 @@ const Towns = {
   hideout(R) {
     const W = World;
     W.disc(64, 132, 9.5, (i, j) => { if (!TINFO[W.tileAt(i, j)].water && W.tileAt(i, j) !== TILE.PATH) W.set(i, j, R() < 0.5 ? TILE.MOSS : TILE.DGRASS); });
-    W.street(55, 131, 24, 4, TILE.GRAVEL);
+    W.lane([[54, 132], [66, 133], [80, 131]], 1.6, TILE.GRAVEL);
     this.B('h_hall', 55, 123, 12, 8, { name: 'Kuroba-dera Hall' });
-    this.B('h_barracks', 70, 124, 9, 5, { name: 'Barracks' });
-    this.B('h_kura', 80, 124, 5, 4, { name: 'Storehouse' });
-    this.B('h_forge', 48, 124, 6, 5, { door: 'E', name: 'Old forge' });
-    this.B('h_dojo', 56, 136, 9, 6, { door: 'E', name: 'Old dojo' });
+    this.B('h_barracks', 71, 125, 9, 5, { name: 'Barracks' });
+    this.B('h_kura', 81, 123, 5, 4, { name: 'Storehouse' });
+    this.B('h_forge', 47, 123, 6, 5, { door: 'E', name: 'Old forge' });
+    this.B('h_dojo', 57, 136, 9, 6, { door: 'E', name: 'Old dojo' });
     W.deco('h_garden', 66, 137, 4, 4, { solid: false }); W.deco('h_shrine', 72, 137, 1, 1);
     for (const [x, y] of [[55, 135], [66, 135], [70, 130], [78, 130]]) W.deco('h_lamp', x, y, 1, 1, { solid: false });
     const g1 = Math.atan2(120 - 132, 68.5 - 64), g2 = Math.atan2(140 - 132, 46 - 64);
@@ -3904,17 +3987,34 @@ const Towns = {
   castle(R) {
     const W = World;
     W.disc(152, 34, 18, (i, j) => W.setBiome(i, j, B.CASTLE));
-    W.street(124, 36, 61, 2, TILE.STONE); W.street(136, 38, 2, 15, TILE.STONE); W.street(152, 38, 2, 15, TILE.STONE); W.street(170, 38, 2, 13, TILE.STONE); W.street(167, 25, 2, 11, TILE.STONE);
-    W.street(157, 21, 23, 4, TILE.GRAVEL);
+    W.lane([[122, 36], [152, 37], [186, 35]], 1.15, TILE.STONE);
+    W.lane([[136, 38], [138, 46], [135, 53]], 1.0, TILE.STONE);
+    W.lane([[152, 38], [151, 46], [154, 53]], 1.0, TILE.STONE);
+    W.lane([[170, 38], [172, 45], [169, 51]], 1.0, TILE.STONE);
+    W.lane([[167, 25], [168, 31], [167, 36]], 1.1, TILE.STONE);
+    W.disc(168, 23, 12, (i, j) => { if (!TINFO[W.tileAt(i, j)].water && !W.bAt(i, j) && dist(i + 0.5, j + 0.5, 168, 23) < 11 - R() * 1.5) { W.set(i, j, TILE.GRAVEL); W.setClear(i, j); } });
     const keep = this.B('keep', 159, 8, 16, 13, { name: 'Hanamachi Keep' }); this.copy(keep, 'lord', 'kagemaru');
-    for (let x = 156; x <= 180; x++) { if (x < 166 || x > 169) W.deco('cwall', x, 25, 1, 1, { dir: 0 }); W.deco('cwall', x, 4, 1, 1, { dir: 0 }); }
-    for (let y = 5; y <= 24; y++) { W.deco('cwall', 156, y, 1, 1, { dir: 1 }); W.deco('cwall', 180, y, 1, 1, { dir: 1 }); }
+    const wall = (ax, ay, bx, by, skip) => {
+      const L = dist(ax, ay, bx, by) || 1, hz = Math.abs(bx - ax) >= Math.abs(by - ay), j0 = Math.round((R() - 0.5) * 3), j1 = Math.round((R() - 0.5) * 3);
+      for (let d = 0; d <= L; d++) {
+        const t = d / L, off = lerp(j0, j1, t), x = Math.round(lerp(ax, bx, t) + (hz ? 0 : off)), y = Math.round(lerp(ay, by, t) + (hz ? off : 0));
+        if (skip && skip(x, y)) continue;
+        W.deco('cwall', x, y, 1, 1, { dir: hz ? 0 : 1 });
+      }
+    };
+    wall(156, 25, 180, 25, (x) => x >= 166 && x <= 169);
+    wall(156, 4, 180, 4);
+    wall(156, 5, 156, 24);
+    wall(180, 5, 180, 24);
     W.addObj('gatehouse', 166, 25, 4, 1, { solid: false, dir: 0 });
     const smith = this.B('smith', 127, 30, 7, 6, { name: 'Masamura Swordsmith' }); this.copy(smith, 'keeper', 'smith');
     const inn = this.B('inn', 139, 28, 10, 8, { name: 'The Golden Carp', style: { roof: 'tile', gold: true, noren: '#7a1a1a' } }); this.copy(inn, 'keeper', 'castleInn'); this.copy(inn, 'guest', 'sasaki'); this.copy(inn, 'guest2', 'innGuest');
     const tea = this.B('teahouse', 151, 31, 7, 5, { name: 'Teahouse and Dresser' }); this.copy(tea, 'keeper', 'barber');
-    for (const x of [159, 170, 175]) this.B('machiya', x, 28, 5, 8, { style: { noren: pick(['#2a3b5e', '#7a2420', '#3d5a3a']) } });
-    for (const y of [40, 46]) { this.B('machiya', 128, y, 8, 5, { door: 'E' }); this.B('machiya', 161, y, 8, 5, { door: 'E' }); }
+    this.B('machiya', 159, 28, 5, 8, { style: { noren: pick(['#2a3b5e', '#7a2420', '#3d5a3a']) } });
+    this.B('machiya', 171, 27, 5, 8, { style: { noren: pick(['#2a3b5e', '#7a2420', '#3d5a3a']) } });
+    this.B('machiya', 176, 29, 5, 8, { style: { noren: pick(['#2a3b5e', '#7a2420', '#3d5a3a']) } });
+    this.B('machiya', 127, 40, 8, 5, { door: 'E' }); this.B('machiya', 129, 47, 8, 5, { door: 'E' });
+    this.B('machiya', 162, 40, 8, 5, { door: 'E' }); this.B('machiya', 160, 47, 8, 5, { door: 'E' });
     const dojo = this.B('dojo', 139, 40, 12, 9, { door: 'E', name: 'Hanamachi Dojo' }); this.copy(dojo, 'master', 'champion'); this.copy(dojo, 'student1', 'student1'); this.copy(dojo, 'student2', 'student2');
     W.deco('bell', 155, 41, 4, 4);
     this.B('kura', 155, 47, 5, 4, { door: 'E' });
@@ -3936,8 +4036,10 @@ const Towns = {
   },
   pass(R) {
     const W = World;
-    W.street(46, 57, 29, 2, TILE.SNOWPATH);
-    for (const x of [47, 56, 65]) { const b = this.B('minka', x, 51, 8, 6, { snow: true, name: x === 56 ? 'Chieko\'s House' : '' }); if (x === 56) this.copy(b, 'home', 'chieko'); }
+    W.lane([[45, 57], [60, 56], [76, 58]], 1.1, TILE.SNOWPATH);
+    this.B('minka', 47, 50, 8, 6, { snow: true });
+    { const b = this.B('minka', 56, 51, 8, 6, { snow: true, name: 'Chieko\'s House' }); this.copy(b, 'home', 'chieko'); }
+    this.B('minka', 66, 49, 8, 6, { snow: true });
     W.deco('stall', 59, 59, 1, 1, { interact: { kind: 'shop', label: 'Buy from the mountain trader', shop: 'pass' } });
     for (const [x, y] of [[52, 59], [64, 59], [70, 59]]) W.lamp(x, y);
     Object.assign(W.spots, { passC: [60, 57.5], trader: [60.5, 59.7] });
@@ -3972,16 +4074,16 @@ const Towns = {
   },
   mizuta(R) {
     const W = World;
-    W.street(124, 120, 23, 2, TILE.PATH);
-    this.B('minka', 126, 113, 8, 6); const k = this.B('minka', 136, 113, 8, 6, { name: 'Kane\'s House' }); this.copy(k, 'home', 'kane');
+    W.lane([[123, 120], [135, 119], [148, 121]], 1.1, TILE.PATH);
+    this.B('minka', 126, 112, 8, 6); const k = this.B('minka', 137, 114, 8, 6, { name: 'Kane\'s House' }); this.copy(k, 'home', 'kane');
     W.field(126, 132, 12, 10, { gate: 'N' }); W.field(108, 122, 10, 10, { gate: 'E' });
     W.lamp(125, 122); W.lamp(142, 122);
     W.spots.mizutaC = [135, 120.5];
   },
   coast(R) {
     const W = World;
-    W.street(136, 144, 29, 2, TILE.PATH);
-    this.B('hut', 137, 140, 6, 4); const g = this.B('hut', 145, 140, 6, 4, { name: 'Goro\'s Hut' }); this.copy(g, 'home', 'goro'); this.B('hut', 153, 140, 6, 4);
+    W.lane([[135, 144], [150, 143], [166, 145]], 1.1, TILE.PATH);
+    this.B('hut', 137, 139, 6, 4); const g = this.B('hut', 146, 140, 6, 4, { name: 'Goro\'s Hut' }); this.copy(g, 'home', 'goro'); this.B('hut', 154, 138, 6, 4);
     W.deco('stall', 150, 146, 1, 1, { interact: { kind: 'shop', label: 'Buy from the fishmonger', shop: 'coast' } });
     for (const [x, y] of [[142, 147], [156, 147]]) W.deco('fishrack', x, y);
     // the fishing pier runs out from the street over the bay
@@ -5037,6 +5139,12 @@ function drawFigure(ctx, X, Y, F) {
       ctx.fillStyle = K('#3a2416'); ctx.fillRect(Math.round(mx) - 5, Math.round(my) - 2, 10, 1);
     }
   }
+  if (F.pose === 'dig' && hands) {
+    const h = hands[0], k = (F.t || 0) % 1, gx = h[0] + lerp(1, 5, k), gy = lerp(h[1], Y + 1, 0.55 + k * 0.35);
+    pline(ctx, h[0], h[1], gx, gy, K('#6a4a2a'), 2);
+    ctx.fillStyle = K('#6a6860'); ctx.fillRect(Math.round(gx) - 1, Math.round(gy) - 1, 6, 2);
+    ctx.fillStyle = K('#4a3a24'); ctx.fillRect(Math.round(gx) + 4, Math.round(gy) - 2, 2, 4);
+  }
 }
 function drawWeapon(ctx, G, po, dirv, F, K) {
   const g0 = WGFX[F.wpn] || WGFX.katana, k = F.drawLen == null ? 1 : F.drawLen, g = k === 1 ? g0 : Object.assign({}, g0, { len: g0.len * k, back: (g0.back || 0) * k });
@@ -5887,7 +5995,19 @@ function aiUpdate(a, dt) {
   }
   // someone the story is moving: walking a route, following, being chased; lookouts keep their posts and patrols
   if (a.mPath && Missions.walkAI(a, dt)) return;
-  if (a.state === 'work' && a.work) { a.move(0, 0, dt); return; }
+  if (a.state === 'work' && a.work) {
+    const w = a.work; w.t = (w.t || 0) + dt;
+    if (w.at) a.faceTo(w.at[0], w.at[1]);
+    a.move(0, 0, dt);
+    if ((w.fxT = (w.fxT || 0) - dt) <= 0) {
+      w.fxT = w.kind === 'dig' || w.kind === 'heave' ? 0.42 : w.kind === 'hammer' || w.kind === 'cut' ? 0.28 : 0.5;
+      if (w.kind === 'dig' || w.kind === 'heave' || w.kind === 'haul') FX.dust(a.x, a.y, 2);
+      if (w.kind === 'hammer' || w.kind === 'cut') Snd.play('swing', 0.08);
+      else if (w.kind === 'dig' || w.kind === 'heave') Snd.play('thud', 0.08);
+    }
+    if (w.dur && w.t >= w.dur) { a.state = 'idle'; a.work = null; }
+    return;
+  }
   if (a.traffic && Traffic.ai(a, dt)) return;
   if (a.mTag && a.mission) return Missions.tagAI(a, dt);
   if (a.watch) return wanderAI(a, dt);
@@ -6424,7 +6544,7 @@ const G = {
         else if (w.kind === 'cut' || w.kind === 'hammer') {
           Snd.play('swing', 0.14);
           if (w.kind === 'hammer') FX.spark(p.x + Math.cos(p.face) * 0.7, p.y + Math.sin(p.face) * 0.7, 4, 6);
-        } else if (w.kind === 'heave' || w.kind === 'haul') Snd.play('thud', 0.12);
+        } else if (w.kind === 'heave' || w.kind === 'haul' || w.kind === 'dig') Snd.play('thud', 0.12);
         else Snd.play('step', 0.12);
       }
       if (w.prop) {
@@ -8883,7 +9003,7 @@ const Buildings = {
     const U = b.side === 'S' ? w : h, dw = Math.min(st.doorW || 2, U - 1);
     b.U = U; b.V = b.side === 'S' ? h : w; b.dw = dw; b.du = opt.at !== undefined ? opt.at : Math.round((U - dw) / 2);
     this.list.push(b);
-    for (let j = y - 1; j < y + h + 1; j++) for (let i = x - 1; i < x + w + 1; i++) World.setClear(i, j);
+    for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) World.setClear(i, j);
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (World.in(i, j)) { World.bmap.set(World.key(i, j), b.id + 1); World.setSolid(i, j, 1); const tt = World.tileAt(i, j); if (TINFO[tt] && !TINFO[tt].water) World.set(i, j, TILE.FLOOR); }
     // door geometry
     if (b.side === 'S') { const cx = x + b.du + dw / 2; b.doorPt = { x: cx, y: y + h, inner: [cx, y + h - 0.9], outer: [cx, y + h + 0.8] }; }
@@ -12070,6 +12190,18 @@ function siteBuilder(S, R) {
         if (dir) W.subRect(x, y - 0.45, x + 1, y + 1.45); else W.subRect(x - 0.45, y, x + 1.45, y + 1);
       }
     },
+    // a compound that is not a square: ungated sides jog, the yard is a disc of packed ground
+    yard(t, x0, y0, x1, y1, gaps = {}, ground) {
+      const jog = (ax, ay, bx, by, g) => {
+        if (g && g.length) { this.fence(t, ax, ay, bx, by, g); return; }
+        const hz = Math.abs(bx - ax) >= Math.abs(by - ay), j = Math.round((this.R() - 0.5) * 6);
+        if (!j) { this.fence(t, ax, ay, bx, by); return; }
+        const mx = (ax + bx) / 2 + (hz ? 0 : j), my = (ay + by) / 2 + (hz ? j : 0);
+        this.fence(t, ax, ay, mx, my); this.fence(t, mx, my, bx, by);
+      };
+      jog(x0, y0, x1, y0, gaps.N); jog(x0, y1, x1, y1, gaps.S); jog(x0, y0, x0, y1, gaps.W); jog(x1, y0, x1, y1, gaps.E);
+      if (ground) this.disc((x0 + x1) / 2, (y0 + y1) / 2, Math.max(x1 - x0, y1 - y0) * 0.52, ground);
+    },
     // the woods: trees on open ground in a ring, kept off the given clear discs
     trees(n, r0, r1, kinds, keep = [], cx = 0, cy = 0) {
       for (let k = 0; k < n * 3 && n > 0; k++) {
@@ -12220,8 +12352,8 @@ const LAYOUTS = {
     r: 26, name: 'Ota Tax Depot', jp: '太田税蔵', spur: ['gate'],
     spots: { hill: [-30, -24], gate: [0, 22], yard: [0, 6], wallOut: [-19, -2], wallIn: [-15, -2], store: [-8, -6], storeIn: [-8, -9], room: [8, -6], desk: [3, -1], rear: [-12, -16], out: [-26, -30], sentry: [-18, 8], fence: [-17, 14], post1: [-4, 18], post2: [4, 18], sleep1: [-12, -10], sleep2: [-5, -11] },
     build(S, P) {
-      P.clear(0, 0, 22); P.tile(-16, -16, 33, 33, TILE.GRAVEL); P.path([[0, 16], [0, 26]], 1.2, TILE.PATH);
-      P.fence('palisade', -17, -17, 17, -17, [[3, 6]]); P.fence('palisade', -17, 17, 17, 17, [[15, 19]]); P.fence('palisade', -17, -17, -17, 17); P.fence('palisade', 17, -17, 17, 17);
+      P.clear(0, 0, 22); P.disc(0, 0, 20, TILE.GRAVEL); P.path([[0, 16], [0, 26]], 1.2, TILE.PATH);
+      P.yard('palisade', -17, -17, 17, 17, { N: [[3, 6]], S: [[15, 19]] });
       P.b('kura', -12, -14, 7, 6, { name: 'Rear Storehouse', spot: 'store', in: 'storeIn' });
       P.b('kura', 5, -14, 6, 6, { name: 'Officer\'s Stores', spot: 'room', in: 'roomIn' });
       P.b('quarters', -13, 2, 8, 5, { name: 'Guardhouse', door: 'E' });
@@ -12255,7 +12387,7 @@ const LAYOUTS = {
     r: 20, name: 'Hatakemura Checkpoint', jp: '畑村関所', spur: ['roadA', 'roadB'],
     spots: { hill: [-26, -16], road: [0, 4], roadA: [-18, 4], roadB: [18, 4], rearLock: [0.5, -14.4], back: [0.5, -11.4], cage: [0, -6], pen: [8, -3.7], horses: [8, -8.2], out: [-16, -18], tie: [-9, 8], barrel: [6, 9] },
     build(S, P) {
-      P.clear(0, 0, 16); P.tile(-20, 3, 40, 3, TILE.PATH); P.tile(-10, -12, 22, 15, TILE.GRAVEL);
+      P.clear(0, 0, 16); P.tile(-20, 3, 40, 3, TILE.PATH); P.disc(1, -4, 14, TILE.GRAVEL);
       P.d('barrier', -2, 4, 1, 1, { solid: false, dir: 0 }); P.d('barrier', 2, 4, 1, 1, { solid: false, dir: 0 });
       // the back wall has one way through: a plank gate, barred and padlocked
       P.fence('palisade', -11, -13, 12, -13, [[10, 12]]); P.d('gatewood', -1, -13, 3, 1, { dir: 0, solid: true }); P.fence('palisade', -11, -13, -11, 2); P.fence('palisade', 12, -13, 12, 2);
@@ -12272,9 +12404,9 @@ const LAYOUTS = {
     r: 40, name: 'Red Pine Ridge Training Ground', jp: '赤松練兵場', spur: ['gate'],
     spots: { approach: [-6, 40], ridge1: [-46, -30], ridgeTop: [-50, -40], gate: [0, 32], southFence: [-10, 30], field: [2, 4], platform: [-8, 2], wagon: [12, 14], kitchen: [-16, 12], ammo: [18, -6], sheds: [22, -16], records: [-8, -16], recordsIn: [-8, -19], drain: [-26, -26], forest: [-38, -36], dummies: [10, 0], guns: [16, -14], mule: [8, 16], barracks: [-22, -6], tunnel: [-20, -20] },
     build(S, P) {
-      P.clear(0, 0, 34); P.tile(-26, -26, 52, 56, TILE.GRAVEL, true); P.tile(-10, -6, 24, 16, TILE.PATH);
-      P.fence('palisade', -27, -27, 27, -27, [[0, 3]]); P.fence('palisade', -27, 29, 27, 29, [[24, 30]]); P.fence('palisade', -27, -27, -27, 29); P.fence('palisade', 27, -27, 27, 29, [[16, 20]]);
-      P.b('quarters', -24, -10, 9, 5, { name: 'Barracks', door: 'E', spot: 'barracks' }); P.b('quarters', -24, -2, 9, 5, { name: 'Barracks', door: 'E' }); P.b('quarters', -24, 6, 9, 5, { name: 'Barracks', door: 'E' });
+      P.clear(0, 0, 34); P.disc(1, 1, 32, TILE.GRAVEL); P.tile(-10, -6, 24, 16, TILE.PATH);
+      P.yard('palisade', -27, -27, 27, 29, { N: [[0, 3]], S: [[24, 30]], E: [[16, 20]] });
+      P.b('quarters', -24, -10, 9, 5, { name: 'Barracks', door: 'E', spot: 'barracks' }); P.b('quarters', -21, -1, 9, 5, { name: 'Barracks', door: 'E' }); P.b('quarters', -25, 7, 9, 5, { name: 'Barracks', door: 'E' });
       P.b('kura', -12, -24, 8, 7, { name: 'Records Warehouse', spot: 'records', in: 'recordsIn' });
       P.b('hut', -19, 12, 6, 4, { name: 'Kitchen', spot: 'kitchen' }); P.d('barrels', -12, 14);
       P.b('dojo', -2, -24, 11, 7, { name: 'Officers\' Hall' });
@@ -12320,12 +12452,12 @@ const LAYOUTS = {
     r: 34, name: 'Ishigama Labour Camp', jp: '石窯労役所', spur: ['gate'],
     spots: { overlook: [-36, -30], gate: [0, 28], service: [20, 10], records: [-10, -12], recordsIn: [-10, -15], tower: [16, -16], signal: [16, -14], yard: [0, 4], drain: [-20, 18], forest: [-32, 30], quarry: [12, -2], cells: [-14, 4], wagon: [18, 16] },
     build(S, P) {
-      P.clear(0, 0, 28); P.tile(-24, -22, 48, 48, TILE.GRAVEL); P.tile(6, -10, 14, 12, TILE.ROCK, true);
-      P.fence('palisade', -25, -23, 25, -23); P.fence('palisade', -25, 25, 25, 25, [[23, 28]]); P.fence('palisade', -25, -23, -25, 25, [[40, 41]]); P.d('gatewood', -25, 16.5, 1, 3, { dir: 1, solid: true }); P.fence('palisade', 25, -23, 25, 25, [[31, 35]]);
+      P.clear(0, 0, 28); P.disc(0, 1, 28, TILE.GRAVEL); P.tile(6, -10, 14, 12, TILE.ROCK, true);
+      P.yard('palisade', -25, -23, 25, 25, { S: [[23, 28]], W: [[40, 41]], E: [[31, 35]] }); P.d('gatewood', -25, 16.5, 1, 3, { dir: 1, solid: true });
       for (const [dx, dy] of [[8, -8], [12, -6], [16, -9], [10, -2]]) P.o('rock', dx, dy);
       P.d('furnace', -2, -16, 1, 1); P.d('furnace', 3, -16, 1, 1);
       P.b('kura', -14, -20, 7, 6, { name: 'Prisoner Records', spot: 'records', in: 'recordsIn' });
-      for (const dx of [-22, -12]) P.b('quarters', dx, 4, 8, 5, { name: 'Prisoner Quarters', home: true });
+      P.b('quarters', -22, 3, 8, 5, { name: 'Prisoner Quarters', home: true }); P.b('quarters', -11, 5, 8, 5, { name: 'Prisoner Quarters', home: true });
       P.b('quarters', 8, 10, 8, 5, { name: 'Guardhouse' });
       P.d('watchtower', 16, -18, 1, 1); P.d('watchtower', -22, -20, 1, 1); P.d('watchtower', 22, 22, 1, 1);
       P.d('bell', 13, -13, 1, 1, { keep: true }); P.spot('signal', 14.5, -11.5);
@@ -12339,8 +12471,8 @@ const LAYOUTS = {
     r: 22, name: 'Kurokage Cavalry Stables', jp: '黒影厩舎', spur: ['gate'],
     spots: { gate: [0, 18], fence: [-16, 0], toma: [4, -6], pen: [8, 2], out: [-24, -16], tent: [-8, 6] },
     build(S, P) {
-      P.clear(0, 0, 18); P.tile(-14, -14, 28, 30, TILE.PATH);
-      P.fence('fence', -15, -15, 15, -15); P.fence('fence', -15, 16, 15, 16, [[13, 17]]); P.fence('fence', -15, -15, -15, 16, [[14, 18]]); P.fence('fence', 15, -15, 15, 16);
+      P.clear(0, 0, 18); P.disc(0, 0, 18, TILE.PATH);
+      P.yard('fence', -15, -15, 15, 16, { S: [[13, 17]], W: [[14, 18]] });
       for (const [dx, dy] of [[-4, -12], [4, -12], [-4, -2]]) P.d('stable', dx, dy, 3, 1);
       P.d('haystack', 10, -10); P.d('haystack', 11, -6); P.b('tent', -12, 4, 5, 4, { name: 'Handlers\' Tent', spot: 'tent' }); P.b('quarters', 4, 6, 8, 5, { name: 'Quarters' });
       P.banners([[-2, 14], [2, 14]]); P.lamp(-3, 15); P.lamp(3, 15);
@@ -12376,8 +12508,8 @@ const LAYOUTS = {
     r: 20, name: 'Government Granary', jp: '官倉', spur: ['gate'],
     spots: { gate: [0, 16], drain: [-14, -12], roof: [-9, -4], cratesIn: [-6, -8], yard: [0, 4], cart: [6, 8], out: [-22, -18], aikoPost: [-16, 10] },
     build(S, P) {
-      P.clear(0, 0, 16); P.tile(-12, -12, 25, 26, TILE.GRAVEL);
-      P.fence('palisade', -13, -13, 13, -13); P.fence('palisade', -13, 14, 13, 14, [[11, 15]]); P.fence('palisade', -13, -13, -13, 14); P.fence('palisade', 13, -13, 13, 14);
+      P.clear(0, 0, 16); P.disc(0, 1, 16, TILE.GRAVEL);
+      P.yard('palisade', -13, -13, 13, 14, { S: [[11, 15]] });
       P.b('kura', 2, -11, 9, 7, { name: 'Government Granary' });
       P.b('kura', -11, -11, 7, 6, { name: 'Medicine Depot', spot: 'depotDoor', in: 'cratesIn' }); P.spot('roof', -8, -3.5);
       P.d('wagon', 6, 7, 1, 1, { sun: true }); P.spot('cart', 6.5, 9.5); P.d('grate', -14, -12, 1, 1, { solid: false });
@@ -12397,11 +12529,16 @@ const LAYOUTS = {
   },
   stonebridge: { r: 22, name: 'Bridge of Broken Stones', jp: '崩れ石橋', crossing: true, stone: true, spur: ['endA', 'endB'], spots: {}, build(S, P) { this.crossBuild(S, P, ['reeds', 'willow', 'pine']); for (const k of ['camp1', 'camp2', 'underA']) { const q = S.spots[k]; if (q) World.deco('bedroll', Math.floor(q[0]), Math.floor(q[1]), 1, 1, { solid: false }); } P.freeSpots(); } },
   foundry: {
-    r: 30, name: 'Kanaya Foundry', jp: '金屋鋳造所', spur: ['gateA'],
-    spots: { approach: [0, 34], gateA: [0, 24], platform: [6, -12], cannon: [8, -14], workshop: [-8, -6], workIn: [-8, -9], office: [-16, -4], desk: [-14, -2], tunnel: [-18, -16], powder: [14, 2], powderIn: [14, -1], workers: [-12, 10], workers2: [-2, 10], gateB: [-22, 10], bell1: [-6, 18], bell2: [18, 16], loading: [10, 12], forest: [-30, 26], yard: [0, 6] },
+    r: 46, name: 'Kanaya Foundry', jp: '金屋鋳造所', spur: ['gateA'],
+    spots: { approach: [0, 34], gateA: [0, 24], platform: [6, -12], cannon: [8, -14], workshop: [-8, -6], workIn: [-8, -9], office: [-16, -4], desk: [-14, -2], tunnel: [-18, -16], sewer1: [-19, -26], sewer2: [-19, -36], sewerOut: [-19, -46], powder: [14, 2], powderIn: [14, -1], workers: [-12, 10], workers2: [-2, 10], gateB: [-22, 10], bell1: [-6, 18], bell2: [18, 16], loading: [10, 12], forest: [-30, 26], yard: [0, 6] },
     build(S, P) {
       P.clear(0, 0, 26); P.tile(-24, -20, 48, 44, TILE.GRAVEL); P.tile(0, -18, 16, 8, TILE.STONE);
-      for (let a = 0; a < TAU; a += 0.22) { if (Math.abs(angDiff(a, PI / 2)) < 0.7 || Math.abs(angDiff(a, PI * 0.82)) < 0.25) continue; P.o('cliff', Math.round(Math.cos(a) * 27), Math.round(Math.sin(a) * 26)); }
+      for (let a = 0; a < TAU; a += 0.22) {
+        if (Math.abs(angDiff(a, PI / 2)) < 0.7 || Math.abs(angDiff(a, PI * 0.82)) < 0.25) continue;
+        const cx = Math.round(Math.cos(a) * 27), cy = Math.round(Math.sin(a) * 26);
+        if (cx > -26 && cx < -12 && cy < -12) continue;
+        P.o('cliff', cx, cy);
+      }
       P.d('cannon', 8, -14, 1, 1, { dir: 0, big: true, keep: true }); P.d('ricesacks', 3, -12); P.d('crates', 12, -16);
       P.b('smith', -12, -12, 9, 6, { name: 'Central Workshop', spot: 'workshop', in: 'workIn' }); P.b('quarters', -20, -6, 7, 5, { name: 'Supervisor\'s Office', door: 'E', spot: 'office', in: 'desk' });
       P.b('kura', 10, -4, 7, 6, { name: 'Powder Store', spot: 'powder', in: 'powderIn' });
@@ -12409,6 +12546,8 @@ const LAYOUTS = {
       P.d('furnace', 2, -4, 1, 1); P.d('furnace', -2, 0, 1, 1); P.d('wagon', 10, 12, 1, 1, { sun: true });
       P.d('bell', -7, 17, 1, 1, { keep: true }); P.d('bell', 17, 15, 1, 1, { keep: true }); P.spot('bell1', -5.5, 19.5); P.spot('bell2', 18.5, 17.5);
       P.d('grate', -19, -17, 1, 1, { solid: false }); P.spot('tunnel', -18.5, -15.5);
+      sewerHall(P, -24, -48, 10, 32, 'S');
+      P.d('grate', -20, -47, 1, 1, { solid: false }); P.spot('sewer1', -19, -26); P.spot('sewer2', -19, -36); P.spot('sewerOut', -19, -46);
       P.banners([[-3, 22], [3, 22]]); for (const [dx, dy] of [[-4, 23], [4, 23], [-10, 0], [8, 6]]) P.lamp(dx, dy, 'stonelantern');
       P.trees(40, 30, 42, ['pine', 'deadtree', 'bush'], [[0, 34, 4], [-30, 26, 4], [-22, 10, 3]]); P.freeSpots();
     }
@@ -12428,9 +12567,9 @@ const LAYOUTS = {
     r: 26, name: 'Black Reed Fort', jp: '黒葦砦', spur: ['gate'],
     spots: { gate: [-22, 0], docks: [10, 14], warehouse: [4, 10], warehouseIn: [4, 7], guns1: [-6, -14], guns2: [6, -16], main: [16, -8], boat: [18, 18], mud: [12, 20], shore: [-24, 22], drain: [-10, 16], yard: [-4, 0], beach: [-16, 24] },
     build(S, P) {
-      P.clear(-2, -2, 22); P.tile(-20, -20, 36, 32, TILE.STONE); P.tile(-6, 10, 24, 6, TILE.FLOOR);
+      P.clear(-2, -2, 22); P.disc(-2, -4, 22, TILE.STONE); P.tile(-6, 10, 24, 6, TILE.FLOOR);
       P.water(14, 12, 20, 16); P.tile(-20, 20, 8, 6, TILE.SAND);
-      P.fence('cwall', -21, -21, 17, -21); P.fence('cwall', -21, -21, -21, 9, [[18, 24]]); P.fence('cwall', 17, -21, 17, 9);
+      P.yard('cwall', -21, -21, 17, 9, { W: [[18, 24]] });
       for (const [dx, dy] of [[-6, -16], [6, -18]]) P.d('cannon', dx, dy, 1, 1, { dir: 0 }); P.d('cannon', 15, -8, 1, 1, { dir: 1, big: true, keep: true });
       P.b('kura', -2, 2, 7, 6, { name: 'Dock Warehouse', spot: 'warehouse', in: 'warehouseIn' }); P.b('kura', 8, 2, 6, 6, { name: 'Armoury' }); P.b('quarters', -16, -8, 8, 5, { name: 'Barracks', door: 'E' });
       for (const [dx, dy] of [[0, 12], [4, 13], [10, 12]]) P.d('crates', dx, dy); P.d('boat', 16, 18, 1, 1, { solid: false }); P.d('boat', 6, 19, 1, 1, { solid: false });
@@ -12443,10 +12582,10 @@ const LAYOUTS = {
     r: 30, name: 'Southern Command Headquarters', jp: '南方司令部', spur: ['outer'],
     spots: { outer: [0, 30], gateIn: [0, 16], patrol1: [-18, 22], patrol2: [18, 22], passage: [-22, -22], passIn: [-14, -14], records: [6, -8], recordsIn: [6, -11], out: [-30, -30], yard: [0, 4] },
     build(S, P) {
-      P.clear(0, 0, 28); P.tile(-15, -15, 30, 30, TILE.STONE);
+      P.clear(0, 0, 28); P.disc(0, 0, 18, TILE.STONE);
       for (let i = -20; i <= 20; i++) for (const [x, y] of [[i, -20], [i, 20], [-20, i], [20, i]]) { if (Math.abs(x) <= 1 && y === 20 || x === -20 && y === -20 || x === -20 && y === -19 || x === -19 && y === -20) continue; P.water(x, y, 1, 1); if (Math.abs(x) < 20 && Math.abs(y) < 20) continue; }
       P.tile(-1, 17, 3, 6, TILE.STONE); P.tile(-21, -21, 2, 2, TILE.MUD);
-      P.fence('cwall', -16, -16, 16, -16); P.fence('cwall', -16, 16, 16, 16, [[14, 18]]); P.fence('cwall', -16, -16, -16, 16, [[1, 4]]); P.fence('cwall', 16, -16, 16, 16);
+      P.yard('cwall', -16, -16, 16, 16, { S: [[14, 18]], W: [[1, 4]] });
       P.b('headman', -4, -14, 12, 8, { name: 'Command House', spot: 'records', in: 'recordsIn' }); P.b('quarters', -14, 0, 8, 5, { name: 'Barracks', door: 'E' }); P.b('kura', 8, 2, 6, 6, { name: 'Magazine' });
       for (const [dx, dy] of [[-13, -13], [12, -13], [12, 12], [-13, 12]]) P.d('cannon', dx, dy, 1, 1, { dir: dx > 0 ? 0 : 1 });
       P.banners([[-3, 14], [3, 14], [0, -15]]); for (const [dx, dy] of [[-3, 18], [3, 18], [-8, -4], [8, -4]]) P.lamp(dx, dy, 'stonelantern');
@@ -12480,13 +12619,15 @@ const LAYOUTS = {
     }
   },
   foxden: {
-    r: 14, name: 'Canal Warehouse', jp: '運河蔵', spur: ['door'],
-    spots: { door: [0, 6], crates: [0, 2], roof: [4, 0], grate: [-6, 4], court: [-4, 8], tea: [3, 4] },
+    r: 28, name: 'Canal Warehouse', jp: '運河蔵', spur: ['door'],
+    spots: { door: [0, 6], crates: [0, 2], roof: [4, 0], grate: [-6, 4], court: [-4, 8], tea: [3, 4], drainIn: [-26, 4], drainMid: [-16, 4] },
     build(S, P) {
       P.clear(0, 2, 10); P.tile(-6, 4, 12, 6, TILE.STONE); P.water(-12, 9, 24, 2);
       const br = Bridges.add({ ax: S.x - 8, ay: S.y + 10, bx: S.x + 8, by: S.y + 10, hw: 1.3, kind: 'arch' }); if (br) Bridges.stamp(br);
       P.b('kura', -4, -4, 8, 6, { name: 'Canal Warehouse', spot: 'door', in: 'crates' }); P.b('machiya', 6, -4, 6, 8, { name: '' });
       for (const [dx, dy] of [[-6, 5], [5, 6]]) P.d('crates', dx, dy); P.d('grate', -7, 3, 1, 1, { solid: false }); P.lamp(-2, 7); P.lamp(3, 7); P.d('barrels', 3, 3, 1, 1, { solid: false }); P.spot('tea', 3, 4);
+      sewerHall(P, -30, 0, 24, 8, 'E');
+      P.d('grate', -29, 3, 1, 1, { solid: false }); P.spot('drainIn', -26, 4); P.spot('drainMid', -16, 4);
       P.freeSpots();
     }
   },
@@ -12563,11 +12704,11 @@ const LAYOUTS = {
     r: 20, name: 'The Old Archive', jp: '古文庫', spur: ['gate'],
     spots: { gate: [0, 16], hatch: [-10, -4], cellar: [-8, -6], offices: [4, -4], officesIn: [4, -7], sealed: [-4, -10], sealedIn: [-4, -13], tube: [10, 8], yard: [0, 6], passage: [-12, 4], lowerIn: [-10, -2] },
     build(S, P) {
-      P.clear(0, 0, 16); P.tile(-14, -16, 28, 30, TILE.STONE);
-      P.fence('cwall', -15, -17, 15, -17); P.fence('cwall', -15, 14, 15, 14, [[13, 17]]); P.fence('cwall', -15, -17, -15, 14); P.fence('cwall', 15, -17, 15, 14);
+      P.clear(0, 0, 16); P.disc(0, -1, 18, TILE.STONE);
+      P.yard('cwall', -15, -17, 15, 14, { S: [[13, 17]] });
       P.b('kura', -9, -16, 9, 7, { name: 'Sealed Archive', spot: 'sealed', in: 'sealedIn' }); P.b('machiya', 2, -14, 7, 8, { name: 'Archive Offices', spot: 'offices', in: 'officesIn' });
       P.b('quarters', -13, -4, 8, 5, { name: 'Lower Offices', door: 'E', spot: 'passage', in: 'lowerIn' });
-      P.d('grate', -11, 2, 1, 1, { solid: false }); P.spot('hatch', -10, 3.5); P.d('desk', 9, 7); P.spot('tube', 9.5, 9);
+      P.d('grate', -11, 2, 1, 1, { solid: false }); P.spot('hatch', -10, 3.5); P.d('desk', 9, 7); P.d('grate', 11, 6, 1, 1, { solid: false }); P.spot('tube', 9.5, 9);
       P.banners([[-3, 12], [3, 12]]); for (const [dx, dy] of [[-3, 15], [3, 15], [-6, 4], [6, 4]]) P.lamp(dx, dy, 'stonelantern'); P.freeSpots();
     }
   },
@@ -12575,8 +12716,8 @@ const LAYOUTS = {
     r: 20, name: 'The Western Complex', jp: '西院', spur: ['gate'],
     spots: { gate: [0, 16], lever: [-4, 12], records: [6, -8], recordsIn: [6, -11], corridor: [-6, -2], cell1: [-12, -8], cell2: [-12, 2], cell3: [-2, -10], cell4: [-12, 8], drain: [-16, 14], yard: [2, 4] },
     build(S, P) {
-      P.clear(0, 0, 16); P.tile(-14, -14, 28, 28, TILE.STONE);
-      P.fence('cwall', -15, -15, 15, -15); P.fence('cwall', -15, 14, 15, 14, [[13, 17]]); P.fence('cwall', -15, -15, -15, 14); P.fence('cwall', 15, -15, 15, 14);
+      P.clear(0, 0, 16); P.disc(0, 0, 17, TILE.STONE);
+      P.yard('cwall', -15, -15, 15, 14, { S: [[13, 17]] });
       P.b('machiya', 3, -13, 7, 8, { name: 'Records Office', spot: 'records', in: 'recordsIn' });
       P.b('kura', -13, -13, 6, 5, { name: 'Cells', door: 'E', spot: 'cell1', in: 'cell1In' }); P.b('kura', -13, -4, 6, 5, { name: 'Cells', door: 'E', spot: 'cell2', in: 'cell2In' }); P.b('kura', -5, -13, 6, 5, { name: 'Cells', spot: 'cell3', in: 'cell3In' }); P.b('kura', -13, 5, 6, 5, { name: 'Cells', door: 'E', spot: 'cell4', in: 'cell4In' });
       P.d('cage', -6.4, -10.2, 1.6, 1.6, { solid: false, lift: 0.35 }); P.d('cage', -6.4, -1.2, 1.6, 1.6, { solid: false, lift: 0.35 }); P.d('cage', -6.4, 7.8, 1.6, 1.6, { solid: false, lift: 0.35 });
@@ -12585,13 +12726,14 @@ const LAYOUTS = {
     }
   },
   tunnel: {
-    r: 16, name: 'The Old Waterway', jp: '古水路', spur: ['entry'],
-    spots: { entry: [-12, 6], grate1: [-4, 2], grate2: [6, -2], end: [12, -6], mid: [1, 0] },
+    r: 42, name: 'The Old Waterway', jp: '古水路', spur: ['entry'],
+    spots: { entry: [-36, 4], grate1: [-18, 2], grate2: [16, -2], end: [36, -4], mid: [0, 0] },
     build(S, P) {
-      P.clear(0, 0, 13); P.tile(-14, -8, 28, 16, TILE.STONE);
-      P.water(-14, -10, 28, 2); P.water(-14, 8, 28, 2);
-      for (let x = -13; x <= 13; x += 2) { P.d('cwall', x, -8, 1, 1, { dir: 0 }); P.d('cwall', x, 7, 1, 1, { dir: 0 }); }
-      P.d('grate', -4, 1, 1, 1, { solid: false }); P.d('grate', 6, -3, 1, 1, { solid: false }); for (const [dx, dy] of [[-8, 0], [0, -2], [8, 2]]) P.lamp(dx, dy, 'stonelantern'); P.freeSpots();
+      P.clear(0, 0, 20);
+      sewerHall(P, -40, -6, 80, 12, 'WE');
+      P.d('grate', -38, 2, 1, 1, { solid: false }); P.d('grate', -19, 1, 1, 1, { solid: false }); P.d('grate', 15, -3, 1, 1, { solid: false }); P.d('grate', 35, -5, 1, 1, { solid: false });
+      P.spot('entry', -36, 4); P.spot('grate1', -18, 2); P.spot('mid', 0, 0); P.spot('grate2', 16, -2); P.spot('end', 36, -4);
+      P.freeSpots();
     }
   },
   safehouse: {
@@ -12619,6 +12761,28 @@ const LAYOUTS = {
     build(S, P) { P.clear(0, 2, 11); P.tile(-6, 4, 13, 8, TILE.GRAVEL); P.b('temple', -6, -5, 12, 9, { name: 'Coalition Hall', spot: 'door', in: 'inside' }); for (const [dx, dy] of [[-5, 6], [5, 6], [-5, 10], [5, 10]]) P.lamp(dx, dy, 'stonelantern'); P.d('lanternpost', -2, 9); P.d('lanternpost', 2, 9); P.freeSpots(); }
   },
 };
+// a walkable sewer: stone banks, a water channel, walls and lamps. w,h in tiles.
+function sewerHall(P, x, y, w, h, open = '') {
+  P.tile(x, y, w, h, TILE.STONE);
+  const along = w >= h, gap = s => open.indexOf(s) >= 0;
+  if (along) {
+    const cy = y + Math.floor(h / 2) - 1;
+    P.water(x, cy, w, 2);
+    for (let i = 0; i < w; i += 3) {
+      if (!gap('N')) P.d('cwall', x + i, y, 1, 1, { dir: 0 });
+      if (!gap('S')) P.d('cwall', x + i, y + h - 1, 1, 1, { dir: 0 });
+    }
+    for (let i = 5; i < w - 2; i += 9) P.lamp(x + i, y + 2, 'stonelantern');
+  } else {
+    const cx = x + Math.floor(w / 2) - 1;
+    P.water(cx, y, 2, h);
+    for (let j = 0; j < h; j += 3) {
+      if (!gap('W')) P.d('cwall', x, y + j, 1, 1, { dir: 1 });
+      if (!gap('E')) P.d('cwall', x + w - 1, y + j, 1, 1, { dir: 1 });
+    }
+    for (let j = 5; j < h - 2; j += 9) P.lamp(x + 2, y + j, 'stonelantern');
+  }
+}
 // a river crossing: if the island's road-router never laid a span here, cut the water and stamp one so the
 // mission that says "the bridge" is never a dry field with a name
 function crossBuild(S, P, kinds) {
@@ -12794,8 +12958,8 @@ const EXTRAS = {
     const v = freeRectNear(P, 20, 24, 2, 2) || [20, 24]; P.spot('kumo', v[0] + 1, v[1] + 1);
   },
   walltown(S, P) {
-    const L = S.L || 32, last = (S.rows || 3) * 13;
-    P.fence('palisade', -L - 6, -16, L + 6, -16); P.fence('palisade', -L - 6, last + 4, L + 6, last + 4, [[L + 2, L + 10]]); P.fence('palisade', -L - 6, -16, -L - 6, last + 4, [[14, 20]]); P.fence('palisade', L + 6, -16, L + 6, last + 4, [[14, 20]]);
+    const L = S.L || 32, last = S.streets && S.streets.length ? Math.round(S.streets[S.streets.length - 1].y - P.oy) : (S.rows || 3) * 13;
+    P.yard('palisade', -L - 6, -16, L + 6, last + 4, { S: [[L + 2, L + 10]], W: [[14, 20]], E: [[14, 20]] });
     P.fence('stakes', -L + 6, 8, L - 6, 8, [[L - 8, L + 4]]);
     P.spot('gateS', 0, last + 7); P.spot('gateW', -L - 9, 1); P.spot('gateE', L + 9, 1); P.spot('inner', 0, 4); P.spot('outer', 4, 22); P.spot('child', -8, 16);
     P.spot('square', -10, 7); P.spot('street', 4, 1);
@@ -12915,8 +13079,8 @@ class MCtx {
     const r = o.r || 11, tag = o.tag || 'folk';
     const here = this.actors.filter(a => a.isCivilian && a.isCivilian() && !a.gone && dist(a.x, a.y, p[0], p[1]) < r);
     const need = Math.max(0, (o.min || 5) - here.length);
-    if (need) this.spawn('villager', p, need, { calm: true, tag, wanderR: 6, post: false, appear: false, here: true, exact: true, spread: 3.5 });
-    if ((o.kids || 1) && !here.some(a => a.role === 'child')) this.spawn('kid', p, o.kids || 1, { calm: true, tag, wanderR: 5, post: false, appear: false, here: true, exact: true, spread: 2.5 });
+    if (need) this.spawn('villager', p, need, { calm: true, tag, wanderR: 6, post: false, appear: false, spread: 3.5 });
+    if ((o.kids || 1) && !here.some(a => a.role === 'child')) this.spawn('kid', p, o.kids || 1, { calm: true, tag, wanderR: 5, post: false, appear: false, spread: 2.5 });
   }
   setWork(a, kind, hold, at, dur = 40) {
     if (!a || a.dead || a.gone || a === G.player) return a;
@@ -12925,6 +13089,19 @@ class MCtx {
     a.work = { kind: kind || 'pack', hold: hold || null, t: 0, dur, beat: kind === 'hammer' || kind === 'cut' ? 0.42 : kind === 'heave' || kind === 'dig' ? 0.7 : 0.55, fxT: 0, at: p };
     return a;
   }
+  // walk there first; never teleport a villager onto Ren's feet
+  job(a, kind, hold, at, dur = 40) {
+    if (!a || a.dead || a.gone || a === G.player) return a;
+    const p = at || [a.x, a.y];
+    a._job = null;
+    if (!this.fast && dist(a.x, a.y, p[0], p[1]) > 2.6) {
+      this.walk(a, [p], { run: 0.85 });
+      a._job = { kind, hold, at: p, dur };
+      return a;
+    }
+    a.mPath = null; a.nav = null;
+    return this.setWork(a, kind, hold, p, dur);
+  }
   crewWork(tag, kind, hold, w, o = {}) {
     const p = (w && this.at(w)) || [G.player.x, G.player.y];
     let n = 0, i = 0;
@@ -12932,14 +13109,9 @@ class MCtx {
     for (const a of this.group(tag)) {
       if (!a || a.dead || a.type === 'kid') continue;
       const d = dist(a.x, a.y, p[0], p[1]);
-      if (o.near && d > o.near && !o.pull) continue;
-      if ((o.pull || this.fast || d > 14) && d > 4) {
-        a.x = p[0] + rnd(-2.4, 2.4);
-        a.y = p[1] + rnd(0.4, 2.6);
-        a.mPath = null;
-        a.nav = null;
-      }
-      this.setWork(a, kind, hold, p, o.dur || 40);
+      if (o.near && d > o.near) continue;
+      const dest = [p[0] + rnd(-2.2, 2.2), p[1] + rnd(0.5, 2.4)];
+      this.job(a, kind, hold, dest, o.dur || 40);
       n++;
       if (++i >= cap) break;
     }
@@ -12953,7 +13125,7 @@ class MCtx {
     World.streamAll(p[0], p[1]);
     const pl = World.placeAt(p[0], p[1]);
     const inTown = pl && (pl.kind === 'town' || pl.kind === 'holy' || pl.kind === 'home');
-    if (!this.flags['set_' + k] && !inTown) {
+    if (!this.flags['set_' + k] && !inTown && !this.vis(p[0], p[1])) {
       this.flags['set_' + k] = true;
       const x = Math.round(p[0] - 3), y = Math.round(p[1] - 3);
       World.ground(p[0], p[1], 8, TILE.PATH);
@@ -12965,7 +13137,7 @@ class MCtx {
   }
   placeStep(s) {
     if (!s) return;
-    if (s.t === 'ride' || s.t === 'chase' || s.t === 'escape' || s.t === 'follow') return;
+    if (s.t === 'ride' || s.t === 'chase' || s.t === 'escape' || s.t === 'follow' || s.t === 'use' || s.t === 'talk' || s.t === 'wait' || s.t === 'scene') return;
     const txt = ((s.text || '') + ' ' + (s.label || '')).toLowerCase();
     if (!/(villagers|townsfolk|families|rebuild|hamlet|the village|in the village|around the village|outer village|fish market|marsh villages|fishing villages|the square|the market|the harbour|the harbor|the crowd|the ceremony|the inn|fish market)/.test(txt)) return;
     const spots = []; if (s.at) spots.push(s.at); if (s.ats) for (const a of s.ats) spots.push(a);
@@ -13204,7 +13376,7 @@ class MCtx {
       if (who === 'ren' || who === 'narr' || String(first || '')[0] === '(') continue;
       const a = this.get(who) || (!CAST[who] && this.speaker(who)); if (!a || a.dead || a.gone || G.gang.includes(a)) continue;
       const d = dist(a.x, a.y, P.x, P.y); if (d < 6 || d > 52) continue;
-      if (a.mEnemy || a.watch || a.sleeping || a.yieldLock || a.yielded || a.downed || a.mStay || a.leaving || a.state !== 'idle') continue;
+      if (a.mEnemy || a.watch || a.sleeping || a.yieldLock || a.yielded || a.downed || a.mStay || a.leaving || a.state === 'work' || a.state !== 'idle') continue;
       if (['imperial', 'guard', 'bandit', 'pirate', 'ninja', 'thief'].includes(a.faction) || (a.ai && a.ai.mode !== 'idle' && a.ai.mode !== 'follow')) continue;
       // walking on to somewhere else (or arriving there) when the talk is here: they come here instead
       if (a.mPath && !a.mDone) { const t = a.mPath[a.mPath.length - 1]; if (!a.mArrive || a.mLoop || dist(t[0], t[1], P.x, P.y) < 6) continue; }
@@ -13226,12 +13398,13 @@ class MCtx {
       // '(on the bridge)', '(from the doorway)': a voice from somewhere else, not a missing person
       if (String(first || '')[0] === '(') continue;
       let a = this.get(who);
-      if (!a && CAST[who] && !this.fast) { this.cast(who, (this.def && this.def.at) || [P.x + 1.8, P.y], { appear: false }); a = this.get(who); }
+      if (!a && CAST[who] && !this.fast) { this.cast(who, this.near([P.x + 2.6, P.y + 1.4], 1.6), { appear: false }); a = this.get(who); }
       if (a && a.dead) this.holdVoice(a);
       if (!a || a.dead) continue;
+      if (a.state === 'work') continue;
       const d = dist(a.x, a.y, P.x, P.y); if (d < 8 || (L && dist(a.x, a.y, L[0], L[1]) < 14)) continue;
       if (this.fast) {
-        const q = this.near([P.x + 1.4, P.y + 0.8], 1.4);
+        const q = this.near([P.x + 2.4, P.y + 1.2], 1.4);
         a.x = q[0]; a.y = q[1]; a.mPath = null; if (a.mount) { a.mount.x = a.x; a.mount.y = a.y; }
         continue;
       }
@@ -13239,8 +13412,9 @@ class MCtx {
       if (a.mPath && !a.mDone) { const t = a.mPath[a.mPath.length - 1]; if (dist(a.x, a.y, t[0], t[1]) > 1.5 && (a.mArrive || dist(t[0], t[1], P.x, P.y) < 12)) return true; }
       // a companion still catching up
       if (a.comp && G.gang.includes(a) && d > 7) return true;
-      // they are in this conversation but standing too far to be speaking to Ren: walk over first
-      if (d < 50 && !a.mEnemy && !a.sleeping && !a.mStay && !a.yieldLock && !a.leaving) { this.bring(a, [P.x, P.y], { run: 1.1 }); return true; }
+      // named cast walk over; a passer-by talks from where they already stand
+      if (CAST[who] && d < 50 && !a.mEnemy && !a.sleeping && !a.mStay && !a.yieldLock && !a.leaving) { this.bring(a, this.near([P.x + 2.2, P.y + 1.1], 1.4), { run: 1.1 }); return true; }
+      if (!CAST[who] && d < 14 && !a.mEnemy && !a.sleeping && !a.mStay && !a.yieldLock && !a.leaving) { this.bring(a, this.near([P.x + 2.2, P.y + 1.1], 1.4), { run: 0.9 }); return true; }
     }
     return false;
   }
@@ -13285,7 +13459,7 @@ class MCtx {
   }
   talk(lines) { if (!this.fast) Subs.add(lines); }
   // lines that belong to a place: said once, when Ren gets within r of it
-  talkNear(key, w, r, lines) { const p = this.at(w), P = G.player; if (!p || this.flags['tn_' + key] || dist(p[0], p[1], P.x, P.y) > r) return; this.flags['tn_' + key] = true; this.talk(lines); }
+  talkNear(key, w, r, lines) { const p = this.at(w), P = G.player; if (!p || this.flags['tn_' + key] || (P && P.state === 'work') || dist(p[0], p[1], P.x, P.y) > r) return; this.flags['tn_' + key] = true; this.talk(lines); }
   // people walk a route (spots or points); `wait` stops them when Ren falls more than that far behind
   walk(a, pts, o = {}) { if (!a) return; a.sitting = a.sleeping = a.lying = false; a.mPath = pts.map(w => this.at(w)).filter(Boolean).map(p => blockedCircle(p[0], p[1], 0.3) ? World.randomWalkable(p[0], p[1], 0, 3, 40) || p : p);
     // a first waypoint clearly behind them (they are already most of the way to the next) is not walked back to
@@ -13367,6 +13541,45 @@ class MCtx {
 }
 // a mistake in one line of a mission's script must never freeze the story: report it and carry on
 function mSafe(m, what, f) { try { return f(); } catch (e) { console.error('Mission ' + (m && m.def ? m.def.n + '.' + m.i : '?') + ' ' + what + ':', e && e.message); } }
+function useWorkOf(s, horse) {
+  const txt = ((s.busy || '') + ' ' + (s.label || '') + ' ' + (s.text || '') + ' ' + (s.thing || '') + ' ' + (horse ? 'horse load' : '')).toLowerCase();
+  let kind = 'work';
+  if (/draw water|pick up a bucket|carry the water|\bbucket\b/.test(txt)) kind = /carry/.test(txt) ? 'haul' : 'pack';
+  else if (/timber|lumber|beam|plank|haul|drag|pulling plank/.test(txt)) kind = 'haul';
+  else if (/saw/.test(txt)) kind = 'cut';
+  else if (/heave|lift the bar|lift him|lift the axle|grate/.test(txt) || ((/axle|wheel/.test(txt)) && !/pris the bolt|board/.test(txt))) kind = 'heave';
+  else if (/cut|rope|harness|padlock/.test(txt)) kind = 'cut';
+  else if (/lock|jam|wedge|pick|drawer|gear|flint|bolt|seal|board|pris/.test(txt)) kind = 'pry';
+  else if (/dig|debris|channel|bury|grave/.test(txt)) kind = 'dig';
+  else if (/hammer|mend|smash|break|screw|chain/.test(txt)) kind = 'hammer';
+  else if (/pack|load|lash|boil|powder|tie|rearrange|bind|tend|gather|take |pick |copy |search|look |help/.test(txt)) kind = 'pack';
+  let hold = null;
+  if ((kind === 'pack' && /bucket|draw water/.test(txt)) || /carry the water/.test(txt) || s.thing === 'bucket') hold = 'bucket';
+  else if (s.thing === 'lumber' || /timber|beam|plank/.test(txt)) hold = 'beam';
+  else if (s.thing === 'ricesacks' || /sack/.test(txt)) hold = 'sack';
+  else if (/wheel/.test(txt) || (/axle/.test(txt) && !/saw/.test(txt))) hold = 'wheel';
+  else if (/chest/.test(txt)) hold = 'chest';
+  else if (/crate|pack it up|load the medicine|packing|medicine/.test(txt)) hold = 'crate';
+  const put = hold === 'wheel' && /lift the axle|wheel back|heaving the axle/.test(txt);
+  let dur = s.dur;
+  if (!dur || dur < 1.4) dur = kind === 'dig' ? 2.8 : kind === 'heave' ? 2.5 : kind === 'haul' ? 2.1 : kind === 'hammer' ? 2.2 : kind === 'pry' ? 2.0 : kind === 'cut' ? 1.8 : 1.7;
+  else if (kind === 'dig' && dur < 2.2) dur = 2.6;
+  return { kind, hold, put, dur, txt };
+}
+function useLeave(m, s, it, w) {
+  if (!m || m.fast || !w) return;
+  const P = G.player;
+  const p = (it && it.obj) ? [it.obj.cx, it.obj.cy] : [P.x + Math.cos(P.face) * 0.9, P.y + Math.sin(P.face) * 0.9];
+  if (w.kind === 'dig') {
+    m.open(p, 'debris', 3.2, true);
+    m.open(p, 'bush', 3.2, true);
+    const leave = /bury|grave|dead/.test(w.txt) ? 'grave' : 'rubble';
+    const here = (World.at(Math.floor(p[0]), Math.floor(p[1])) || []).some(o => o.t === leave);
+    if (!here) m.prop(leave, p, { solid: false });
+    FX.dust(p[0], p[1], 12);
+    Snd.play('thud', 0.32);
+  }
+}
 // ---- the kinds of step
 const STEPS = {
   scene: { begin(m, s) { m.say(s.parts, () => m.st.ok = true); }, tick: m => m.st.ok },
@@ -13387,18 +13600,18 @@ const STEPS = {
         if (a) m.add(a, s.who);
       }
       if (!a) {
-        const here = s.at || (m.def && m.def.at) || [G.player.x + 1.8, G.player.y];
-        if (CAST[s.who]) { m.cast(s.who, here, { appear: false }); a = m.get(s.who); }
+        const stand = s.at || (m.def && m.def.at) || m.near([G.player.x + 3.2, G.player.y + 1.6], 1.8);
+        if (CAST[s.who]) { m.cast(s.who, stand, { appear: false }); a = m.get(s.who); }
         else {
           const mil = /soldier|guard|officer|gunner|lieutenant|captain|commander|conscript|instructor|loyalist|crew|sentry|sergeant|arquebusier|mercenary/i.test(s.who || '');
           const kid = /child|boy|girl|kid/i.test(s.who || '');
           const type = kid ? 'kid' : mil ? 'imperial' : 'townsfolk';
-          const [sp] = m.spawn(type, here, 1, { calm: true, key: s.who, name: s.who, appear: false, here: true, exact: true });
+          const [sp] = m.spawn(type, stand, 1, { calm: true, key: s.who, name: s.who, appear: false });
           if (sp) { sp.name = sp.label = s.who; a = sp; }
         }
       }
-      if (a && dist(a.x, a.y, G.player.x, G.player.y) > 8) {
-        const dest = s.at ? m.at(s.at) : [G.player.x + 1.6, G.player.y + 0.5];
+      if (a && a.state !== 'work' && dist(a.x, a.y, G.player.x, G.player.y) > 10) {
+        const dest = s.at ? m.at(s.at) : m.near([G.player.x + 2.4, G.player.y + 1.2], 1.4);
         if (dest) m.bring(a, dest, { run: 1 });
       }
       if (s.parts) m.late(s.parts);
@@ -13782,7 +13995,7 @@ const Missions = {
     if (this.cur !== m) return;
     m.placeStep(s);
     m.guardVoice();
-    if (s.talk) m.talk(typeof s.talk === 'function' ? s.talk(m) : s.talk);
+    if (s.talk && s.t !== 'use') m.talk(typeof s.talk === 'function' ? s.talk(m) : s.talk);
     const go = () => { if (this.cur !== m || m.step !== s) return; const T = STEPS[s.t]; if (!T) { console.warn('no step type', s.t); m.st.live = true; m.st.ok = true; return; } if (T.begin) mSafe(m, 'begin', () => T.begin(m, s)); m.st.live = true; this.objective(); };
     if (s.say) m.say(s.say, go); else go();
     this.objective();
@@ -14024,32 +14237,14 @@ const Missions = {
       const o = it.obj; if (!o || o.used) return; o.used = true; this.removeObj(o); m.st.got++;
       const mk = s.take && m.st.marks && m.st.marks[o.mUse.k]; if (mk) this.removeObj(mk);
       if (s.onUse) s.onUse(m, o.mUse.k);
+      useLeave(m, s, it, w);
     };
-    const txt = ((s.busy || '') + ' ' + (s.label || '') + ' ' + (s.text || '') + ' ' + (s.thing || '') + ' ' + (it.horse ? 'horse load' : '')).toLowerCase();
-    const horseWork = it.horse && /pack|load|lash|rearrange|tie|mend|hold kumo|saddle|chest/.test(txt);
-    const packUse = !it.horse && (s.thing === 'crates' || s.thing === 'ricesacks' || /pack it up|load the medicine|recover the cargo|fill your bags|shoulder a rice/.test(txt));
-    const dur = s.dur || (horseWork ? 1.8 : packUse ? 1.2 : 0);
-    if (dur) {
+    const w = useWorkOf(s, it.horse);
+    const { kind, hold, put, dur, txt } = w;
+    {
       m.st.live = false;
       const P = G.player;
-      let kind = 'work';
-      if (/draw water|pick up a bucket|carry the water|\bbucket\b/.test(txt)) kind = /carry/.test(txt) ? 'haul' : 'pack';
-      else if (/timber|lumber|beam|plank|haul|drag|pulling plank/.test(txt)) kind = 'haul';
-      else if (/saw/.test(txt)) kind = 'cut';
-      else if (/heave|lift the bar|lift him|lift the axle|grate/.test(txt) || ((/axle|wheel/.test(txt)) && !/pris the bolt|board/.test(txt))) kind = 'heave';
-      else if (/cut|rope|harness|padlock/.test(txt)) kind = 'cut';
-      else if (/lock|jam|wedge|pick|drawer|gear|flint|bolt|seal|board|pris/.test(txt)) kind = 'pry';
-      else if (/dig|debris|channel|bury/.test(txt)) kind = 'dig';
-      else if (/hammer|mend|smash|break|screw|chain/.test(txt)) kind = 'hammer';
-      else if (/pack|load|lash|boil|powder|tie|rearrange/.test(txt)) kind = 'pack';
-      let hold = null;
-      if (kind === 'pack' && /bucket|draw water/.test(txt) || /carry the water/.test(txt) || s.thing === 'bucket') hold = 'bucket';
-      else if (s.thing === 'lumber' || /timber|beam|plank/.test(txt)) hold = 'beam';
-      else if (s.thing === 'ricesacks' || /sack/.test(txt)) hold = 'sack';
-      else if (/wheel/.test(txt) || (/axle/.test(txt) && !/saw/.test(txt))) hold = 'wheel';
-      else if (/chest/.test(txt)) hold = 'chest';
-      else if (/crate|pack it up|load the medicine|packing|medicine/.test(txt)) hold = 'crate';
-      const put = hold === 'wheel' && /lift the axle|wheel back|heaving the axle/.test(txt);
+      if (P.mounted) Horse.dismount();
       let prop = null;
       const mk = s.take && m.st.marks && it.obj && it.obj.mUse && m.st.marks[it.obj.mUse.k];
       if (mk && mk.t) prop = mk;
@@ -14069,7 +14264,7 @@ const Missions = {
       const at = it.horse && G.horse ? [G.horse.x, G.horse.y] : (it.obj ? [it.obj.cx, it.obj.cy] : (prop ? [prop.cx, prop.cy] : [P.x + Math.cos(P.face), P.y + Math.sin(P.face)]));
       P.faceTo(at[0], at[1]);
       P.state = 'work';
-      P.work = { kind, hold, put, t: 0, dur, beat: kind === 'cut' || kind === 'hammer' ? 0.42 : kind === 'heave' ? 0.72 : kind === 'haul' ? 0.5 : 0.55, prop, at, fxT: 0 };
+      P.work = { kind, hold, put, t: 0, dur, beat: kind === 'cut' || kind === 'hammer' ? 0.42 : kind === 'heave' || kind === 'dig' ? 0.7 : kind === 'haul' ? 0.5 : 0.55, prop, at, fxT: 0 };
       if (hold === 'bucket') {
         P.carry = 'bucket';
         for (let j = Math.floor(P.y - 4); j <= Math.floor(P.y + 4); j++) for (let i = Math.floor(P.x - 4); i <= Math.floor(P.x + 4); i++)
@@ -14090,7 +14285,6 @@ const Missions = {
         m.st.live = true; fin();
       }, dur * 1000);
     }
-    else fin();
   },
   event(name) { const m = this.cur; if (m && m.step && m.st.live && m.step.t === 'event' && m.step.ev === name) m.st.n++; },
   // ---- eyes: watchers notice Ren in their cone of sight (less when he crouches, at night, behind things)
@@ -14130,7 +14324,11 @@ const Missions = {
   along(R, L, d) { for (let i = 0; i < R.length - 1; i++) if (d <= L[i + 1]) { const t = (d - L[i]) / Math.max(0.01, L[i + 1] - L[i]); return [lerp(R[i][0], R[i + 1][0], t), lerp(R[i][1], R[i + 1][1], t)]; } return R[R.length - 1]; },
   // people on a route (escorts, the one you follow, the one you chase)
   walkAI(a, dt) {
-    const pts = a.mPath; if (!pts || a.mDone) { if (a.mDone && a.mPath) { a.mPath = null; a.post = [a.x, a.y]; a.mArrive = false; a.nav = null; } return false; }
+    const pts = a.mPath; if (!pts || a.mDone) {
+      if (a.mDone && a.mPath) { a.mPath = null; a.post = [a.x, a.y]; a.mArrive = false; a.nav = null; }
+      if (a._job) { const j = a._job; a._job = null; const m = Missions.cur; if (m) m.setWork(a, j.kind, j.hold, j.at, j.dur); }
+      return !!(a.work && a.state === 'work');
+    }
     if (a.state === 'kneel' || a.downed) return false;
     const P = G.player, tgt = pts[a.mPi];
     // too far ahead of Ren: wait for him (anyone behind him keeps coming, so a group never splits for good)
@@ -15455,7 +15653,7 @@ M({
     { t: 'go', at: 'mtnvil.storehouse', r: 2.6, text: 'Look around the village', hint: 'There is a storehouse behind the temple that nobody has mentioned.' },
     { t: 'scene', on(m) { m.place('elder', ['mtnvil.storehouse', 1.5, 1], { run: 1 }); }, parts: [['ren', 'Rice. Pickles. Medicine. For a village with nothing to spare.'], ['elder', '...The officers take whatever they can find. So we make sure they can\'t find it.']] },
     { t: 'choice', key: 'elderFood', ask: ['elder', 'Well? Take it, then. Everyone else does.'], options: [['Take what you need', 'take', [['aiko', 'Ren.'], ['ren', '...']]], ['Make him an offer', 'deal']], after: [['ren', 'Your channels are clogged and your bridge is in the river. The people we freed can work.', 'They fix both. You give us enough to get everyone west.'], ['elder', '...Agreed.']] },
-    { t: 'use', ats: ['mtnvil.channel1', 'mtnvil.channel2', 'mtnvil.channel3'], label: 'Clear the channel', thing: 'debris', take: true, text: 'Clear the irrigation channels with the freed prisoners', dur: 1, busy: 'Digging…', on(m) { let k = 0; for (const a of m.group('freed')) { const dest = m.at('mtnvil.channel' + (1 + k++ % 3), rnd(-1, 1), 1); if (!dest) continue; if (m.fast || dist(a.x, a.y, dest[0], dest[1]) > 16) { a.x = dest[0]; a.y = dest[1]; a.mPath = null; } else m.walk(a, [dest], { run: 0.8 }); m.setWork(a, 'dig', null, dest); } } },
+    { t: 'use', ats: ['mtnvil.channel1', 'mtnvil.channel2', 'mtnvil.channel3'], label: 'Clear the channel', thing: 'debris', take: true, text: 'Clear the irrigation channels with the freed prisoners', dur: 2.8, busy: 'Digging…', on(m) { let k = 0; for (const a of m.group('freed')) { const dest = m.at('mtnvil.channel' + (1 + k++ % 3), rnd(-1, 1), 1); if (!dest) continue; m.job(a, 'dig', null, dest, 24); } } },
     { t: 'use', ats: ['mtnvil.bridge1', 'mtnvil.bridge2'], label: 'Haul a beam into place', thing: 'lumber', take: true, text: 'Rebuild the collapsed bridge', dur: 1.2, busy: 'Hauling…', on(m) { let k = 0; const p = m.at('mtnvil.bridge1'); for (const a of m.group('freed')) { const dest = m.at('mtnvil.bridge' + (1 + k++ % 2), rnd(-1.2, 1.2), 1); if (!dest) continue; if (m.fast || dist(a.x, a.y, dest[0], dest[1]) > 16) { a.x = dest[0]; a.y = dest[1]; a.mPath = null; } else m.walk(a, [dest], { run: 0.85 }); m.setWork(a, 'haul', 'beam', dest); } for (const a of m.group('folk').slice(0, 4)) { if (p) { if (m.fast) { a.x = p[0] + rnd(-2, 2); a.y = p[1] + rnd(1, 2.5); a.mPath = null; } else m.walk(a, [[p[0] + rnd(-2, 2), p[1] + rnd(1, 2.5)]], { run: 0.7 }); m.setWork(a, 'haul', 'beam', p); } } }, onUse(m, k) { if (k !== 1) return; const p = m.at('mtnvil.bridge1'); if (!p) return; const br = Bridges.add({ ax: p[0] - 1, ay: p[1] - 3, bx: p[0] + 5, by: p[1] + 1, hw: 0.95, kind: 'flat' }); if (br) Bridges.stamp(br); } },
     { t: 'scene', parts: [['aiko', 'You might actually be useful to someone other than yourself.'], ['ren', 'Don\'t tell anyone. I have a reputation.']] },
   ],
@@ -15548,7 +15746,7 @@ M({
     { t: 'ride', at: 'marsh.c', r: 9, text: 'Ride on to the marsh villages', talk: [['aiko', 'You were quiet back there.'], ['ren', 'An old man in my village said exactly that. About his ox. The day they came.'], ['aiko', '...What happened to the ox?'], ['ren', 'They took it.']] },
     { t: 'wait', dur: 4, text: '', on(m) { m.look('marsh.c', 4); }, talk: [['aiko', 'No children by the river.'], ['ren', 'No birds on the roofs.']] },
     { t: 'scene', parts: [['oldwoman', 'Fever. Half the village is too weak to stand. The healer here has the medicine, but the governor forbids him to give it out without official approval.', 'It is for the soldiers, they say.'], ['ren', 'Then we break into the government storehouse.'], ['aiko', 'And the sick survive a fight that leaves the medicine burning? Herbs first. Boiled water. Then we think.']] },
-    { t: 'use', ats: ['marsh.herb1', 'marsh.herb2', 'marsh.herb3'], label: 'Gather herbs', text: 'Gather fever herbs around the village', hint: 'Low plants at the edges of the fields.' },
+    { t: 'use', ats: ['marsh.herb1', 'marsh.herb2', 'marsh.herb3'], label: 'Gather herbs', text: 'Gather fever herbs around the village', hint: 'Low plants at the edges of the fields.', onUse(m, k) { m.open('marsh.herb' + (k + 1), 'bush', 4, true); } },
     { t: 'use', at: 'marsh.pot', label: 'Boil water and herbs', text: 'Boil the water', dur: 2, busy: 'Boiling…', on(m) { m.place('oldwoman', ['marsh.pot', 1.4, 0.6]); const h = m.get('Healer'); if (h) { const p = m.at('marsh.pot'); if (p) { h.x = p[0] - 1.1; h.y = p[1] + 0.5; h.mPath = null; } } }, after: [['narr', 'The pot boils over. A basket of roots goes into the mud.'], ['oldwoman', 'Ha! The great outlaw, defeated by a basket!'], ['ren', '...It was a very difficult basket.']] },
     { t: 'use', ats: [m => m.sick[0] ? [m.sick[0].x, m.sick[0].y] : m.at('marsh.c'), m => m.sick[1] ? [m.sick[1].x, m.sick[1].y] : m.at('marsh.c'), m => m.sick[2] ? [m.sick[2].x, m.sick[2].y] : m.at('marsh.c')], label: 'Help them up', text: 'Help the weakest to their feet', onUse(m, k) { const a = m.sick[k]; if (a) { a.state = 'idle'; a.yieldLock = false; a.yielded = false; a.lying = false; a.sleeping = false; m.walk(a, ['marsh.hall'], { run: 0.5 }); } } },
     { t: 'go', at: 'marsh.hall', r: 3, text: 'Get them into the dry communal hall' },
@@ -15711,7 +15909,7 @@ M({
     { t: 'scene', parts: [['ren', 'Saeki will be in Kurohama for his ceremony. One arrow from a rooftop.'], ['aiko', 'And tomorrow there is another governor in his chair. Same orders.'], ['haru', 'Release the confiscation records. Let the people see where their medicine went.'], ['ren', 'That is needlessly complicated.'], ['haru', 'The simple solution has been tried for fifteen years.'], ['aiko', 'Then we do both halves of it. I copy his records. You take back the medicine wagon. Haru gives the evidence to the physicians and the elders who can vouch for the shortages.']] },
     { t: 'ride', at: 'kurohama.road', r: 7, text: 'Ride to the road outside Kurohama and intercept the medicine wagon', talk: [['haru', 'Saeki\'s ceremony is at noon. He\'ll give a speech about order.'], ['aiko', 'Governors always give a speech about order.'], ['ren', 'And we\'re going to give him a quieter audience than he expects.'], ['haru', 'Promise me nobody dies on that stage, Ren.'], ['ren', '...Nobody dies on the stage.']] },
     { t: 'kill', tag: 'wagonguard', cp: true, text: 'Take the stolen medicine from its escort', spawn(m) { for (const a of m.group('wagonguard')) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } },
-    { t: 'use', at: m => m.wagon ? [m.wagon.cx + 1, m.wagon.cy + 1] : m.at('kurohama.road'), label: 'Take the medicine', text: 'Take the medicine wagon' },
+    { t: 'use', at: m => m.wagon ? [m.wagon.cx + 1, m.wagon.cy + 1] : m.at('kurohama.road'), label: 'Take the medicine', text: 'Take the medicine wagon', onUse(m) { Horse.addPack('crates'); if (m.wagon) { Missions.removeObj(m.wagon); m.wagon = null; } if (!m.fast) { Snd.play('thud', 0.45); FX.dust(G.player.x, G.player.y, 6); } } },
     { t: 'sneak', at: 'kurohama.office', r: 2.4, onSpot: 'fight', cp: true, text: 'Slip into the governor\'s office while the town is at the ceremony', hint: 'Crouch (C). Two clerks\' guards are still on duty.' },
     { t: 'use', at: 'kurohama.officeIn', label: 'Copy the confiscation ledger', text: 'Copy Saeki\'s confiscation records', dur: 2.6, busy: 'Page after page. Medicine, grain, "for the troops"…', after: [['aiko', '(at the window) Haru has the elders. Give me the copies. Go and watch the show.']] },
     { t: 'go', at: 'kurohama.crowd', r: 4, text: 'Go to the governor\'s ceremony in the square' },
@@ -15810,13 +16008,16 @@ M({
   ],
 });
 M({
-  n: 43, title: 'The Engineer\'s Confession', at: 'foundry.workshop', chain: true, tod: 0.86, sites: ['foundry', 'mine'], reward: 80,
+  n: 43, title: 'The Engineer\'s Confession', at: 'foundry.workshop', chain: true, tod: 0.86, sites: ['foundry', 'mine'], party: ['aiko', 'haru', 'daichi'], reward: 80,
   brief: 'Down the maintenance tunnel, and a confession by a fire in a dead mine.',
   recap: 'They escaped through a maintenance tunnel that collapsed behind them and sheltered in a disused mining camp. Daichi told them about the barrage he obeyed against a town whose defenders had already gone. Ren walked away before he said something unforgivable. Haru followed: "Guilt cannot undo a crime. It can be the reason a person refuses to repeat it." Ren came back to the fire. He did not forgive Daichi. He agreed to let him help.',
-  setup(m) { m.cast('daichi', 'foundry.workIn'); m.spawn('mercenary', 'foundry.yard', 3, { calm: true, tag: 'chase', spread: 3 }); },
+  setup(m) { m.cast('daichi', 'foundry.workIn'); m.cast('aiko', ['foundry.workshop', 1.4, 0.8]); m.cast('haru', ['foundry.workshop', -1.2, 0.8]); m.spawn('mercenary', 'foundry.yard', 3, { calm: true, tag: 'chase', spread: 3 }); },
   steps: [
-    { t: 'escape', at: 'foundry.tunnel', r: 2.2, cp: true, text: 'Follow Daichi to the maintenance tunnel', hint: 'Behind the workshop, by the north-west cliff.', on(m) { m.walk(m.get('daichi'), ['foundry.tunnel'], { run: 1.2 }); const here = m.group('chase'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('mercenary', 'foundry.yard', 3, { spread: 3 }); } } },
-    { t: 'use', at: 'foundry.tunnel', label: 'Climb down into the tunnel', text: 'Climb down into the tunnel', onUse(m) { if (!m.fast) { G.shake = 6; Snd.play('cannon', 0.6); } m.cutTo(() => { if (!m.fast) Card.show('', 'Through the tunnel', 'Half a mile in the dark. The roof comes down behind them.', 3.2, 'time'); m.put('mine.exit'); for (const [id, d] of [['daichi', 1], ['aiko', 2], ['haru', 3]]) m.cast(id, ['mine.exit', d * 0.8, 1]); }); } },
+    { t: 'escape', at: 'foundry.tunnel', r: 2.2, cp: true, text: 'Follow Daichi to the maintenance tunnel', hint: 'Behind the workshop, by the north-west cliff.', on(m) { for (const id of ['daichi', 'aiko', 'haru']) m.walk(m.get(id), ['foundry.tunnel'], { run: 1.2 }); const here = m.group('chase'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('mercenary', 'foundry.yard', 3, { spread: 3 }); } } },
+    { t: 'go', at: 'foundry.sewer1', r: 2.6, text: 'Follow Daichi into the tunnel', hint: 'Through the grate, down the maintenance run.', talk: [['daichi', 'Stay on the bank. The channel is deeper than it looks.'], ['aiko', 'I can hear them in the yard.']], on(m) { m.place('daichi', ['foundry.sewer1', 0.9, 0.2]); m.place('aiko', ['foundry.sewer1', -0.8, 0.3]); m.place('haru', ['foundry.sewer1', 0.2, 0.7]); } },
+    { t: 'go', at: 'foundry.sewer2', r: 2.6, text: 'Keep going', talk: [['daichi', 'The roof is not as sound as I would like.'], ['haru', 'Then we walk faster.']], on(m) { m.place('daichi', ['foundry.sewer2', 0.9, 0.2]); m.place('aiko', ['foundry.sewer2', -0.8, 0.3]); m.place('haru', ['foundry.sewer2', 0.2, 0.7]); } },
+    { t: 'go', at: 'foundry.sewerOut', r: 2.4, cp: true, text: 'Get to the far grate before the roof comes down', on(m) { if (!m.fast) { G.shake = 6; Snd.play('cannon', 0.7); } m.prop('rubble', 'foundry.sewer1', { solid: true }); m.prop('rubble', ['foundry.sewer1', 1.4, 0], { solid: true }); } },
+    { t: 'use', at: 'foundry.sewerOut', label: 'Climb out', text: 'Climb out into the old mining camp', dur: 2, busy: 'Climbing the shaft…', onUse(m) { m.cutTo(() => { m.put('mine.exit'); for (const [id, d] of [['daichi', 1], ['aiko', 2], ['haru', 3]]) m.cast(id, ['mine.exit', d * 0.8, 1]); }); } },
     { t: 'scene', parts: [['aiko', '(coughing) Everyone? Haru? Daichi?'], ['daichi', 'Here. The roof came down behind us. Nobody is following us through that.']] },
     { t: 'go', at: 'mine.fire', r: 2.5, text: 'Make camp by the old mine', on(m) { for (const [id, d] of [['daichi', 1], ['aiko', 2], ['haru', 3]]) m.goTo(id, ['mine.fire', Math.cos(d * 2) * 1.8, Math.sin(d * 2) * 1.8]); } },
     { t: 'scene', parts: [
@@ -16094,7 +16295,9 @@ M({
     { t: 'scene', parts: [['nao', 'My shoulder! You nearly pulled my arm out of its socket!'], ['ren', 'You are welcome.'], ['Guard', 'BIRDS! Why are there BIRDS?']] },
     { t: 'use', at: 'customs.bridge', label: 'Jam the bridge mechanism', thing: 'winch', text: 'Help Daichi sabotage the bridge mechanism', dur: 1.5, busy: 'Jamming the gears…', on(m) { const p = m.at('customs.bridge'); m.cast('daichi', p ? [p[0] - 1.5, p[1] + 1] : ['customs.bridge', -1.5, 1]); const d = m.get('daichi'); if (d && p) { d.x = p[0] - 1.5; d.y = p[1] + 1; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'hammer', null, p, 10); } if (p && !Bridges.near(p[0] - 10, p[1] - 10, p[0] + 10, p[1] + 10).length) { const br = Bridges.add({ ax: p[0] - 6, ay: p[1], bx: p[0] + 6, by: p[1], hw: 1.45, kind: 'arch' }); if (br) Bridges.stamp(br); } } },
     { t: 'escape', at: 'customs.boat', r: 3, cp: true, text: 'Get to the canal before the boats close the harbour', spawn(m) { const here = m.group('foe'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', 'customs.yard', 3); m.spawn('rifleman', ['customs.yard', 3, -3], 1); } } },
-    { t: 'go', at: 'foxden.grate', r: 2.5, text: 'Get through the old drainage tunnels with Haru', hint: 'They come out under a bridge in the fishing district.', on(m) { m.comp('daichi'); m.comp('haru'); } },
+    { t: 'use', at: 'customs.boat', label: 'Drop into the drain', text: 'Drop into the old drainage tunnels with Haru', dur: 1.6, busy: 'Down the grate…', onUse(m) { m.comp('daichi'); m.comp('haru'); m.cutTo(() => { m.put('foxden.drainIn'); for (const id of ['haru', 'daichi', 'nao', 'aiko']) { const a = m.get(id); if (a) { const q = m.at('foxden.drainIn', rnd(-1.2, 1.2), rnd(0.4, 1.6)); if (q) { a.x = q[0]; a.y = q[1]; a.mPath = null; } } } }); } },
+    { t: 'go', at: 'foxden.drainMid', r: 2.4, text: 'Follow the drain under the canals', talk: [['haru', 'Heads down. The channel is low here.'], ['nao', 'I have been in worse. Briefly.']] },
+    { t: 'go', at: 'foxden.grate', r: 2.5, text: 'Climb out under the bridge', hint: 'They come out under a bridge in the fishing district.' },
     { t: 'scene', parts: [['narr', 'Somewhere above the bridge, a town crier.'], ['Town Crier', '(on the bridge above) By order of the governor! Armed enemies of the empire! Priceless records stolen! Public property damaged! A ceremonial goldfish...'], ['nao', 'The goldfish was already trying to escape.'], ['ren', 'I refuse to discuss it.']] },
     { t: 'doc', id: 'ledgers' },
     { t: 'scene', parts: [['nao', 'I\'ll help you deliver it.'], ['ren', 'I haven\'t invited you to join the Lantern Route.'], ['nao', 'I haven\'t asked permission.']] },
@@ -16453,7 +16656,8 @@ M({
   recap: 'At a hidden settlement they buried the dead and treated the wounded. Ren sat apart with Genjiro\'s bell. Haru stayed with him all night and let him say what he wished he had said. At dawn Aiko came, Nao left a bowl of rice without a joke, Daichi repaired the broken equipment. Ren tied the bell to Kumo\'s saddle and promised, not to avenge Genjiro, but to make sure the bridge he died protecting led somewhere worth reaching.',
   setup(m) { for (const [id, sp] of [['aiko', 'hidden.fire'], ['haru', 'hidden.wounded'], ['daichi', ['hidden.c', 3, 2]], ['nao', ['hidden.c', -3, 2]]]) m.cast(id, sp); m.spawn('villager', 'hidden.c', 5, { calm: true, tag: 'folk', wanderR: 6, post: false }); m.spawn('kid', 'hidden.c', 2, { calm: true, tag: 'folk', wanderR: 4, post: false }); for (let i = 0; i < 3; i++) { const [a] = m.spawn('villager', ['hidden.wounded', i * 1.5 - 1.5, 1.5], 1, { calm: true, tag: 'wounded', spread: 0.3 }); sickLook(a); } },
   steps: [
-    { t: 'use', ats: [['hidden.graves', 0, 1.5], ['hidden.graves', 2, 1.5], ['hidden.wounded', -1.5, 2.5], ['hidden.wounded', 1.5, 2.5]], label: 'Help', text: 'Help bury the dead and tend the wounded', dur: 1, busy: 'Digging, then binding…', on(m) { const g = m.at('hidden.graves'), w = m.at('hidden.wounded'); m.crewWork('folk', 'dig', null, 'hidden.graves', { pull: true, max: 4 }); if (g) { m.prop('grave', [g[0], g[1] + 0.6], { solid: false }); m.prop('grave', [g[0] + 1.6, g[1] + 0.4], { solid: false }); } const h = m.get('haru'); if (h && w) { h.x = w[0] + 0.8; h.y = w[1] + 0.4; h.mPath = null; m.setWork(h, 'pack', null, w); } if (w) for (const a of m.group('folk').slice(4, 7)) { a.x = w[0] + rnd(-1.5, 1.5); a.y = w[1] + rnd(1, 2.4); a.mPath = null; m.setWork(a, 'pack', null, w); } for (const a of m.group('wounded')) sickLook(a); } },
+    { t: 'use', ats: [['hidden.graves', 0, 1.5], ['hidden.graves', 2, 1.5]], label: 'Dig the grave', text: 'Bury the dead', dur: 2.8, busy: 'Digging…', on(m) { m.crewWork('folk', 'dig', null, 'hidden.graves', { max: 4 }); } },
+    { t: 'use', ats: [['hidden.wounded', -1.5, 2.5], ['hidden.wounded', 1.5, 2.5]], label: 'Bind the wound', text: 'Tend the wounded', dur: 2.2, busy: 'Binding…', on(m) { const w = m.at('hidden.wounded'); m.job(m.get('haru'), 'pack', null, w ? [w[0] + 0.8, w[1] + 0.4] : w, 16); for (const a of m.group('folk').slice(4, 7)) m.job(a, 'pack', null, w, 16); for (const a of m.group('wounded')) sickLook(a); } },
     { t: 'go', at: 'hidden.sit', r: 2, text: 'Sit apart from the others' },
     { t: 'rest', title: 'Night', tod: 0.95 },
     { t: 'scene', on(m) { m.place('haru', ['hidden.sit', 1.5, 0.5]); }, parts: [['ren', 'I never told him he was right. About anything. I argued with every single thing he said.'], ['haru', 'He knew. That is why he argued back.']] },
@@ -16482,11 +16686,12 @@ M({
     { t: 'ride', at: m => midway(m, 'hidden.c', 'tunnel.entry', 0.5, 'rmid'), r: 10, text: 'Ride east toward the capital with the others', talk: [['nao', 'His map has a little fish drawn in the corner. Right beside the tunnel.'], ['daichi', 'Then the tunnel comes out under the fish market.'], ['nao', 'Or he was hungry.'], ['aiko', 'He drew it years ago. Before he knew any of us.'], ['haru', 'He drew it for whoever came next.']] },
     { t: 'ride', at: 'tunnel.entry', r: 8, text: 'Ride on to the old waterways below the capital', hint: 'The old waterway opens below the outer district.', talk: [['narr', 'The capital, at last: a whole hillside of lamps.'], ['daichi', 'Three hundred thousand people.'], ['ren', 'And one archive.'], ['nao', 'One archive, one tunnel, one fish. We are very well prepared.']] },
     { t: 'go', at: 'tunnel.grate1', r: 2.2, text: 'Follow Nao into the old waterways', hint: 'He identifies the false passages. Stay close.', talk: [['nao', 'Not that passage. That one goes to the fish market. Do not ask me how I know.'], ['haru', 'Keep the medicine dry. Everyone. Dry.']] },
-    { t: 'use', at: 'tunnel.grate1', label: 'Help Daichi lift the grate', text: 'Help Daichi open the iron grate', dur: 1.5, busy: 'Heaving…', on(m) { const p = m.at('tunnel.grate1'); const d = m.get('daichi') || (p && m.cast('daichi', [p[0] + 0.8, p[1] + 0.6])); if (d && p) { d.x = p[0] + 0.8; d.y = p[1] + 0.6; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'heave', null, p, 8); } } },
+    { t: 'use', at: 'tunnel.grate1', label: 'Help Daichi lift the grate', text: 'Help Daichi open the iron grate', dur: 1.5, busy: 'Heaving…', on(m) { const p = m.at('tunnel.grate1'); const d = m.get('daichi') || (p && m.cast('daichi', [p[0] + 0.8, p[1] + 0.6])); if (d && p) { d.x = p[0] + 0.8; d.y = p[1] + 0.6; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'heave', null, p, 8); } }, onUse(m) { m.open('tunnel.grate1', 'grate', 4, true); } },
+    { t: 'go', at: 'tunnel.mid', r: 2.4, text: 'Keep to the bank', talk: [['nao', 'The city is right over us. Carts. A dog. Somebody arguing about fish.'], ['ren', 'Walk.']] },
     { t: 'go', at: 'tunnel.grate2', r: 2.2, text: 'Keep going', talk: [['Street Vendor', '(through the grate above) Chestnuts! Hot chestnuts!'], ['daichi', 'They\'re selling chestnuts up there. As if nothing is happening.']] },
-    { t: 'use', at: 'tunnel.grate2', label: 'Help Daichi lift the grate', text: 'Open the second grate', dur: 1.5, busy: 'Heaving…', on(m) { const p = m.at('tunnel.grate2'); const d = m.get('daichi') || (p && m.cast('daichi', [p[0] + 0.8, p[1] + 0.6])); if (d && p) { d.x = p[0] + 0.8; d.y = p[1] + 0.6; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'heave', null, p, 8); } } },
-    { t: 'go', at: 'tunnel.end', r: 2.2, text: 'Follow the tunnel to its end' },
-    { t: 'use', at: 'tunnel.end', label: 'Climb up into the cellar', text: 'Climb up into the cellar', onUse(m) { m.cutTo(() => { if (!m.fast) Card.show('', 'Up the shaft', 'An iron ladder, forty rungs, and a trapdoor under the old archive.', 3, 'time'); m.put('archive.hatch'); }); } },
+    { t: 'use', at: 'tunnel.grate2', label: 'Help Daichi lift the grate', text: 'Open the second grate', dur: 1.5, busy: 'Heaving…', on(m) { const p = m.at('tunnel.grate2'); const d = m.get('daichi') || (p && m.cast('daichi', [p[0] + 0.8, p[1] + 0.6])); if (d && p) { d.x = p[0] + 0.8; d.y = p[1] + 0.6; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'heave', null, p, 8); } }, onUse(m) { m.open('tunnel.grate2', 'grate', 4, true); } },
+    { t: 'go', at: 'tunnel.end', r: 2.2, text: 'Follow the tunnel to the iron ladder' },
+    { t: 'use', at: 'tunnel.end', label: 'Climb the iron ladder', text: 'Climb up into the cellar', dur: 2.2, busy: 'Climbing…', onUse(m) { m.cutTo(() => m.put('archive.hatch')); } },
     { t: 'scene', parts: [['nao', 'Cellar. Old archive. Nobody upstairs. Genjiro\'s map was right.'], ['narr', 'The cellar door slams. Somewhere above, a mechanical alarm starts to ring.'], ['nao', 'Oh.', 'That\'s new.']] },
     { t: 'kill', tag: 'stairs', cp: true, text: 'Fight off the guards coming down the stairs', spawn(m) { const here = m.group('stairs'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', ['archive.hatch', 5, 3], 3, { tag: 'stairs', spread: 2, name: 'Archive Guard' }); m.spawn('imperial', ['archive.hatch', 7, -2], 2, { tag: 'stairs', spread: 2, name: 'Archive Guard' }); } } },
   ],
@@ -16495,9 +16700,9 @@ M({
   n: 79, title: 'The Archive of Ashes', at: 'archive.hatch', chain: true, tod: 0.92, sites: ['archive'], party: LANTERNS, reward: 200,
   brief: 'Thousands of seized letters, and one sealed room.',
   recap: 'In the sealed room were the original orders for the Crusade under Kahn\'s personal seal: punish Kiyohara for refusing to surrender the hidden refugees. Kuroda carried it out. Kahn authorised it. Ren\'s father was on a list of suspected rebels; his mother and sister were recorded as members of the household. Fifteen years of memories, reduced to a few lines of ink. And someone had already removed pages from the surrounding files.',
-  setup(m) { m.spawn('imperial', 'archive.yard', 3, { calm: true, tag: 'seal', spread: 3 }); m.spawn('rifleman', ['archive.yard', 4, 2], 1, { calm: true, tag: 'seal' }); },
+  setup(m) { m.spawn('imperial', 'archive.yard', 3, { calm: true, tag: 'seal', spread: 3 }); m.spawn('rifleman', ['archive.yard', 4, 2], 1, { calm: true, tag: 'seal' }); m.prop('crates', 'archive.passage', { solid: true }); m.prop('desk', 'archive.sealedIn', { solid: false }); },
   steps: [
-    { t: 'use', at: 'archive.passage', label: 'Break through the service passage', text: 'Break through the old service passage into the lower offices', dur: 1.8, busy: 'Prising the boards…' },
+    { t: 'use', at: 'archive.passage', label: 'Break through the service passage', text: 'Break through the old service passage into the lower offices', dur: 1.8, busy: 'Prising the boards…', onUse(m) { m.open('archive.passage', 'crates', 4, true); m.open('archive.hatch', 'grate', 5, true); } },
     { t: 'go', at: 'archive.lowerIn', r: 2.5, text: 'Search the lower offices', talk: [['nao', 'Seized letters. Confiscated village registers. Governors\' private correspondence. All filed by district. They keep everything.']] },
     { t: 'go', at: 'archive.sealed', r: 2.4, text: 'Nao has found the sealed room. Follow him', on(m) { m.place('nao', ['archive.sealed', 1.2, 0.5]); } },
     { t: 'use', at: 'archive.sealedIn', label: 'Open the files', text: 'Search the sealed room', dur: 1.2, busy: 'Breaking the seals…' },
@@ -16674,7 +16879,7 @@ M({
     { t: 'scene', parts: [['arata', 'Surrender the copies. Give me the names of the rest of your little family. In return: money, a new identity, safe passage beyond imperial territory.'], ['nao', 'Ha! Ha ha ha!'], ['arata', 'Something amuses you.'], ['nao', 'Coins. Titles. A comfortable room. I have been offered all three, my lord, by better liars than you.', 'None of them was ever enough.'], ['narr', 'A paper charm drops out of Nao\'s satchel and slides under the desk. Arata\'s eyes follow it.'], ['nao', 'Thank you for your time!']], done() { Card.black(false); } },
     { t: 'ride', at: ['archive.gate', 0, 8], r: 6, mounted: false, text: 'Get across the city to the old archive district', hint: 'Nao said: if anything goes wrong, watch the message tube.', talk: [['aiko', 'The square will be crawling with guards for an hour. The back streets.'], ['daichi', 'He said the tube ends in the archive yard. A brass mouth in a wall.'], ['ren', 'He said a lot of things.'], ['aiko', 'He usually meant them.']] },
     { t: 'sneak', at: 'archive.tube', r: 2.2, onSpot: 'fight', cp: true, text: 'Reach the end of the message tube in the archive yard', hint: 'Nao said: if anything goes wrong, watch the tube. Crouch (C).' },
-    { t: 'use', at: 'archive.tube', label: 'Take the paper slips', text: 'Take the paper slips from the tube', each(m, dt) { alarmIfSeen(m, dt); } },
+    { t: 'use', at: 'archive.tube', label: 'Take the paper slips', text: 'Take the paper slips from the tube', thing: 'pages', take: true, each(m, dt) { alarmIfSeen(m, dt); } },
     { t: 'doc', id: 'slips' },
     { t: 'scene', parts: [['aiko', 'There\'s one more slip. "Exits sealed. They burn the originals at dawn. Going back."'], ['ren', 'Going BACK?']] },
     { t: 'go', at: ['archive.gate', 0, 5], r: 3, text: 'Get the slips out of the archive district', hint: 'Haru is waiting outside the gate.' },
@@ -16716,7 +16921,7 @@ M({
     { t: 'go', at: 'archive.sealedIn', r: 2.6, text: 'Into the archive\'s outer chamber', on(m) { m.burn(['archive.sealed', -3, 0], { size: 0.9, z: 6 }); m.burn(['archive.sealed', 3, -1], { size: 0.8, z: 6 }); } },
     { t: 'scene', parts: [['narr', 'Smoke. Burning cabinets. Nao by the service passage, his satchel held against his chest.'], ['ren', 'Nao. Nao, look at me. Haru has a boat, we\'ll...'], ['nao', 'Did you get the papers?'], ['ren', '...Yes.'], ['nao', 'Good.', 'I would hate to have died for bad paperwork.']] },
     { t: 'scene', parts: [['ren', 'Nao?'], ['ren', '...Nao.'], ['aiko', '...Ren. We have to go.']] },
-    { t: 'use', at: ['archive.sealedIn', 0.4, 1.2], label: 'Take Nao\'s paper charm', text: 'Take the paper charm from Nao\'s satchel' },
+    { t: 'use', at: ['archive.sealedIn', 0.4, 1.2], label: 'Take Nao\'s paper charm', text: 'Take the paper charm from Nao\'s satchel', onUse(m) { m.open(['archive.sealedIn', 0.4, 1.2], 'satchel', 3, true); } },
   ],
   end() { G.profile.flags.naoGone = true; G.profile.flags.charm = true; },
 });
