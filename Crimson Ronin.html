@@ -516,10 +516,14 @@ const Snd = {
     try {
       const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
       this.ctx = new C();
-      this.master = this.ctx.createGain(); this.master.gain.value = 0.7; this.master.connect(this.ctx.destination);
-      this.sfxBus = this.ctx.createGain(); this.sfxBus.gain.value = 0.95;
-      const sfxDry = this.ctx.createGain(); sfxDry.gain.value = 0.84;
-      const sfxWet = this.ctx.createGain(); sfxWet.gain.value = 0.18;
+      this.master = this.ctx.createGain(); this.master.gain.value = 0.58;
+      const lim = this.ctx.createDynamicsCompressor();
+      lim.threshold.value = -16; lim.knee.value = 8; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.09;
+      const ceil = this.ctx.createGain(); ceil.gain.value = 0.72;
+      this.master.connect(lim); lim.connect(ceil); ceil.connect(this.ctx.destination);
+      this.sfxBus = this.ctx.createGain(); this.sfxBus.gain.value = 0.62;
+      const sfxDry = this.ctx.createGain(); sfxDry.gain.value = 0.8;
+      const sfxWet = this.ctx.createGain(); sfxWet.gain.value = 0.1;
       const sfxConv = this.ctx.createConvolver(); sfxConv.buffer = this._sfxIr();
       this.sfxBus.connect(sfxDry); sfxDry.connect(this.master);
       this.sfxBus.connect(sfxConv); sfxConv.connect(sfxWet); sfxWet.connect(this.master);
@@ -636,7 +640,7 @@ const Snd = {
   metal(t, f, peak, dur = 0.48) {
     const fund = this.jit(f, 0.05);
     [1, 2.14, 3.32, 4.61, 6.15].forEach((r, i) => this.res(t, fund * r, dur * (1 - i * 0.13), peak * [1, 0.52, 0.26, 0.13, 0.07][i], { q: 15 - i * 2.1, jit: 0.02 }));
-    this.noise(t, 0.016, 'highpass', 5200, 0.7, peak * 2.4);
+    this.noise(t, 0.016, 'highpass', 5200, 0.7, peak * 0.42);
     this.noise(t, 0.04, 'bandpass', fund * 3.4, 6, peak * 0.7);
   },
   _bladeBuf(b64) {
@@ -833,7 +837,12 @@ const Snd = {
     this.noise(t, Math.min(0.12, dur * 0.45), 'bandpass', formants[0][0], 3.5, peak * 0.45);
   },
   play(name, vol = 1) {
-    if (!this.ctx || !this.on) return; const t = this.ctx.currentTime, v = vol;
+    if (!this.ctx || !this.on) return;
+    const t = this.ctx.currentTime;
+    this._lastT = this._lastT || 0; this._busy = this._busy || 0;
+    if (t - this._lastT < 0.045) this._busy = Math.min(10, this._busy + 1); else this._busy = Math.max(0, this._busy - 2);
+    this._lastT = t;
+    const v = Math.min(0.65, Math.max(0, vol)) * (this._busy > 1 ? 0.5 / Math.sqrt(this._busy) : 1);
     switch (name) {
       case 'swing': {
         const hi = rnd(2100, 3200);
@@ -1061,23 +1070,28 @@ const Snd = {
         this.noise(t, 0.5, 'bandpass', 2500, 5, 0.035 * v);
         break;
       case 'gun':
-        this.noise(t, 0.035, 'highpass', 5000, 0.6, 0.7 * v);
-        this.noise(t, 0.08, 'bandpass', 1800, 1.2, 0.45 * v, null, 500);
-        this.noise(t, 0.42, 'lowpass', 480, 1, 0.5 * v, null, 70);
-        this.res(t, 95, 0.28, 0.32 * v, { filt: 'lowpass', q: 0.7, slide: 32 });
-        this.tick(t + 0.09, 0.12 * v);
+        this.noise(t, 0.035, 'highpass', 5000, 0.6, 0.22 * v);
+        this.noise(t, 0.08, 'bandpass', 1800, 1.2, 0.2 * v, null, 500);
+        this.noise(t, 0.42, 'lowpass', 480, 1, 0.22 * v, null, 70);
+        this.res(t, 95, 0.28, 0.16 * v, { filt: 'lowpass', q: 0.7, slide: 32 });
+        this.tick(t + 0.09, 0.08 * v);
         break;
       case 'cannon':
-        this.noise(t, 0.06, 'highpass', 2800, 0.6, 0.45 * v);
-        this.noise(t, 1.3, 'lowpass', 320, 1, 0.85 * v, null, 36);
-        this.res(t, 58, 0.95, 0.65 * v, { filt: 'lowpass', q: 0.6, slide: 22 });
-        this.noise(t + 0.06, 0.45, 'bandpass', 1100, 1, 0.22 * v, null, 220);
-        this.noise(t + 0.2, 0.8, 'highpass', 2400, 0.5, 0.08 * v);
+        this.noise(t, 0.06, 'highpass', 2800, 0.6, 0.18 * v);
+        this.noise(t, 1.3, 'lowpass', 320, 1, 0.28 * v, null, 36);
+        this.res(t, 58, 0.95, 0.22 * v, { filt: 'lowpass', q: 0.6, slide: 22 });
+        this.noise(t + 0.06, 0.45, 'bandpass', 1100, 1, 0.12 * v, null, 220);
+        this.noise(t + 0.2, 0.8, 'highpass', 2400, 0.5, 0.05 * v);
         break;
       case 'boom':
-        this.noise(t, 0.05, 'highpass', 2200, 0.7, 0.28 * v);
-        this.noise(t, 1.0, 'lowpass', 200, 1, 0.42 * v, null, 40);
-        this.res(t, 48, 0.85, 0.32 * v, { filt: 'lowpass', q: 0.6, slide: 22 });
+        this.noise(t, 0.05, 'highpass', 2200, 0.7, 0.14 * v);
+        this.noise(t, 1.0, 'lowpass', 200, 1, 0.2 * v, null, 40);
+        this.res(t, 48, 0.85, 0.16 * v, { filt: 'lowpass', q: 0.6, slide: 22 });
+        break;
+      case 'splash':
+        this.noise(t, 0.1, 'lowpass', 640, 1, 0.07 * v);
+        this.noise(t, 0.07, 'bandpass', rnd(900, 1400), 2.1, 0.055 * v);
+        this.noise(t + 0.04, 0.05, 'bandpass', rnd(1600, 2400), 2.6, 0.03 * v);
         break;
       case 'click':
         this.tick(t, 0.18 * v);
@@ -1145,8 +1159,8 @@ const Snd = {
     const g2 = ctx.createGain(); g2.gain.value = 0.01;
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 18; bp.frequency.setValueAtTime(f0, t);
     const ns = ctx.createBufferSource(); ns.buffer = this.noiseBuf; ns.loop = true; ns.playbackRate.value = 1.05;
-    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.028, t); ng.gain.linearRampToValueAtTime(0.01, t + 0.12);
-    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.11, t + 0.06);
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.014, t); ng.gain.linearRampToValueAtTime(0.006, t + 0.12);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.06);
     o.connect(bp); o2.connect(g2); g2.connect(bp); ns.connect(ng); ng.connect(bp); bp.connect(g); g.connect(this.sfxBus);
     o.start(t); o2.start(t); lfo.start(t); ns.start(t);
     this._wh = { o, o2, lfo, ns, g, ng, lg, bp, f0, t0: t, long: false };
@@ -1159,7 +1173,7 @@ const Snd = {
       if (dur > 0.3 && !w.long) {
         w.long = true;
         w.g.gain.cancelScheduledValues(t); w.g.gain.setValueAtTime(Math.max(0.0002, w.g.gain.value), t);
-        w.g.gain.linearRampToValueAtTime(0.145, t + 0.22);
+        w.g.gain.linearRampToValueAtTime(0.07, t + 0.22);
         w.lg.gain.linearRampToValueAtTime(22, t + 0.45);
         w.ng.gain.linearRampToValueAtTime(0.016, t + 0.18);
         w.o.frequency.exponentialRampToValueAtTime(w.f0 * 1.045, t + 0.55);
@@ -3592,9 +3606,11 @@ const Realm = {
       this.B('quarters', cx + 8, cy - 4, 8, 5, { name: 'Monks\' Quarters' });
       W.deco('bell', cx - 12, cy - 2, 4, 4); if (R() < 0.6) W.deco('pagoda', cx + 9, cy - 13, 5, 5);
     } else {
-      this.B('honden', cx - 3, cy - 7, 7, 6, { name: S.short + ' Honden' });
+      const burnt = S.adopted === 'quietrain' && typeof StoryMap !== 'undefined' && StoryMap.quietrainGone && StoryMap.quietrainGone();
+      this.B(burnt ? 'ruin' : 'honden', cx - 3, cy - 7, 7, 6, { name: burnt ? 'Ruins of Quiet Rain' : S.short + ' Honden' });
       W.deco(R() < 0.5 ? 'bigsakura' : 'sakura', cx + 6, cy - 6, 2, 2);
       for (let k = 0; k < 4; k++) W.deco('torii', cx, cy + 3 + k * 3, 1, 1, { solid: false, dir: 0 });
+      if (burnt) for (const [dx, dy] of [[-4, 1], [3, 0], [0, 2], [-2, 3]]) W.deco('rubble', cx + dx, cy + dy, 1, 1, { solid: false, keep: true });
       S.monks.push([cx + 1.5, cy + 1.5]);
     }
     W.ground(cx, cy + 4, 7, snow ? TILE.SNOWPATH : TILE.GRAVEL);
@@ -3977,6 +3993,22 @@ function isoBox(g, cx, cy, w, h, z0, z1, cTop, cLeft, cRight) {
   if (cTop) poly(g, [b.top, b.right, b.bottom, b.left], cTop);
   return b;
 }
+// a cart or gun wheel as stacked 1px rows, same language as a chest or a crate
+function pixWheel(g, x, y, rx = 3, ry = 5, o = {}) {
+  x = Math.round(x); y = Math.round(y);
+  const tire = o.tire || '#2a1a12', wood = o.wood || '#5a3a22', hub = o.hub || '#8a8478';
+  for (let j = -ry; j <= ry; j++) {
+    const w = Math.max(1, Math.round(rx * Math.sqrt(Math.max(0, 1 - (j * j) / (ry * ry)))));
+    g.fillStyle = tire; g.fillRect(x - w, y + j, w * 2 + 1, 1);
+  }
+  for (let j = -ry + 1; j <= ry - 1; j++) {
+    const w = Math.max(0, Math.round((rx - 1.2) * Math.sqrt(Math.max(0, 1 - (j * j) / ((ry - 1) * (ry - 1))))));
+    if (w < 1) continue;
+    g.fillStyle = j === 0 ? '#6a4a2a' : wood; g.fillRect(x - w, y + j, w * 2 + 1, 1);
+  }
+  g.fillStyle = wood; g.fillRect(x, y - ry + 2, 1, ry * 2 - 3); g.fillRect(x - rx + 2, y, rx * 2 - 3, 1);
+  g.fillStyle = hub; g.fillRect(x - 1, y - 1, 3, 2); g.fillStyle = '#c89a2a'; g.fillRect(x, y, 1, 1);
+}
 // hipped Japanese roof with tile ridges and upturned eaves
 function isoRoof(g, cx, cy, w, h, z, rise, pad, col, opt = {}) {
   const e = isoPts(cx, cy, w, h, z, pad);
@@ -4309,6 +4341,20 @@ Props.draw.well = (g, x, y) => {
   poly(g, [[x - 12, y - 19], [x + 12, y - 19], [x + 6, y - 25], [x - 6, y - 25]], '#3e4757');
   g.fillStyle = '#6a4a30'; g.fillRect(x - 8, y - 15, 16, 1); g.fillStyle = '#8a6a40'; g.fillRect(x - 1, y - 14, 3, 4);
 };
+Props.dyn.well = (ctx, o, sx, sy, t) => {
+  if (!(o.workT > 0)) return;
+  const k = Math.sin(t * 20);
+  ctx.fillStyle = '#7ab0c8'; ctx.fillRect(Math.round(sx - 1 + k), Math.round(sy - 8), 3, 2);
+  ctx.fillStyle = '#c8e4ee'; ctx.fillRect(Math.round(sx + k), Math.round(sy - 10), 1, 2);
+};
+Props.draw.bucket = (g, x, y) => {
+  shadowEllipse(g, x, y + 1, 5, 2);
+  g.fillStyle = '#6a4a30'; g.fillRect(x - 3, y - 6, 7, 6);
+  g.fillStyle = '#8a6a42'; g.fillRect(x - 3, y - 6, 7, 1);
+  g.fillStyle = '#8a8478'; g.fillRect(x - 3, y - 4, 7, 1); g.fillRect(x - 3, y - 1, 7, 1);
+  g.fillStyle = '#4a6a7a'; g.fillRect(x - 2, y - 5, 5, 2);
+  g.fillStyle = '#3a2416'; g.fillRect(x - 1, y - 9, 1, 4); g.fillRect(x + 3, y - 9, 1, 4); g.fillRect(x - 1, y - 9, 5, 1);
+};
 Props.draw.scarecrow = (g, x, y, o, R) => {
   g.fillStyle = '#4a3020'; g.fillRect(x, y - 18, 1, 18); g.fillRect(x - 7, y - 13, 15, 1);
   g.fillStyle = '#5a6a8a'; g.fillRect(x - 3, y - 13, 7, 7); g.fillStyle = '#c8b070'; g.fillRect(x - 2, y - 17, 5, 4);
@@ -4362,11 +4408,13 @@ Props.draw.hokora = (g, x, y) => {
   return { glow: [0, -8] };
 };
 Props.draw.cart = (g, x, y, o, R) => {
+  const tilt = o.tilt ? 3 : 0;
   shadowEllipse(g, x + 1, y + 1, 11, 4);
-  isoBox(g, x, y - 4, 0.9, 0.5, 0, 5, '#8a6a42', '#6a4a30', '#5a3e28');
-  g.fillStyle = '#3a2416'; g.beginPath(); g.arc(x - 6, y + 1, 4, 0, TAU); g.fill(); g.fillStyle = '#7a5a3a'; g.fillRect(x - 7, y, 2, 2);
-  g.strokeStyle = '#4a3020'; g.beginPath(); g.moveTo(x + 6, y - 6); g.lineTo(x + 16, y - 1); g.stroke();
-  for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#c8a050' : '#a88440'; g.fillRect(x - 5 + i * 3, y - 12, 3, 3); }
+  isoBox(g, x, y - 4 - tilt, 0.9, 0.5, 0, 5, '#8a6a42', '#6a4a30', '#5a3e28');
+  pixWheel(g, x - 6, y + 1, 3, 4);
+  if (!o.noWheel) pixWheel(g, x + 3, y + 2, 3, 4);
+  pline(g, x + 6, y - 6 - tilt, x + 16, y - 1, '#4a3020', 1);
+  for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#c8a050' : '#a88440'; g.fillRect(x - 5 + i * 3, y - 12 - tilt, 3, 3); }
 };
 Props.draw.barrels = (g, x, y, o, R) => {
   shadowEllipse(g, x + 1, y + 1, 10, 4);
@@ -4753,6 +4801,12 @@ function poseOf(F) {
     case 'sit': hand = [1.6, 1.2, 8]; yaw = -0.45; el = 0.12; drop = 5.5; lean = 0.35; break;
     case 'sleep': hand = [4.2, 0.4, 3]; yaw = 0.15; el = 0.04; drop = 9; lean = 2.8; break;
     case 'bow': hand = [1.5, 2.4, 11]; yaw = 0.35; el = -1.1; lean = 2.4; drop = 2; break;
+    case 'haul': { const k = 0.5 + 0.5 * Math.sin((F.t || 0) * TAU); hand = [3.6, 0.3, 10.5 + k]; yaw = -0.35; el = -0.15; lean = 1.15; drop = 1.2; break; }
+    case 'heave': { const k = ease((F.t || 0) % 1); hand = [2.4, 0.4, lerp(5, 14, k)]; yaw = -0.2; el = lerp(-0.4, 0.5, k); lean = lerp(1.5, -0.3, k); drop = lerp(4.2, 1.2, k); break; }
+    case 'dig': { const k = (F.t || 0) % 1; hand = [lerp(1.2, 4.2, k), 0.2, lerp(14, 6, k)]; yaw = 0.1; el = lerp(0.8, -0.6, k); lean = lerp(-0.4, 1.6, k); drop = 1.5; break; }
+    case 'pry': { const k = 0.5 + 0.5 * Math.sin((F.t || 0) * TAU * 2); hand = [3.1, 0.5, 12 + k * 1.4]; yaw = -0.5 + k * 0.4; el = 0.15; lean = 0.6; drop = 1; break; }
+    case 'pack': { const k = (F.t || 0) % 1; hand = [lerp(1.4, 3, k), 0.8, lerp(8, 14, k)]; yaw = -0.3; el = 0.2; lean = lerp(0.8, -0.2, k); drop = lerp(2, 0.4, k); break; }
+    case 'work': { const k = Math.sin((F.t || 0) * TAU); hand = [2.6 + k * 0.4, 0.6, 12]; yaw = -0.25; el = 0.2; lean = 0.5; drop = 0.6; break; }
     case 'idleArmed': break;
   }
   return { hand, yaw, el, lean, drop, trail, spear };
@@ -4779,6 +4833,7 @@ function drawFigure(ctx, X, Y, F) {
   const legs = [-1.8, 1.8].map((b, i) => {
     const sw = mv * Math.sin(wp * TAU + i * PI) * 2.6, lift = mv * Math.max(0, Math.cos(wp * TAU + i * PI)) * 1.2;
     if (F.pose === 'kneel') { const hip = P(0.5, b, 5), knee = P(2.6, b, 1), foot = P(-1.5, b, 0); return { hip, knee, foot, d: hip[2] }; }
+    if (F.pose === 'heave') { const hip = P(0.4, b, 8 - drop), knee = P(2.2, b * 1.15, 3.2), foot = P(0.2, b * 1.1, 0); return { hip, knee, foot, d: hip[2] }; }
     if (F.pose === 'sit') { const hip = P(0.3, b, 6), knee = P(2.4, b * 1.5, 2.2), foot = P(0.4, b * 1.3, 0.2); return { hip, knee, foot, d: hip[2] }; }
     if (F.pose === 'sleep') { const hip = P(0.5, b * 0.5, 3), knee = P(3.2, b * 0.35, 2), foot = P(6.2, b * 0.15, 1); return { hip, knee, foot, d: hip[2] }; }
     if (F.riding) { const hip = P(0, b, 10), knee = P(1.6, b * 1.9, 7), foot = P(0.6, b * 2, 2.5); return { hip, knee, foot, d: hip[2] }; }
@@ -4806,6 +4861,12 @@ function drawFigure(ctx, X, Y, F) {
     if (F.pose === 'sit') { hands = [P(1.8, -2.2, 7), P(1.8, 2.2, 7)]; }
     if (F.pose === 'sleep') { hands = [P(3.5, -1.2, 3), P(4.2, 1.4, 2.5)]; }
     if (F.carry) hands[1] = P(1.5, 3, 12);
+    if (F.pose === 'haul') hands = [P(3.4, -1.5, 11), P(3.4, 1.7, 11)];
+    if (F.pose === 'heave') { const k = F.t || 0; hands = [P(2.5, -1.3, lerp(5, 13, k)), P(2.5, 1.3, lerp(5, 13, k))]; }
+    if (F.pose === 'dig') { const k = (F.t || 0) % 1; hands = [P(lerp(1, 4, k), -0.5, lerp(14, 6, k)), P(lerp(0.6, 3.2, k), 1.1, lerp(12, 7, k))]; }
+    if (F.pose === 'pry') { const k = Math.sin((F.t || 0) * TAU * 2); hands = [P(3, -0.9, 12 + k), P(3.1, 0.9, 11.5 + k)]; }
+    if (F.pose === 'pack') { const k = (F.t || 0) % 1; hands = [P(lerp(1.2, 2.8, k), -1.4, lerp(8, 14, k)), P(lerp(1.2, 2.8, k), 1.4, lerp(8, 14, k))]; }
+    if (F.pose === 'work') { const k = Math.sin((F.t || 0) * TAU); hands = [P(2.4 + k, -1.2, 12), P(2.4 - k, 1.2, 12)]; }
   }
   const arms = [{ sh: shL, hd: armed ? hands[1] : hands[0], miss: F.noArmL }, { sh: shR, hd: hands[armed ? 0 : 1], miss: F.noArmR }].sort((a, b) => a.sh[2] - b.sh[2]);
   const wdepth = armed ? dirv(po.yaw, po.el)[2] : 0;
@@ -4888,6 +4949,28 @@ function drawFigure(ctx, X, Y, F) {
   }
   drawArm(arms[1]);
   if (armed && wdepth >= -0.05) drawWpn();
+  if (F.hold && hands) {
+    const mx = (hands[0][0] + hands[1][0]) / 2, my = (hands[0][1] + hands[1][1]) / 2;
+    if (F.hold === 'beam') {
+      pline(ctx, mx - 11, my + 1, mx + 13, my - 3, K('#8a6a42'), 3);
+      ctx.fillStyle = K('#c8a878'); ctx.fillRect(Math.round(mx + 12), Math.round(my - 4), 2, 3);
+      ctx.fillStyle = K('#6a4a2a'); ctx.fillRect(Math.round(mx - 11), Math.round(my), 2, 3);
+    } else if (F.hold === 'wheel') {
+      pixWheel(ctx, mx, my, 3, 4);
+    } else if (F.hold === 'sack') {
+      ctx.fillStyle = K('#c8b480'); ctx.fillRect(Math.round(mx) - 4, Math.round(my) - 1, 8, 7);
+      ctx.fillStyle = K('#7a5a3a'); ctx.fillRect(Math.round(mx) - 1, Math.round(my) - 2, 2, 1);
+    } else if (F.hold === 'bucket') {
+      ctx.fillStyle = K('#6a4a30'); ctx.fillRect(Math.round(mx) - 3, Math.round(my) - 1, 7, 6);
+      ctx.fillStyle = K('#8a8478'); ctx.fillRect(Math.round(mx) - 3, Math.round(my) + 1, 7, 1);
+      ctx.fillStyle = K('#4a6a7a'); ctx.fillRect(Math.round(mx) - 2, Math.round(my), 5, 2);
+      ctx.fillStyle = K('#3a2416'); ctx.fillRect(Math.round(mx) - 1, Math.round(my) - 5, 1, 4); ctx.fillRect(Math.round(mx) + 3, Math.round(my) - 5, 1, 4); ctx.fillRect(Math.round(mx) - 1, Math.round(my) - 5, 5, 1);
+    } else if (F.hold === 'crate' || F.hold === 'chest') {
+      ctx.fillStyle = K(F.hold === 'chest' ? '#6a2a1c' : '#8a6a42'); ctx.fillRect(Math.round(mx) - 5, Math.round(my) - 2, 10, 7);
+      ctx.fillStyle = K(F.hold === 'chest' ? '#e4b54a' : '#5a3e28'); ctx.fillRect(Math.round(mx) - 5, Math.round(my) + 1, 10, 1);
+      ctx.fillStyle = K('#3a2416'); ctx.fillRect(Math.round(mx) - 5, Math.round(my) - 2, 10, 1);
+    }
+  }
 }
 function drawWeapon(ctx, G, po, dirv, F, K) {
   const g = WGFX[F.wpn] || WGFX.katana, d = dirv(po.yaw, po.el);
@@ -5249,7 +5332,7 @@ class Actor {
   }
   get W() { return WEAPONS[this.wpn] || WEAPONS.fists; }
   get isP() { return this.faction === 'player' || this.faction === 'gang'; }
-  get busy() { return this.state === 'atk' || this.state === 'roll' || this.state === 'stagger' || this.state === 'charge'; }
+  get busy() { return this.state === 'atk' || this.state === 'roll' || this.state === 'stagger' || this.state === 'charge' || this.state === 'work'; }
   hostileToP() {
     if (this.dead || this.yielded || this.isP) return false;
     if (OUTLAWS.has(this.faction) || this.provoked || this.aggressive || this.stolen || this.mEnemy) return true;
@@ -5271,7 +5354,7 @@ class Actor {
     if (OUTLAWS.has(this.faction) && b.faction === 'guard' && this.faction !== 'hunter') return true;
     return false;
   }
-  canAct() { return !this.dead && !this.yielded && this.state !== 'stagger' && this.state !== 'atk' && this.state !== 'roll' && this.state !== 'kneel'; }
+  canAct() { return !this.dead && !this.yielded && this.state !== 'stagger' && this.state !== 'atk' && this.state !== 'roll' && this.state !== 'kneel' && this.state !== 'work'; }
   useStam(n) { this.st -= n; this.stamCd = 0.7; }
   startAttack(heavy = false, quick = false) {
     if (!this.canAct() && this.state !== 'charge') return false;
@@ -5327,6 +5410,11 @@ class Actor {
       case 'roll': { const sp = this.speed * 2.5; moveActor(this, this.rdx * sp, this.rdy * sp, dt); if (this.sT > 0.36) this.state = 'idle'; break; }
       case 'block': this.blockT += dt; this.st = Math.max(0, this.st - dt * 2); break;
       case 'bow': if (this.sT > 1.1) this.state = 'idle'; break;
+      case 'work': {
+        const w = this.work;
+        if (w && this !== G.player) { w.t += dt; this.walk = (this.walk || 0) + dt * 0.45; if (w.at) this.faceTo(w.at[0], w.at[1]); }
+        break;
+      }
     }
     if (this.state === 'stagger' && this.sT >= this.staggerFor) this.state = 'idle';
   }
@@ -5341,7 +5429,7 @@ class Actor {
     this.moving = Math.hypot(this.x - ox, this.y - oy) > sp * dt * 0.2;
     if (this.moving) { const ow = this.walk; this.walk += dt * sp * 0.75; if (this === G.player && !this.mounted && Math.floor(ow * 2) !== Math.floor(this.walk * 2)) { Snd.play('step', this.crouch ? 0.42 : 0.82); if (G.bloodyFeet > 0) { G.bloodyFeet--; FX.foot(this.x + rnd(-0.1, 0.1), this.y + rnd(-0.1, 0.1)); } } }
   }
-  canMove() { return !this.dead && (this.state === 'idle' || this.state === 'walk' || this.state === 'block' || this.state === 'charge'); }
+  canMove() { return !this.dead && (this.state === 'idle' || this.state === 'walk' || this.state === 'block' || this.state === 'charge') && this.state !== 'work'; }
   faceTo(x, y) { this.face = Math.atan2(y - this.y, x - this.x); }
   takeHit(att, info) { applyHit(att, this, info); }
   kneel() { this.yielded = true; this.state = 'kneel'; this.atk = null; this.bleed *= 0.5; this.provoked = false; this.dueling = false; FX.text(this.x, this.y, 'yields', '#efe3c8'); }
@@ -6152,13 +6240,45 @@ const G = {
       if (p.state === 'idle' || p.state === 'block' || p.state === 'charge' || p.state === 'walk') p.move(moving ? mx : 0, moving ? my : 0, dt, crouchMul * (back ? 0.65 : 1));
       else if (p.state !== 'roll') p.moving = false;
     }
+    if (p.state === 'work' && p.work) {
+      const w = p.work; w.t += dt;
+      if (w.at) p.faceTo(w.at[0], w.at[1]);
+      if (w.kind === 'haul') {
+        p.walk = (p.walk || 0) + dt * 1.85; p.moving = true;
+        if (w.at) {
+          const dx = w.at[0] - p.x, dy = w.at[1] - p.y, d = Math.hypot(dx, dy);
+          if (d > 0.7) {
+            const sp = 0.7 * dt, nx = p.x + dx / d * sp, ny = p.y + dy / d * sp;
+            if (!blockedCircle(nx, ny, p.r || 0.27)) { p.x = nx; p.y = ny; }
+          }
+        }
+      } else { p.walk = (p.walk || 0) + dt * 0.45; p.moving = false; }
+      if ((w.fxT = (w.fxT || 0) - dt) <= 0) {
+        w.fxT = w.kind === 'cut' || w.kind === 'hammer' ? 0.24 : w.kind === 'heave' ? 0.7 : 0.4;
+        if (w.kind === 'haul' || w.kind === 'dig' || w.kind === 'heave') FX.dust(p.x, p.y, 3);
+        if (w.hold === 'bucket') Snd.play('splash', 0.35);
+        else if (w.kind === 'cut' || w.kind === 'hammer') {
+          Snd.play('swing', 0.14);
+          if (w.kind === 'hammer') FX.spark(p.x + Math.cos(p.face) * 0.7, p.y + Math.sin(p.face) * 0.7, 4, 6);
+        } else if (w.kind === 'heave' || w.kind === 'haul') Snd.play('thud', 0.12);
+        else Snd.play('step', 0.12);
+      }
+      if (w.prop) {
+        w.prop.workT = w.t / Math.max(0.01, w.dur);
+        if (w.hold === 'wheel') {
+          if (w.put) { if (w.t > w.dur * 0.55) { w.prop.noWheel = false; w.prop.tilt = false; } }
+          else if (w.t > w.dur * 0.5) w.prop.noWheel = true;
+        }
+        if (w.kind === 'heave' && (w.prop.t === 'cart' || w.prop.t === 'wagon') && !w.put) w.prop.tilt = true;
+      }
+    }
     if (!kid) this.weaponKeys(); else if (this.profile.wpn !== 'fists') this.setWeapon('fists');
     if (Input.hit('KeyQ')) Systems.bandage();
     if (Input.hit('KeyR')) Systems.drinkSake();
     if (this.sakeHeal > 0) { const r = Math.min(this.sakeHeal, dt * (this.hasPerk('medic') ? 20 : 10)); this.sakeHeal -= r; p.hp = Math.min(p.maxHp, p.hp + r); }
     if (Input.hit('KeyH')) { Snd.init(); Horse.whistle(); }
     if (Input.hit('KeyG') && this.gang.length) { this.gangHold = !this.gangHold; for (const m of this.gang) m.holdPos = [m.x, m.y]; UI.toast(this.gangHold ? 'Gang: hold position' : 'Gang: follow me', 'good'); }
-    if (Input.hit('KeyE')) Systems.doInteract();
+    if (Input.hit('KeyE') && p.state !== 'work') Systems.doInteract();
     if (Input.hit('KeyM')) UI.open('map');
     if (Input.hit('KeyJ', 'KeyL')) UI.open('journal');
     if (Input.hit('Tab', 'KeyI')) UI.open('char');
@@ -6799,6 +6919,7 @@ const Systems = {
     G.profile.tod = G.tod;
     if (G.fog) G.profile.fog = this.fogString();
     if (G.player && !G.player.dead) G.profile.pos = [+G.player.x.toFixed(1), +G.player.y.toFixed(1)];
+    if (G.horse && G.profile.horse) G.profile.horse.pack = (G.horse.pack || []).slice();
     if (G.mp) {
       store('crimson_ronin_mp', G.profile);
       if (typeof Net !== 'undefined') Net.saveProfile();
@@ -7669,6 +7790,7 @@ const Talk = {
     // a short exchange between several speakers, one box after another
     scene({ parts, done, i = 0 }) {
       const [who, a, ...lines] = parts[i];
+      if (typeof Missions !== 'undefined' && Missions.cur) for (const line of lines) Missions.beat(Missions.cur, who, line);
       return { speaker: who, actor: a || undefined, lines, sub: parts.sub, buttons: [{ label: 'Continue', fn: () => { if (i + 1 < parts.length) UI.open('scene', { parts, done, i: i + 1 }); else if (done) done(); } }] };
     },
     bladeJoin({ actor, def }) {
@@ -8004,7 +8126,17 @@ const COATS = [
   { name: 'Old Grey', c: ['#aaa69e', '#86827c', '#cecac2'], mane: '#d2cec8', sock: '#e8e4dc' },
 ];
 const Horse = {
-  make(x, y, coat = 2, extra = {}) { return Object.assign({ x, y, face: PI * 0.25, spd: 0, walk: 0, r: 0.36, coat, called: false, idleT: 0, head: 0, hoofT: 0, name: extra.name || 'Kumo', spdMul: extra.spdMul || 1, seats: [null, null] }, extra); },
+  make(x, y, coat = 2, extra = {}) { return Object.assign({ x, y, face: PI * 0.25, spd: 0, walk: 0, r: 0.36, coat, called: false, idleT: 0, head: 0, hoofT: 0, name: extra.name || 'Kumo', spdMul: extra.spdMul || 1, seats: [null, null], pack: extra.pack ? extra.pack.slice() : [] }, extra); },
+  addPack(kind) {
+    const h = G.horse; if (!h || !kind) return;
+    h.pack = h.pack || []; if (!h.pack.includes(kind)) h.pack.push(kind);
+    if (G.profile && G.profile.horse) G.profile.horse.pack = h.pack.slice();
+  },
+  dropPack(kind) {
+    const h = G.horse; if (!h || !h.pack) return;
+    h.pack = h.pack.filter(k => k !== kind);
+    if (G.profile && G.profile.horse) G.profile.horse.pack = h.pack.slice();
+  },
   whistle() {
     const p = G.player, h = G.horse;
     if (!h) { UI.toast('You have no horse yet', 'shame'); return; }
@@ -8158,6 +8290,30 @@ function drawHorse(ctx, X, Y, h, t, K = c => c) {
   pline(ctx, r0[0], r0[1] - 4, r1[0], r1[1] - 4, K(lite), 1);
   const rump = P(-3.3, 0, 16 + bob); ctx.fillStyle = K(base); ctx.fillRect(Math.round(rump[0]) - 4, Math.round(rump[1]) - 5, 8, 8);
   if (h.saddle !== false) { const s0 = P(-0.9, 0, 19.5 + bob), s1 = P(1, 0, 19.5 + bob); pline(ctx, s0[0], s0[1], s1[0], s1[1], K('#7a1f1c'), 4); pline(ctx, s0[0], s0[1] + 3, s1[0], s1[1] + 3, K('#5a1410'), 2); ctx.fillStyle = K('#d9a441'); ctx.fillRect(Math.round(s0[0]), Math.round(s0[1]) + 2, 1, 1); ctx.fillRect(Math.round(s1[0]), Math.round(s1[1]) + 2, 1, 1); }
+  const pack = h.pack || [];
+  if (pack.includes('chest') || pack.includes('crates')) {
+    const box = P(-2.3, 0, (pack.includes('chest') ? 22 : 21) + bob);
+    ctx.fillStyle = K(pack.includes('chest') ? '#6a2a1c' : '#8a6a42'); ctx.fillRect(Math.round(box[0]) - 5, Math.round(box[1]) - 5, 10, 6);
+    ctx.fillStyle = K(pack.includes('chest') ? '#e4b54a' : '#5a3e28'); ctx.fillRect(Math.round(box[0]) - 5, Math.round(box[1]) - 2, 10, 1);
+    if (pack.includes('crates') && pack.includes('chest')) { const c2 = P(-1.5, 0.5, 24 + bob); ctx.fillStyle = K('#8a6a42'); ctx.fillRect(Math.round(c2[0]) - 3, Math.round(c2[1]) - 3, 6, 4); }
+  }
+  if (pack.includes('bell')) {
+    const b = P(1.5, 0.7, 20.5 + bob);
+    ctx.fillStyle = K('#c89a2a'); ctx.fillRect(Math.round(b[0]) - 1, Math.round(b[1]) - 3, 3, 3);
+    ctx.fillStyle = K('#e2b445'); ctx.fillRect(Math.round(b[0]), Math.round(b[1]) - 4, 1, 1);
+    ctx.fillStyle = K('#8a6a22'); ctx.fillRect(Math.round(b[0]), Math.round(b[1]), 1, 2);
+  }
+  if (pack.includes('tools')) {
+    const t0 = P(1.2, -0.6, 20.5 + bob);
+    ctx.fillStyle = K('#6a6a72'); ctx.fillRect(Math.round(t0[0]) - 1, Math.round(t0[1]) - 4, 2, 5);
+    ctx.fillStyle = K('#8a6a42'); ctx.fillRect(Math.round(t0[0]) - 2, Math.round(t0[1]) - 1, 4, 1);
+  }
+  if (pack.includes('woodhorse') || (h === G.horse && typeof flag === 'function' && flag('woodhorse'))) {
+    const w = P(-0.1, 0.95, 21 + bob);
+    ctx.fillStyle = K('#8a6a42'); ctx.fillRect(Math.round(w[0]) - 2, Math.round(w[1]) - 3, 5, 2);
+    ctx.fillRect(Math.round(w[0]) + 2, Math.round(w[1]) - 5, 1, 3);
+    ctx.fillStyle = K('#5a3a24'); ctx.fillRect(Math.round(w[0]) - 2, Math.round(w[1]) - 1, 1, 2); ctx.fillRect(Math.round(w[0]) + 1, Math.round(w[1]) - 1, 1, 2);
+  }
   if (!headFar) drawHead();
   drawLeg(legs[2]); drawLeg(legs[3]);
   return [P(0, 0, 16 + bob), P(-2.4, 0, 16 + bob)];
@@ -8470,6 +8626,31 @@ const Buildings = {
     this.walls(b);
     this.furnish(b);
     return b;
+  },
+  // the roof falls in: keep the footprint, swap the house for a ruin, throw anyone inside out the door
+  collapse(b, o = {}) {
+    if (!b || b.st.ruin) return b;
+    b._stood = { kind: b.kind, name: b.name, st: b.st };
+    b.kind = 'ruin';
+    b.st = Object.assign({}, BSTYLE.ruin);
+    b.name = o.name || (b.name ? 'Ruins of ' + b.name.replace(/ Honden$/, '') : 'Ruins');
+    this.furnish(b);
+    this.cache.delete(b.id);
+    const out = b.doorPt && b.doorPt.outer;
+    if (out && G.actors) for (const a of G.actors) {
+      if (!a || a.dead || a.gone || !this.within(b, a.x, a.y, 0.05)) continue;
+      a.x = out[0] + rnd(-0.35, 0.35); a.y = out[1] + rnd(0.1, 0.7);
+    }
+    if (this.inside === b) this.inside = null;
+    if (!o.quiet) {
+      for (let k = 0; k < 14; k++) FX.addPart({ t: 'dust', x: b.x + rnd(0, b.w), y: b.y + rnd(0, b.h), z: rnd(6, 26), vx: rnd(-2, 2), vy: rnd(-2, 2), vz: rnd(12, 42), life: rnd(0.6, 1.3), max: 1.3, col: 'rgba(90,70,55,' });
+    }
+    return b;
+  },
+  restore(b) {
+    if (!b || !b._stood) return b;
+    const w = b._stood; b.kind = w.kind; b.name = w.name; b.st = w.st; delete b._stood;
+    this.furnish(b); this.cache.delete(b.id); return b;
   },
   walls(b) {
     const { x, y, w, h } = b, T = 0.25;
@@ -10308,7 +10489,7 @@ function drawBeast(ctx, X, Y, an, S, t) {
   const fx = Math.cos(an.face), fy = Math.sin(an.face), lift = an.z || 0, C = an.coat !== undefined ? CAT_COATS[an.coat] : S.col, [base, dark, lite, belly] = C;
   const P = (a, b, z) => { const dx = fx * a - fy * b, dy = fy * a + fx * b; return [X + (dx - dy) * 16, Y + (dx + dy) * 8 - z - lift, dx + dy]; };
   const k = clamp(an.spd / S.run, 0, 1), g = (an.gait || 0) * TAU, pose = an.pose, pt = an.pt || 0, L = S.L, W = S.W, H = S.H;
-  if (pose === 'lie') { const r0 = P(-L, 0, 2), r1 = P(L, 0, 2); ctx.fillStyle = 'rgba(8,6,12,0.3)'; ctx.beginPath(); ctx.ellipse(X, Y, L * 22 + 2, L * 8 + 1.5, 0, 0, TAU); ctx.fill(); pline(ctx, r0[0], r0[1], r1[0], r1[1], base, S.T); pline(ctx, r0[0], r0[1] + 2, r1[0], r1[1] + 2, dark, 2); const hd = P(L + 0.12, 0.05, 2); ctx.fillStyle = base; ctx.fillRect(Math.round(hd[0]) - 2, Math.round(hd[1]) - 2, S.hs, S.hs - 1); for (const a of [0.8, -0.8]) { const h0 = P(a * L, W, 3), h1 = P(a * L + 0.12, W + 0.25, 1); pline(ctx, h0[0], h0[1], h1[0], h1[1], dark, 1); } return; }
+  if (pose === 'lie') { const r0 = P(-L, 0, 2), r1 = P(L, 0, 2); if (lift < 8) { ctx.fillStyle = 'rgba(8,6,12,0.3)'; ctx.beginPath(); ctx.ellipse(X, Y, L * 22 + 2, L * 8 + 1.5, 0, 0, TAU); ctx.fill(); } pline(ctx, r0[0], r0[1], r1[0], r1[1], base, S.T); pline(ctx, r0[0], r0[1] + 2, r1[0], r1[1] + 2, dark, 2); const hd = P(L + 0.12, 0.05, 2); ctx.fillStyle = base; ctx.fillRect(Math.round(hd[0]) - 2, Math.round(hd[1]) - 2, S.hs, S.hs - 1); for (const a of [0.8, -0.8]) { const h0 = P(a * L, W, 3), h1 = P(a * L + 0.12, W + 0.25, 1); pline(ctx, h0[0], h0[1], h1[0], h1[1], dark, 1); } if (an.item) drawMisoItem(ctx, hd[0] + 3, hd[1] + 1, an.item); return; }
   ctx.fillStyle = `rgba(8,6,12,${0.32 * clamp(1 - lift / 40, 0.35, 1)})`; ctx.beginPath(); ctx.ellipse(X, Y, L * 22 + 2, L * 8 + 1.5, 0, 0, TAU); ctx.fill();
   const bob = Math.abs(Math.sin(g)) * k * 1.4, sit = pose === 'sit' || pose === 'howl' || pose === 'drum' || pose === 'groom' ? 1 : 0, crouch = pose === 'crouch' ? 1 : 0, dive = pose === 'dive' ? 1 : 0;
   const zr = H * (S.leg || 1) * (1 - sit * 0.6) - crouch * 3 + bob, zf = H * (S.leg || 1) + sit * 2 - crouch * 2 + bob + dive * 2;
@@ -10361,7 +10542,14 @@ function drawBeast(ctx, X, Y, an, S, t) {
   if (pose === 'drum') { const beat = Math.abs(Math.sin(pt * 9.4)), q = P(L * 0.5, 0, zf - 2); ctx.fillStyle = belly; ctx.fillRect(Math.round(q[0]) - 3, Math.round(q[1]) - 2, 6, 5); ctx.fillStyle = dark; ctx.fillRect(Math.round(q[0]) - 4, Math.round(q[1]) - 3 + Math.round(beat * 2), 2, 2); ctx.fillRect(Math.round(q[0]) + 2, Math.round(q[1]) - 3 + Math.round((1 - beat) * 2), 2, 2); }
   if (!tailFar) drawTail();
   if (!headFar) drawHead();
+  if (an.item) drawMisoItem(ctx, muz[0] + 1, muz[1], an.item);
   leg(legsDraw[2]); leg(legsDraw[3]);
+}
+function drawMisoItem(ctx, x, y, item) {
+  x = Math.round(x); y = Math.round(y);
+  if (item === 'bread') { ctx.fillStyle = '#d8b070'; ctx.fillRect(x, y, 4, 2); ctx.fillStyle = '#c89050'; ctx.fillRect(x + 1, y - 1, 2, 1); }
+  else if (item === 'fish') { ctx.fillStyle = '#8aa0b0'; ctx.fillRect(x, y, 5, 2); ctx.fillStyle = '#d8e0e8'; ctx.fillRect(x + 4, y, 1, 1); ctx.fillStyle = '#6a3a28'; ctx.fillRect(x - 1, y, 1, 1); }
+  else if (item === 'cabbage') { ctx.fillStyle = '#5a8a3a'; ctx.fillRect(x, y - 1, 3, 3); ctx.fillStyle = '#7aaa4a'; ctx.fillRect(x + 1, y, 1, 1); }
 }
 // ============================================================ BAMBOO: a charged blade stroke cuts clean through the culms
 // Every culm the blade passes through is cut where it meets it. The top tips over its stump, slides off the slanted
@@ -10800,20 +10988,40 @@ const Fires = {
 // He trots at your heel on foot and runs beside Kumo when you ride; sits when you stop; growls at anyone who means you
 // harm (and never gets hurt); now and then he wanders off to sniff something and comes back looking guilty.
 const Miso = {
-  dog: null,
+  dog: null, mount: null, mountZ: 0, item: null, chewing: false,
   // Ren meets him in mission 10; from then on he goes everywhere
   with() { const s = G.profile && G.profile.story; return !!s && (s.n > 10 || (s.n === 10 && G.profile.flags.miso)) && !(Missions.cur && Missions.cur.def.noDog); },
-  reset() { this.dog = null; },
+  reset() { this.dog = null; this.off(); },
+  off() { this.mount = null; this.mountZ = 0; this.item = null; this.chewing = false; this.lead = null; this.stay = false; },
+  onHorse(z) { this.mount = 'horse'; this.mountZ = z || ((G.horse && G.horse.pack && G.horse.pack.includes('chest')) ? 26 : 22); this.lead = null; this.stay = true; },
+  atFeet() { this.mount = 'horseFeet'; this.mountZ = 0; this.lead = null; this.stay = true; },
+  hold(item) { this.item = item || null; },
   place(x, y) {
     // he trots in from out of sight rather than appearing at your heel
     const q = Nav.offstage(x, y, rnd(TAU), { reach: false }) || World.randomWalkable(x, y, 1, 2.5, 30) || [x + 1, y];
-    this.dog = { sp: 'dog', x: q[0], y: q[1], face: 0, spd: 0, gait: 0, pose: 'stand', z: 0, idleT: 0, sniffT: rnd(14, 30), bark: 0, gone: 0 };
+    this.dog = { sp: 'dog', x: q[0], y: q[1], face: 0, spd: 0, gait: 0, pose: 'stand', z: 0, idleT: 0, sniffT: rnd(14, 30), bark: 0, gone: 0, item: null };
   },
   update(dt) {
     const p = G.player;
     if (!p || !this.with()) { this.dog = null; return; }
     if (!this.dog) this.place(p.x, p.y);
-    const d = this.dog, h = p.mounted && G.horse ? G.horse : p;
+    const d = this.dog;
+    d.item = this.item;
+    if (this.mount === 'horse' && G.danger > 0) { this.mount = null; this.stay = false; }
+    if (this.mount === 'horse' && G.horse) {
+      const h = G.horse;
+      d.x = h.x; d.y = h.y; d.z = this.mountZ || 22; d.face = h.face; d.spd = 0; d.gait = 0; d.pose = 'lie'; d.nav = null;
+      d.bark -= dt;
+      if (G.danger > 0 && d.bark <= 0) { d.bark = rnd(2.5, 5); FX.text(d.x, d.y, pick(['Grrr...', 'Woof!', 'Arf!']), '#d8b48a'); Snd.play('chatter', 0.25); }
+      return;
+    }
+    if (this.mount === 'horseFeet' && G.horse) {
+      const h = G.horse, f = h.face || 0;
+      d.x = h.x + Math.cos(f) * 0.85; d.y = h.y + Math.sin(f) * 0.85; d.z = 0; d.face = f + PI; d.spd = 0; d.gait = 0; d.pose = 'lie'; d.nav = null;
+      return;
+    }
+    d.z = 0;
+    const h = p.mounted && G.horse ? G.horse : p;
     // a long way behind and out of sight: he catches up off-screen
     const far = dist(d.x, d.y, h.x, h.y);
     if (far > 30 && !this.lead && !this.stay && GangRide.offscreen(d.x, d.y)) { const q = GangRide.behind(24); if (q) { d.x = q[0]; d.y = q[1]; d.nav = null; } }
@@ -10839,19 +11047,20 @@ const Miso = {
       d.face = turnTo(d.face, ang, dt * 8);
       const nx = d.x + Math.cos(d.face) * d.spd * dt, ny = d.y + Math.sin(d.face) * d.spd * dt;
       if (!blockedCircle(nx, ny, 0.18)) { d.x = nx; d.y = ny; } else { const a2 = d.face + (Math.random() < 0.5 ? 1.2 : -1.2), x2 = d.x + Math.cos(a2) * d.spd * dt, y2 = d.y + Math.sin(a2) * d.spd * dt; if (!blockedCircle(x2, y2, 0.18)) { d.x = x2; d.y = y2; } }
-      d.gait = (d.gait + dt * d.spd * 0.9) % 1; d.pose = d.sniff && gd < 1 ? 'sniff' : 'stand'; d.idleT = 0;
+      d.gait = (d.gait + dt * d.spd * 0.9) % 1; d.pose = (this.item || this.chewing) ? 'sniff' : (d.sniff && gd < 1 ? 'sniff' : 'stand'); d.idleT = 0;
     } else {
       d.spd = 0; d.idleT += dt; d.face = turnTo(d.face, f, dt * 2);
-      d.pose = d.sniff ? 'sniff' : d.idleT > 6 ? 'lie' : d.idleT > 1.5 ? 'sit' : 'stand';
+      d.pose = (this.item || this.chewing || d.sniff) ? 'sniff' : d.idleT > 6 ? 'lie' : d.idleT > 1.5 ? 'sit' : 'stand';
     }
+    if (this.chewing && (d.crunchT = (d.crunchT || 0) - dt) <= 0) { d.crunchT = rnd(4, 8); FX.text(d.x, d.y, 'crunch', '#d8b48a'); }
     // growls at whoever means you harm
     d.bark -= dt;
     if (G.danger > 0 && d.bark <= 0) { d.bark = rnd(2.5, 5); FX.text(d.x, d.y, pick(['Grrr...', 'Woof!', 'Arf!']), '#d8b48a'); Snd.play('chatter', 0.25); }
   },
   push(D, camX, camY, lift) {
     const d = this.dog; if (!d) return;
-    const sx = (d.x - d.y) * HTW - camX, sy = (d.x + d.y) * HTH - camY - lift(d.x, d.y);
-    if (sx > -30 && sx < VW + 30 && sy > -20 && sy < VH + 40) D.push({ k: d.x + d.y, beast: d, sx, sy });
+    const sx = (d.x - d.y) * HTW - camX, sy = (d.x + d.y) * HTH - camY - lift(d.x, d.y) - (d.z || 0);
+    if (sx > -30 && sx < VW + 30 && sy > -20 && sy < VH + 40) D.push({ k: d.x + d.y + (d.z > 8 ? 0.2 : 0.04), beast: d, sx, sy });
   }
 };
 // ============================================================ STORY PROPS: the occupation's furniture and the Lantern Route's
@@ -10870,14 +11079,7 @@ Props.draw.sunbanner = (g, x, y, o) => {
 Props.draw.cannon = (g, x, y, o) => {
   shadowEllipse(g, x + 2, y + 1, 14, 5, 0.3);
   const d = o.dir ? -1 : 1;
-  // two spoked wheels, a trail on the ground, a bronze-lined barrel with trunnions
-  for (const s of [-1, 1]) {
-    const wx = x + s * 6 * d, wy = y + s * 3;
-    g.fillStyle = '#3a2416'; g.beginPath(); g.ellipse(wx, wy - 5, 3.5, 5.5, 0, 0, TAU); g.fill();
-    g.strokeStyle = '#6a4a2a'; g.beginPath(); g.ellipse(wx, wy - 5, 2.4, 4.4, 0, 0, TAU); g.stroke();
-    g.fillStyle = '#8a8478'; g.fillRect(wx - 1, wy - 6, 2, 2);
-    g.fillStyle = '#5a3a20'; g.fillRect(wx, wy - 8, 1, 6); g.fillRect(wx - 2, wy - 5, 5, 1);
-  }
+  pixWheel(g, x - 6 * d, y - 2, 3, 5); pixWheel(g, x + 6 * d, y + 1, 3, 5);
   pline(g, x, y - 5, x - 12 * d, y + 1, '#5a3a20', 3);
   pline(g, x - 8 * d, y - 1, x - 12 * d, y + 2, '#4a3020', 2);
   pline(g, x - 1 * d, y - 7, x + 14 * d, y - 14, '#3a3228', 5);
@@ -10888,22 +11090,56 @@ Props.draw.cannon = (g, x, y, o) => {
   g.fillStyle = '#c89a2a'; g.fillRect(Math.round(x + 3 * d), y - 11, 3, 2);
   g.fillStyle = '#e2b445'; g.fillRect(Math.round(x - 6 * d), y - 3, 2, 2); g.fillRect(Math.round(x - 6 * d) + 1, y - 4, 1, 1);
 };
-Props.draw.wagon = (g, x, y, o, R) => {
+Props.draw.wagon = (g, x, y, o) => {
   shadowEllipse(g, x + 2, y + 1, 16, 6, 0.28);
-  const d = o.dir ? -1 : 1;
-  isoBox(g, x, y - 5, o.dir ? 0.9 : 1.6, o.dir ? 1.6 : 0.9, 0, 6, '#8a6a42', '#6a4a30', '#5a3e28');
-  // the canvas hood over hoops
-  const P = isoPts(x, y - 11, o.dir ? 0.9 : 1.6, o.dir ? 1.6 : 0.9, 0);
-  poly(g, [P.left, P.bottom, [P.bottom[0], P.bottom[1] - 8], [P.left[0], P.left[1] - 8]], o.sun ? '#ece6d8' : '#c8bc9c');
-  poly(g, [P.bottom, P.right, [P.right[0], P.right[1] - 8], [P.bottom[0], P.bottom[1] - 8]], o.sun ? '#ccc6b8' : '#a89c7c');
-  poly(g, [[P.left[0], P.left[1] - 8], [P.bottom[0], P.bottom[1] - 8], [P.right[0], P.right[1] - 8], [P.top[0], P.top[1] - 8]], o.sun ? '#f4f0e6' : '#d8ccac');
-  if (o.sun) { const m = [lerp(P.left[0], P.bottom[0], 0.5), lerp(P.left[1], P.bottom[1], 0.5) - 5], mx = Math.round(m[0]), my = Math.round(m[1]); g.fillStyle = '#e2b445'; g.fillRect(mx - 1, my - 1, 3, 3); g.fillRect(mx, my - 2, 1, 1); g.fillRect(mx, my + 2, 1, 1); g.fillRect(mx - 2, my, 1, 1); g.fillRect(mx + 2, my, 1, 1); g.fillStyle = '#fff3c0'; g.fillRect(mx, my, 1, 1); }
-  for (const s of [-1, 1]) { const wx = x + s * 9 * d, wy = y + s * 4.5; g.fillStyle = '#2a1a10'; g.beginPath(); g.ellipse(wx, wy - 3, 2.5, 4, 0, 0, TAU); g.fill(); g.fillStyle = '#6a4a2a'; g.fillRect(wx - 1, wy - 4, 1, 2); }
+  const d = o.dir ? -1 : 1, bw = o.dir ? 0.9 : 1.55, bh = o.dir ? 1.55 : 0.9;
+  isoBox(g, x, y - 4, bw, bh, 0, 7, '#8a6a42', '#6a4a30', '#5a3e28');
+  const bed = isoPts(x, y - 4, bw, bh, 0);
+  g.fillStyle = '#4a3020';
+  for (const [a, b] of [[bed.left, bed.bottom], [bed.bottom, bed.right]]) {
+    for (let i = 1; i < 4; i++) { const t = i / 4; g.fillRect(Math.round(lerp(a[0], b[0], t)), Math.round(lerp(a[1], b[1], t)) - 7, 1, 7); }
+  }
+  const cloth = o.sun ? '#d4ccb4' : '#b8a888', dark = o.sun ? '#b8b09a' : '#9a8c6e';
+  const P = isoPts(x, y - 4, bw * 0.94, bh * 0.94, 7), H = isoPts(x, y - 4, bw * 0.52, bh * 0.52, 18);
+  poly(g, [P.left, P.bottom, H.bottom, H.left], cloth);
+  poly(g, [P.bottom, P.right, H.right, H.bottom], dark);
+  poly(g, [H.left, H.bottom, H.right, H.top], shade(cloth, 0.1));
+  g.fillStyle = '#5a3e24';
+  for (const t of [0.18, 0.5, 0.82]) pline(g, lerp(P.left[0], P.bottom[0], t), lerp(P.left[1], P.bottom[1], t) - 1, lerp(H.left[0], H.bottom[0], t), lerp(H.left[1], H.bottom[1], t), '#4a3220', 1);
+  if (o.sun) {
+    const mx = Math.round(lerp(P.left[0], P.bottom[0], 0.5)), my = Math.round(lerp(P.left[1], P.bottom[1], 0.5) - 6);
+    g.fillStyle = '#e2b445'; g.fillRect(mx - 1, my - 1, 3, 3); g.fillRect(mx, my - 2, 1, 1); g.fillRect(mx, my + 2, 1, 1); g.fillRect(mx - 2, my, 1, 1); g.fillRect(mx + 2, my, 1, 1);
+    g.fillStyle = '#fff3c0'; g.fillRect(mx, my, 1, 1);
+  }
+  pixWheel(g, x - 8 * d, y + 2, 3, 5); pixWheel(g, x + 7 * d, y + 1, 3, 5);
+  if (!o.noWheel) pixWheel(g, x - 2 * d, y + 4, 2, 4);
   pline(g, x + 12 * d, y - 4, x + 22 * d, y + 1, '#4a3020', 1);
+};
+Props.dyn.wagon = (ctx, o, sx, sy, t) => {
+  if (!(o.workT > 0)) return;
+  const k = Math.sin(t * 16) * (1 - Math.min(1, o.workT));
+  ctx.fillStyle = o.sun ? '#d4ccb4' : '#b8a888';
+  ctx.fillRect(Math.round(sx + 8 + k * 2), Math.round(sy - 14), 4, 6);
+  ctx.fillStyle = '#4a3220'; ctx.fillRect(Math.round(sx + 9 + k * 2), Math.round(sy - 15), 1, 7);
+};
+Props.dyn.cart = (ctx, o, sx, sy, t) => {
+  if (!(o.workT > 0)) return;
+  const k = Math.sin(t * 14) * 1.5;
+  ctx.fillStyle = '#8a6a42'; ctx.fillRect(Math.round(sx - 5 + k), Math.round(sy - 9), 9, 3);
+  ctx.fillStyle = '#6a4a30'; ctx.fillRect(Math.round(sx - 4 + k), Math.round(sy - 10), 7, 1);
+};
+Props.dyn.winch = (ctx, o, sx, sy, t) => {
+  if (!(o.workT > 0)) return;
+  const k = Math.sin(t * 18);
+  ctx.fillStyle = '#8a8478'; ctx.fillRect(Math.round(sx - 1 + k), Math.round(sy - 12), 3, 3);
 };
 Props.draw.ricesacks = (g, x, y) => {
   shadowEllipse(g, x + 1, y + 1, 11, 4);
-  const s = (sx, sy) => { g.fillStyle = '#c8b480'; g.fillRect(sx - 4, sy - 6, 8, 6); g.fillStyle = '#a8945e'; g.fillRect(sx + 3, sy - 5, 1, 5); g.fillStyle = '#e2d4a2'; g.fillRect(sx - 4, sy - 6, 3, 1); g.fillStyle = '#7a5a3a'; g.fillRect(sx - 1, sy - 7, 2, 1); };
+  const s = (sx, sy) => {
+    isoBox(g, sx, sy, 0.42, 0.32, 0, 6, '#c8b480', '#a8945e', '#8a7850');
+    g.fillStyle = '#e2d4a2'; g.fillRect(sx - 3, sy - 7, 2, 1);
+    g.fillStyle = '#7a5a3a'; g.fillRect(sx - 1, sy - 8, 2, 1);
+  };
   s(x - 4, y + 1); s(x + 4, y + 2); s(x, y - 5);
 };
 Props.draw.palisade = (g, x, y, o) => {
@@ -10960,7 +11196,11 @@ Props.draw.bedroll = (g, x, y, o) => {
 };
 Props.draw.cabbagecart = (g, x, y, o, R) => {
   Props.draw.cart(g, x, y, o, R);
-  for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#7aa04a' : '#9ac05a'; g.beginPath(); g.arc(x - 5 + (i % 3) * 4, y - 13 - Math.floor(i / 3) * 3, 2.5, 0, TAU); g.fill(); }
+  for (let i = 0; i < 6; i++) {
+    const cx = x - 5 + (i % 3) * 4, cy = y - 12 - Math.floor(i / 3) * 3;
+    g.fillStyle = i % 2 ? '#6a8a3a' : '#8aaa4a'; g.fillRect(cx, cy, 3, 3);
+    g.fillStyle = '#c8e07a'; g.fillRect(cx + 1, cy, 1, 1);
+  }
 };
 Props.draw.memorial = (g, x, y, o) => {
   shadowEllipse(g, x + 2, y + 1, 10, 4);
@@ -11017,9 +11257,22 @@ Props.draw.firewood = (g, x, y) => { shadowEllipse(g, x + 1, y + 1, 9, 3); const
 // loose sheets of paper on the ground
 Props.draw.pages = (g, x, y, o, R) => { for (let i = 0; i < 4; i++) { const px = x + (R() - 0.5) * 14, py = y - 2 + (R() - 0.5) * 6; g.fillStyle = i % 2 ? '#e8e0cc' : '#d8ceb6'; g.fillRect(Math.round(px) - 3, Math.round(py) - 1, 6, 3); g.fillStyle = '#4a4040'; g.fillRect(Math.round(px) - 2, Math.round(py), 3, 1); } };
 // sawn beams and planks, stacked
-Props.draw.lumber = (g, x, y) => { shadowEllipse(g, x + 1, y + 1, 12, 4); for (let i = 0; i < 4; i++) isoBox(g, x - 4 + (i % 2) * 3, y + (i % 2), 1.3, 0.22, (i >> 1) * 3, (i >> 1) * 3 + 3, '#a8845a', '#8a6a42', '#6a4a2a'); };
+Props.draw.lumber = (g, x, y) => {
+  shadowEllipse(g, x + 1, y + 1, 12, 4);
+  for (let i = 0; i < 4; i++) {
+    isoBox(g, x - 4 + (i % 2) * 3, y + (i % 2), 1.35, 0.24, (i >> 1) * 3, (i >> 1) * 3 + 3, '#a8845a', '#8a6a42', '#6a4a2a');
+    g.fillStyle = '#c8a878'; g.fillRect(x - 10 + (i % 2) * 3, y - 2 + (i % 2) - (i >> 1) * 3, 1, 2);
+  }
+};
 // a winch of timber and iron that raises a bridge or a gate
-Props.draw.winch = (g, x, y) => { shadowEllipse(g, x + 1, y + 1, 9, 4); g.fillStyle = '#4a3220'; g.fillRect(x - 7, y - 12, 2, 12); g.fillRect(x + 5, y - 12, 2, 12); g.fillStyle = '#6a4a2a'; g.fillRect(x - 6, y - 10, 12, 4); g.fillStyle = '#8a8478'; g.fillRect(x - 6, y - 9, 12, 1); g.fillRect(x + 6, y - 11, 4, 1); g.fillRect(x + 9, y - 11, 1, 5); g.fillStyle = '#3a3a40'; for (let i = 0; i < 5; i++) g.fillRect(x - 5 + i * 2, y - 6, 1, 6); };
+Props.draw.winch = (g, x, y) => {
+  shadowEllipse(g, x + 1, y + 1, 9, 4);
+  isoBox(g, x - 6, y, 0.18, 0.18, 0, 12, '#5a3a24', '#4a3220', '#3a2416');
+  isoBox(g, x + 6, y, 0.18, 0.18, 0, 12, '#5a3a24', '#4a3220', '#3a2416');
+  isoBox(g, x, y - 2, 0.85, 0.35, 8, 12, '#7a5632', '#6a4a2a', '#5a3e24');
+  pixWheel(g, x, y - 8, 4, 3, { tire: '#3a3a40', wood: '#6a6860', hub: '#8a8478' });
+  g.fillStyle = '#8a8478'; g.fillRect(x + 6, y - 11, 4, 1); g.fillRect(x + 9, y - 11, 1, 5);
+};
 // a small bronze bell on a cord
 Props.draw.handbell = (g, x, y) => { shadowEllipse(g, x, y + 1, 4, 2); g.fillStyle = '#8a5a24'; g.fillRect(x - 3, y - 5, 6, 5); g.fillRect(x - 2, y - 7, 4, 2); g.fillStyle = '#c8943a'; g.fillRect(x - 2, y - 5, 1, 4); g.fillStyle = '#c8372d'; g.fillRect(x, y - 10, 1, 3); };
 // a stone jizo with a red bib
@@ -11036,15 +11289,23 @@ Props.draw.footbridge = (g, x, y, o) => { const w = o.w, h = o.h; shadowEllipse(
 Props.draw.brazier = (g, x, y) => { shadowEllipse(g, x, y + 1, 6, 2); g.fillStyle = '#2a2a2e'; g.fillRect(x - 4, y - 4, 1, 4); g.fillRect(x + 3, y - 4, 1, 4); g.fillRect(x - 5, y - 9, 10, 5); g.fillStyle = '#c84a1a'; g.fillRect(x - 4, y - 10, 8, 2); g.fillStyle = '#f0a040'; g.fillRect(x - 2, y - 11, 3, 1); return { light: { r: 30, c: '255,140,60' } }; };
 // a farm ox, old and patient
 Props.draw.ox = (g, x, y) => {
-  shadowEllipse(g, x + 1, y + 1, 13, 4);
-  g.fillStyle = '#4a3020'; for (const lx of [-8, -5, 4, 7]) g.fillRect(x + lx, y - 6, 2, 6);
-  g.fillStyle = '#6a4630'; g.fillRect(x - 10, y - 14, 19, 9); g.fillStyle = '#7a5638'; g.fillRect(x - 9, y - 15, 16, 3);
-  g.fillStyle = '#5a3a26'; g.fillRect(x + 8, y - 15, 6, 7); g.fillStyle = '#3a2618'; g.fillRect(x + 12, y - 11, 3, 3);
-  g.fillStyle = '#e8dcc0'; g.fillRect(x + 8, y - 18, 1, 3); g.fillRect(x + 13, y - 18, 1, 3); g.fillRect(x + 7, y - 18, 2, 1); g.fillRect(x + 13, y - 18, 2, 1);
-  g.fillStyle = '#1a1214'; g.fillRect(x + 11, y - 13, 1, 1); g.fillStyle = '#3a2618'; g.fillRect(x - 11, y - 13, 1, 6);
+  shadowEllipse(g, x + 2, y + 1, 13, 4);
+  isoBox(g, x, y - 2, 1.35, 0.55, 3, 11, '#6a4630', '#5a3a26', '#4a3020');
+  isoBox(g, x + 9, y - 5, 0.42, 0.32, 7, 13, '#5a3a26', '#4a3020', '#3a2618');
+  const P = isoPts(x, y - 2, 1.35, 0.55, 0);
+  g.fillStyle = '#3a2418';
+  for (const p of [P.left, P.bottom, P.right, P.top]) g.fillRect(Math.round(p[0]) - 1, Math.round(p[1]) - 6, 2, 6);
+  g.fillStyle = '#e8dcc0'; g.fillRect(x + 10, y - 18, 1, 3); g.fillRect(x + 14, y - 17, 1, 3); g.fillRect(x + 9, y - 18, 2, 1); g.fillRect(x + 14, y - 17, 2, 1);
+  g.fillStyle = '#1a1214'; g.fillRect(x + 12, y - 12, 1, 1);
+  g.fillStyle = '#3a2618'; g.fillRect(Math.round(P.top[0]) - 2, Math.round(P.top[1]) - 12, 1, 5);
 };
 // a canvas cover cut loose, men struggling underneath it
-Props.draw.canvas = (g, x, y, o, R) => { shadowEllipse(g, x + 1, y + 1, 18, 6); const P = isoPts(x, y, 2.6, 2.2, 3); poly(g, [P.top, P.right, P.bottom, P.left], '#a89a7a'); g.fillStyle = '#8e8064'; for (let i = 0; i < 5; i++) g.fillRect(Math.round(x - 14 + R() * 26), Math.round(y - 5 + R() * 6), 5, 2); g.fillStyle = '#c8b892'; g.fillRect(x - 6, y - 8, 9, 2); g.fillStyle = '#5a4630'; g.fillRect(x + 12, y - 4, 6, 1); };
+Props.draw.canvas = (g, x, y, o, R) => {
+  shadowEllipse(g, x + 1, y + 1, 18, 6);
+  isoBox(g, x, y, 2.4, 2.0, 0, 3, '#b8aa8a', '#8e8064', '#7a6e54');
+  g.fillStyle = '#c8b892'; for (let i = 0; i < 6; i++) g.fillRect(Math.round(x - 14 + R() * 26), Math.round(y - 6 + R() * 5), 4, 1);
+  g.fillStyle = '#5a4630'; g.fillRect(x + 12, y - 4, 6, 1);
+};
 // ============================================================ NAV: the way a person on foot would actually go
 // A* over tiles: around walls, fences and thickets, through doorways, and along roads and paths when there are any
 // (a road step costs less than open ground). The route comes back as a few corner points rather than every tile.
@@ -11238,6 +11499,41 @@ const StoryMap = {
     Bridges.remove(b); Ground.invalidateRect(b.x0 - 2, b.y0 - 2, b.x1 + 2, b.y1 + 2);
     if (!quiet) { Snd.play('cannon', 0.8); Snd.play('thud', 1); G.shake = 6; for (let k = 0; k < 30; k++) { const t = Math.random(); FX.addPart({ t: 'dust', x: lerp(b.ax, b.bx, t) + rnd(-1, 1), y: lerp(b.ay, b.by, t) + rnd(-1, 1), z: rnd(0, 8), vx: rnd(-2, 2), vy: rnd(-2, 2), vz: rnd(20, 70), life: rnd(0.8, 1.6), max: 1.6, col: 'rgba(140,130,120,' }); } }
   },
+  quietrainGone() { return flag('quietrainBurnt') && G.profile.story && G.profile.story.n > 36; },
+  // the Shrine of Quiet Rain falls in: hall and shed become ruins, and stay that way after the mission
+  wreck(id, quiet) {
+    const S = this.sites[id]; if (!S) return;
+    if (G.profile) G.profile.flags.quietrainBurnt = true;
+    if (S._wrecked) return;
+    S._wrecked = true;
+    const near = (test) => Buildings.list.find(b => dist(b.x + b.w / 2, b.y + b.h / 2, S.x, S.y) < 28 && test(b));
+    const hp = S.spots.hall, sp = S.spots.shed;
+    const hall = near(b => !b.st.ruin && (b.kind === 'honden' || /Honden|Hall/i.test(b.name || '')))
+      || (hp && Buildings.at(hp[0], hp[1] - 1.2));
+    const shed = near(b => b !== hall && !b.st.ruin && (b.kind === 'hut' || /Shed/i.test(b.name || '')))
+      || (sp && Buildings.at(sp[0], sp[1] - 1.2));
+    if (hall && !hall.st.ruin) Buildings.collapse(hall, { name: 'Ruins of Quiet Rain', quiet });
+    if (shed && shed !== hall && !shed.st.ruin) Buildings.collapse(shed, { name: 'Burnt Shed', quiet: true });
+    S._wreckObjs = S._wreckObjs || [];
+    const drop = (x, y) => { const o = World.deco('rubble', Math.round(x), Math.round(y), 1, 1, { solid: false, keep: true }); if (o) S._wreckObjs.push(o); };
+    if (hall) { drop(hall.x + 1, hall.y + hall.h); drop(hall.x + hall.w - 2, hall.y + hall.h - 1); drop(hall.x - 1, hall.y + 2); }
+    Ground.invalidateRect(S.x - 18, S.y - 18, S.x + 18, S.y + 18);
+    if (!quiet) {
+      G.shake = Math.max(G.shake || 0, 5);
+      Snd.play('thud', 0.24); Snd.play('crackle', 0.3);
+    }
+    if (S.place) S.place.name = 'Ruins of Quiet Rain';
+  },
+  unwreck(id) {
+    const S = this.sites[id]; if (!S || !S._wrecked) return;
+    S._wrecked = false;
+    if (G.profile && G.profile.story && G.profile.story.n <= 36) G.profile.flags.quietrainBurnt = false;
+    for (const b of Buildings.list) if (b._stood && dist(b.x + b.w / 2, b.y + b.h / 2, S.x, S.y) < 30) Buildings.restore(b);
+    for (const o of S._wreckObjs || []) World.removeObj(o);
+    S._wreckObjs = [];
+    if (S.place) S.place.name = S.storyName || S.short || 'Quiet Rain';
+    Ground.invalidateRect(S.x - 18, S.y - 18, S.x + 18, S.y + 18);
+  },
   // make sure a site is standing (terrain blocks and buildings) before a mission uses it
   ensure(id) { const S = this.sites[id]; if (!S) return; const [x0, y0, x1, y1] = S.bb; for (let y = y0; y <= y1 + 31; y += 32) for (let x = x0; x <= x1 + 31; x += 32) World.completeAt(Math.min(x, x1), Math.min(y, y1)); if (!S.built) Realm.build(S); },
   name(id) { const S = this.sites[id]; return S ? S.storyName || (S.place && S.place.name) || S.short : id; },
@@ -11274,6 +11570,7 @@ const StoryMap = {
     this.put('grain', [1830, 1300]);
     this.adopt('marsh', [2705, 1686], town(['village']), 'Ashihara', '葦原');
     this.adopt('quietrain', [2694, 1452], holy('shrine'), 'Quiet Rain', '静雨', { quiet: true });
+    if (this.quietrainGone() && this.sites.quietrain && this.sites.quietrain.place) this.sites.quietrain.place.name = 'Ruins of Quiet Rain';
     this.put('meddepot', [2520, 1280]);
     this.put('clinic', [2620, 1560]);
     this.put('stonebridge', [2820, 1580]);
@@ -11964,8 +12261,9 @@ const EXTRAS = {
     for (let i = 0; i < 3; i++) { const q = S.homes[i]; if (q) P.spot('house' + (i + 1), q[0] - P.ox, q[1] - P.oy); else P.spot('house' + (i + 1), -8 + i * 8, 10); }
   },
   quietrain(S, P) {
+    const burnt = typeof StoryMap !== 'undefined' && StoryMap.quietrainGone && StoryMap.quietrainGone();
     for (const [dx, dy] of [[-9, 6], [-9, 9], [9, 6], [9, 9]]) P.d('rack', dx, dy);
-    const s = freeRectNear(P, 14, -2, 6, 4); if (s) P.b('hut', s[0], s[1], 6, 4, { name: 'Supply Shed', spot: 'shed' });
+    const s = freeRectNear(P, 14, -2, 6, 4); if (s) P.b(burnt ? 'ruin' : 'hut', s[0], s[1], 6, 4, { name: burnt ? 'Burnt Shed' : 'Supply Shed', spot: 'shed' });
     for (const [k, dx, dy] of [['patient1', -6, 2], ['patient2', 6, 2], ['patient3', -4, 10]]) { P.d('bedroll', dx, dy, 1, 1, { solid: false }); P.spot(k, dx + 0.5, dy + 1.5); }
     for (const dx of [-3, 3]) P.d('lanternpost', dx, 13, 1, 1, { light: { r: 30, c: '255,190,110' } });
     P.spot('haru', 0.5, 5); P.spot('court', 0, 8); P.spot('gate', 0.5, 16); P.spot('hills', -24, -20); P.spot('roof', -3, 1);
@@ -12059,6 +12357,7 @@ const Subs = {
       this.q.shift(); Missions.ghostCheck([[L.who, L.text]], 14);
       if (w === 'drop') return;
       this.cur = L; this.t = 1.8 + L.text.length * 0.058; this.render();
+      if (Missions.cur) Missions.beat(Missions.cur, L.who, L.text);
     }
   },
   render() {
@@ -12177,8 +12476,14 @@ class MCtx {
       else { a.mEnemy = true; if (over.attack !== false) { a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; a.alertT = 0.8; } }
       if (over.name) a.name = a.label = over.name;
       this.add(a, over.key && n === 1 ? over.key : null); out.push(a);
-      if (!over.appear && this.stageSee(q[0], q[1])) {
-        if (a.mEnemy && over.attack !== false) {
+      if (!over.exact && !over.here && this.stageSee(q[0], q[1])) {
+        if (over.appear) {
+          const P = G.player, ang = Math.atan2(q[1] - P.y, q[0] - P.x) || rnd(TAU);
+          const edge = World.randomWalkable(P.x + Math.cos(ang) * 10, P.y + Math.sin(ang) * 10, 0, 2.4, 24)
+            || [P.x + Math.cos(ang) * 10, P.y + Math.sin(ang) * 10];
+          a.x = edge[0]; a.y = edge[1];
+          this.walk(a, [q], { run: over.run || 1 }); a.mArrive = true;
+        } else if (a.mEnemy && over.attack !== false) {
           const s = Missions.wings(q) || GangRide.behind(28); if (s) { a.x = s[0]; a.y = s[1]; }
         } else if (over.watch && over.post === false && dist(q[0], q[1], G.player.x, G.player.y) < 6) {
           const P = G.player, ang = Math.atan2(q[1] - P.y, q[0] - P.x) || rnd(TAU);
@@ -12312,7 +12617,7 @@ class MCtx {
   horse(w, coat) {
     const p = this.at(w); if (!p) return null; const q = this.near(p, 0.5);
     if (!G.horse) {
-      G.horse = Horse.make(q[0], q[1], coat ?? (G.profile.horse ? G.profile.horse.coat : 2));
+      G.horse = Horse.make(q[0], q[1], coat ?? (G.profile.horse ? G.profile.horse.coat : 2), G.profile.horse || {});
       if (this.vis(q[0], q[1])) { const s = Missions.wings(q); if (s) { G.horse.x = s[0]; G.horse.y = s[1]; G.horse.goto = q; } }
     } else if (!G.player.mounted) {
       if (this.vis(G.horse.x, G.horse.y) || this.vis(q[0], q[1])) { G.horse.goto = q; G.horse.called = false; } else { G.horse.x = q[0]; G.horse.y = q[1]; G.horse.spd = 0; G.horse.goto = null; }
@@ -12377,9 +12682,9 @@ const STEPS = {
   card: { begin(m, s) { m.st.T = s.dur || 3.5; if (s.black) Card.black(true, true); const k = typeof s.kicker === 'function' ? s.kicker(m) : s.kicker, t = typeof s.title === 'function' ? s.title(m) : s.title, u = typeof s.sub === 'function' ? s.sub(m) : s.sub; Card.show(k || '', t || '', u || '', m.st.T, s.black ? 'time' : ''); }, tick(m, s, dt) { if ((m.st.T -= dt) > 0) return false; if (s.black && !s.stayBlack) Card.black(false); return true; } },
   wait: { begin(m, s) { m.st.T = s.dur || 3; }, tick(m, s, dt) { m.st.T -= dt; return s.until ? (m.st.T <= 0 && mSafe(m, 'until', () => s.until(m))) || m.st.T < -(s.max || 15) : m.st.T <= 0; } },
   fn: { begin(m, s) { s.run(m); }, tick: () => true },
-  go: { tick(m, s) { const p = m.at(s.at), P = G.player; if (!p) return false; if (s.mounted && !P.mounted) return false; if (s.foot && P.mounted) return false; return dist(P.x, P.y, p[0], p[1]) < (s.r || 3); } },
+  go: { tick(m, s) { const p = m.at(s.at), P = G.player; if (!p) return false; return dist(P.x, P.y, p[0], p[1]) < (s.r || 3); } },
   // a ride out to the job with the crew: arriving is not enough, the conversation on the way has to finish too
-  ride: { tick(m, s) { const p = m.at(s.at), P = G.player; if (!p || (s.mounted !== false && !P.mounted)) return false; return dist(P.x, P.y, p[0], p[1]) < (s.r || 6) && !Subs.cur && !Subs.q.length; } },
+  ride: { tick(m, s) { const p = m.at(s.at), P = G.player; if (!p) return false; return dist(P.x, P.y, p[0], p[1]) < (s.r || 6) && !Subs.cur && !Subs.q.length; } },
   mount: { tick: () => G.player.mounted },
   dismount: { tick: () => !G.player.mounted },
   talk: { tick: m => m.st.ok },
@@ -12449,7 +12754,7 @@ const STEPS = {
   },
   escape: {
     begin(m, s) { if (s.spawn) s.spawn(m); if (s.barrage) Cannon.startBarrage(s.barrage); },
-    tick(m, s) { const p = m.at(s.at), P = G.player; return !!p && dist(P.x, P.y, p[0], p[1]) < (s.r || 4) && (!s.mounted || P.mounted); },
+    tick(m, s) { const p = m.at(s.at), P = G.player; return !!p && dist(P.x, P.y, p[0], p[1]) < (s.r || 4); },
     end(m, s) { if (s.barrage) Cannon.stopBarrage(); }
   },
   follow: {
@@ -12467,7 +12772,7 @@ const STEPS = {
   },
   chase: {
     begin(m, s) { m.walk(m.get(s.who), s.path, { run: s.run || 1.25, loop: !!s.loop }); },
-    tick(m, s) { const a = m.get(s.who); if (!a) return true; if (dist(a.x, a.y, G.player.x, G.player.y) < (s.catchR || 1.5) && (s.mounted || !G.player.mounted)) { m.stopWalk(a); if (!m.fast && s.caught) FX.text(a.x, a.y, s.caught, '#efe3c8'); return true; } if (a.mDone && !s.loop) { Missions.fail(s.why || a.name + ' got away.'); return false; } return false; }
+    tick(m, s) { const a = m.get(s.who); if (!a) return true; if (dist(a.x, a.y, G.player.x, G.player.y) < (s.catchR || 1.5)) { m.stopWalk(a); if (!m.fast && s.caught) FX.text(a.x, a.y, s.caught, '#efe3c8'); return true; } if (a.mDone && !s.loop) { Missions.fail(s.why || a.name + ' got away.'); return false; } return false; }
   },
   // the army behind you: a front that moves along the route; if it reaches you, it is over
   pursuit: {
@@ -12765,6 +13070,7 @@ const Missions = {
     const m = this.cur; if (!m) return;
     const def = m.def, k = fromCp ? m.cp : 0, pos = fromCp ? m.cpPos : null, tod = fromCp ? m.cpTod : m.startTod, startPos = m.startPos;
     this.clearWorld(m); this.failing = false;
+    if (def.n === 36) StoryMap.unwreck('quietrain');
     const P = G.player; P.dead = false; P.state = 'idle'; P.hp = P.maxHp; P.bleed = 0; P.st = P.maxSt; P.flash = 0; P.crouch = false; P.atk = null; if (!G.actors.includes(P)) G.actors.push(P);
     G.wanted = 0; FX.gibs = FX.gibs.filter(g => dist(g.x, g.y, P.x, P.y) > 30);
     const n = this.cur = new MCtx(def); n.startPos = startPos; n.startTod = m.startTod; n.cut = true; this.dropStragglers();
@@ -12816,7 +13122,7 @@ const Missions = {
     }
     if (G.horse) { G.horse.auto = null; G.horse.locked = false; }
     if (m.def._look) { Object.assign(G.profile.look, m.def._look); G.player.look = G.profile.look; m.def._look = null; }
-    Miso.lead = null; Miso.stay = false; Camera.look = null; Card.black(false);
+    Miso.lead = null; Miso.stay = false; Miso.mount = null; Miso.mountZ = 0; Miso.item = null; Miso.chewing = false; Camera.look = null; Card.black(false);
     G.player.mounted = G.player.mounted && !!G.horse;
     if (G.duel) { G.duel = null; UI.letterbox(false); }
   },
@@ -12834,9 +13140,9 @@ const Missions = {
     if (a.faction === 'gang' || a.faction === 'imperial' || a.faction === 'guard') a.faction = 'civ';
     if (a.ai) { a.ai.mode = 'idle'; a.ai.target = null; }
     G.gang = G.gang.filter(b => b !== a);
-    const P = G.player, s = Nav.offstage(a.x, a.y, Math.atan2(a.y - P.y, a.x - P.x) + rnd(-0.3, 0.3));
-    if (s) Object.assign(a, { mPath: [s], mPi: 0, mBest: 1e9, mProg: 0, mDone: false, mRun: 0.75, mWait: 0, mLoop: false, nav: null });
-    else { a.mPath = null; a.post = [a.x, a.y]; }
+    const P = G.player, ang = Math.atan2(a.y - P.y, a.x - P.x) + rnd(-0.3, 0.3) || rnd(TAU);
+    const s = Nav.offstage(a.x, a.y, ang) || [a.x + Math.cos(ang) * 24, a.y + Math.sin(ang) * 24];
+    Object.assign(a, { mPath: [s], mPi: 0, mBest: 1e9, mProg: 0, mDone: false, mRun: 0.85, mWait: 0, mLoop: false, nav: null });
     if (!this.leavers.includes(a)) this.leavers.push(a); if (!G.actors.includes(a)) G.actors.push(a);
   },
   // at the end of a mission: stay put, at peace, until Ren is gone; anyone still fighting him gives it up and leaves
@@ -12947,12 +13253,84 @@ const Missions = {
     const m = this.cur; if (!m || !m.step || !m.st.live) return;
     const s = m.step;
     const fin = () => {
-      if (it.horse) { m.st.ok = true; if (s.onUse) s.onUse(m, 0); return; }
+      if (it.horse) {
+        const low = ((s.label || '') + ' ' + (s.text || '') + ' ' + (s.busy || '')).toLowerCase();
+        if (/take.*bell from|bell from the saddle/.test(low)) Horse.dropPack('bell');
+        else if (/tools/.test(low)) Horse.addPack('tools');
+        else if (/bell/.test(low) && /tie|saddle/.test(low)) Horse.addPack('bell');
+        else if (/chest/.test(low)) Horse.addPack('chest');
+        else if (/medicine|crate|load/.test(low)) Horse.addPack('crates');
+        m.st.ok = true; if (s.onUse) s.onUse(m, 0); return;
+      }
       const o = it.obj; if (!o || o.used) return; o.used = true; this.removeObj(o); m.st.got++;
       const mk = s.take && m.st.marks && m.st.marks[o.mUse.k]; if (mk) this.removeObj(mk);
       if (s.onUse) s.onUse(m, o.mUse.k);
     };
-    if (s.dur) { m.st.live = false; const P = G.player; P.state = 'idle'; Card.show('', s.busy || 'Working…', '', s.dur, 'busy'); setTimeout(() => { if (this.cur !== m || m.step !== s) return; m.st.live = true; fin(); }, s.dur * 1000); }
+    const txt = ((s.busy || '') + ' ' + (s.label || '') + ' ' + (s.text || '') + ' ' + (s.thing || '') + ' ' + (it.horse ? 'horse load' : '')).toLowerCase();
+    const horseWork = it.horse && /pack|load|lash|rearrange|tie|mend|hold kumo|saddle|chest/.test(txt);
+    const packUse = !it.horse && (s.thing === 'crates' || s.thing === 'ricesacks' || /pack it up|load the medicine|recover the cargo|fill your bags|shoulder a rice/.test(txt));
+    const dur = s.dur || (horseWork ? 1.8 : packUse ? 1.2 : 0);
+    if (dur) {
+      m.st.live = false;
+      const P = G.player;
+      let kind = 'work';
+      if (/draw water|pick up a bucket|carry the water|\bbucket\b/.test(txt)) kind = /carry/.test(txt) ? 'haul' : 'pack';
+      else if (/timber|lumber|beam|plank|haul|drag|pulling plank/.test(txt)) kind = 'haul';
+      else if (/saw/.test(txt)) kind = 'cut';
+      else if (/heave|lift the bar|lift him|lift the axle|grate/.test(txt) || ((/axle|wheel/.test(txt)) && !/pris the bolt|board/.test(txt))) kind = 'heave';
+      else if (/cut|rope|harness|padlock/.test(txt)) kind = 'cut';
+      else if (/lock|jam|wedge|pick|drawer|gear|flint|bolt|seal|board|pris/.test(txt)) kind = 'pry';
+      else if (/dig|debris|channel|bury/.test(txt)) kind = 'dig';
+      else if (/hammer|mend|smash|break|screw|chain/.test(txt)) kind = 'hammer';
+      else if (/pack|load|lash|boil|powder|tie|rearrange/.test(txt)) kind = 'pack';
+      let hold = null;
+      if (kind === 'pack' && /bucket|draw water/.test(txt) || /carry the water/.test(txt) || s.thing === 'bucket') hold = 'bucket';
+      else if (s.thing === 'lumber' || /timber|beam|plank/.test(txt)) hold = 'beam';
+      else if (s.thing === 'ricesacks' || /sack/.test(txt)) hold = 'sack';
+      else if (/wheel/.test(txt) || (/axle/.test(txt) && !/saw/.test(txt))) hold = 'wheel';
+      else if (/chest/.test(txt)) hold = 'chest';
+      else if (/crate|pack it up|load the medicine|packing|medicine/.test(txt)) hold = 'crate';
+      const put = hold === 'wheel' && /lift the axle|wheel back|heaving the axle/.test(txt);
+      let prop = null;
+      const mk = s.take && m.st.marks && it.obj && it.obj.mUse && m.st.marks[it.obj.mUse.k];
+      if (mk && mk.t) prop = mk;
+      if (!prop && it.obj && it.obj.t && it.obj.t !== 'mpt') prop = it.obj;
+      if (!prop) {
+        const kinds = new Set(['wagon', 'cart', 'cannon', 'lumber', 'winch', 'cabbagecart', 'ox', 'canvas', 'ricesacks', 'crates', 'bucket', 'well']);
+        const px = P.x, py = P.y; let bd = 3.5;
+        for (let j = Math.floor(py - 4); j <= Math.floor(py + 4); j++) for (let i = Math.floor(px - 4); i <= Math.floor(px + 4); i++) {
+          for (const o of World.at(i, j) || []) {
+            if (!kinds.has(o.t)) continue;
+            const d = dist(o.cx, o.cy, px, py); if (d < bd) { bd = d; prop = o; }
+          }
+        }
+        if (!prop && m.wagons) for (const w of m.wagons) { const d = dist(w.cx, w.cy, px, py); if (d < bd) { bd = d; prop = w; } }
+        if (!prop && m.carriage) prop = m.carriage;
+      }
+      const at = it.horse && G.horse ? [G.horse.x, G.horse.y] : (it.obj ? [it.obj.cx, it.obj.cy] : (prop ? [prop.cx, prop.cy] : [P.x + Math.cos(P.face), P.y + Math.sin(P.face)]));
+      P.faceTo(at[0], at[1]);
+      P.state = 'work';
+      P.work = { kind, hold, put, t: 0, dur, beat: kind === 'cut' || kind === 'hammer' ? 0.42 : kind === 'heave' ? 0.72 : kind === 'haul' ? 0.5 : 0.55, prop, at, fxT: 0 };
+      if (hold === 'bucket') {
+        P.carry = 'bucket';
+        for (let j = Math.floor(P.y - 4); j <= Math.floor(P.y + 4); j++) for (let i = Math.floor(P.x - 4); i <= Math.floor(P.x + 4); i++)
+          for (const o of World.at(i, j) || []) if (o.t === 'bucket') o.hide = true;
+      }
+      if (prop) { prop.workT = 0.01; if (put) { prop.noWheel = true; prop.tilt = true; } }
+      Card.show('', s.busy || (it.horse ? 'Lashing it on…' : 'Working…'), '', dur, 'busy');
+      setTimeout(() => {
+        if (P.work && P.work.prop) { P.work.prop.workT = 0; if (P.work.put) { P.work.prop.noWheel = false; P.work.prop.tilt = false; } }
+        if (P.state === 'work') { P.state = 'idle'; P.moving = false; }
+        P.work = null;
+        if (/carry the water/.test(txt)) {
+          P.carry = null;
+          for (let j = Math.floor(P.y - 8); j <= Math.floor(P.y + 8); j++) for (let i = Math.floor(P.x - 8); i <= Math.floor(P.x + 8); i++)
+            for (const o of World.at(i, j) || []) if (o.t === 'bucket') o.hide = false;
+        }
+        if (this.cur !== m || m.step !== s) return;
+        m.st.live = true; fin();
+      }, dur * 1000);
+    }
     else fin();
   },
   event(name) { const m = this.cur; if (m && m.step && m.st.live && m.step.t === 'event' && m.step.ev === name) m.st.n++; },
@@ -13060,6 +13438,80 @@ const Missions = {
     if (d > 22 && GangRide.offscreen(a.x, a.y)) return CAST[who] || a.mEnemy || a.tag === 'army' || (a.ai && a.ai.mode === 'fight') ? 'go' : 'drop';
     return 'go';
   },
+  // when a line is spoken, make the world do what the line claims
+  beat(m, who, text) {
+    if (!m || m.fast) return;
+    const t = String(text || ''), low = t.toLowerCase();
+    const k = 'beat_' + who + '_' + t.slice(0, 48);
+    if (m.flags[k]) return; m.flags[k] = true;
+    const actor = who !== 'narr' && who !== 'ren' ? (m.get(who) || m.speaker(who)) : null;
+    const P = G.player;
+    if (/nocks an arrow|goes after the soldiers|goes after them/.test(low)) {
+      const aiko = m.get('aiko') || actor;
+      const foes = m.group('squad').concat(m.group('watch')).filter(x => x && !x.dead);
+      const tgt = foes[0] || m.get('genda');
+      if (aiko && tgt) m.walk(aiko, [[tgt.x, tgt.y]], { run: 1.25 });
+      if (aiko && tgt && !m.fast) { aiko.aimAt = tgt; setTimeout(() => { if (aiko && !aiko.dead) { aiko.aimAt = null; FX.text(tgt.x, tgt.y, '—', '#9ad0a0'); Snd.play('swing', 0.18); } }, 380); }
+      for (const f of foes) m.remove(f);
+      const g = m.get('genda'); if (g) m.remove(g);
+    }
+    if (/panel slides|he is gone/.test(low)) {
+      const a = m.get('masanori') || actor;
+      if (a) { if (!m.fast) { Snd.play('creak', 0.28); G.shake = Math.max(G.shake, 1); } m.remove(a); }
+    }
+    if (/sign comes down/.test(low)) {
+      const p = m.at('kiyo.workshop');
+      if (p) { if (!m.fast) { Snd.play('thud', 0.22); G.shake = Math.max(G.shake, 2); FX.dust(p[0], p[1] + 1, 8); } m.prop('sign', [p[0], p[1] + 2.2], { solid: false }); }
+    }
+    if (/roof goes in|the shrine roof/.test(low)) {
+      if (typeof StoryMap !== 'undefined' && StoryMap.wreck) StoryMap.wreck('quietrain', m.fast);
+      const p = m.at('quietrain.hall') || m.at('quietrain.court');
+      if (p) m.burn(p, { size: 2.4, z: 18 });
+    }
+    if (/the bridge goes/.test(low)) {
+      if (typeof StoryMap !== 'undefined' && StoryMap.collapse) StoryMap.collapse('oldbridge', m.fast);
+      if (!m.fast) { G.shake = Math.max(G.shake, 5); Snd.play('thud', 0.28); }
+    }
+    if (/kumo comes out of the smoke/.test(low) && G.horse) {
+      const p = m.at('kiyo.bank') || [P.x + 2, P.y];
+      G.horse.x = p[0]; G.horse.y = p[1]; G.horse.spd = 4; G.horse.goto = [P.x + 1.2, P.y + 0.6];
+    }
+    if (/permit books slide/.test(low)) {
+      m.prop('pages', [P.x + 0.7, P.y + 0.5], { solid: false });
+    }
+    if (/ren draws/.test(low) && P && P.wpn !== 'fists') { P._armedT = 4; if (!m.fast) Snd.play('draw', 0.28); }
+    if (/feeds his commission papers to the fire/.test(low)) {
+      const a = m.get('daichi'); if (a) { a.state = 'work'; a.work = { kind: 'pack', t: 0, dur: 2.6, beat: 0.5, fxT: 0 }; setTimeout(() => { if (a.state === 'work') { a.state = 'idle'; a.work = null; } }, 2600); }
+      const p = a ? [a.x, a.y] : m.at('refuge.fire'); if (p) m.burn(p, { size: 0.7 });
+    }
+    if (/bell.*falls out of|falls out of ren/.test(low)) {
+      m.prop('handbell', [P.x + 0.7, P.y + 0.5], { solid: false });
+    }
+    if (/pot boils over/.test(low)) {
+      const p = m.at('marsh.pot'); if (p && !m.fast) { FX.dust(p[0], p[1], 6, 'rgba(200,220,235,'); Snd.play('splash', 0.4); }
+    }
+    if (/arrow cuts the rope/.test(low) && !m.fast) { Snd.play('swing', 0.18); FX.text(P.x, P.y - 1, 'an arrow cuts the rope', '#9ad0a0'); }
+    if (/miso is chewing/.test(low)) { Miso.hold('cabbage'); Miso.chewing = true; if (Miso.dog) FX.text(Miso.dog.x, Miso.dog.y, 'crunch', '#d8b48a'); }
+    if (/a fish in its mouth|fish in its mouth/.test(low)) { Miso.hold('fish'); Miso.stay = true; }
+    if (/backs away behind the altar/.test(low)) { const a = m.at('oldshrine.altar'); if (a) Miso.lead = [a[0] - 1.8, a[1] - 1.2]; }
+    if (/drops half the fish/.test(low)) { Miso.hold(null); Miso.lead = null; Miso.stay = true; if (Miso.dog) { Miso.dog.idleT = 2; FX.text(Miso.dog.x, Miso.dog.y, 'half for you', '#d8b48a'); } }
+    if (/a whole cooked fish/.test(low)) { Miso.hold('fish'); if (Miso.dog) FX.text(Miso.dog.x, Miso.dog.y, 'a whole cooked fish', '#efe3c8'); }
+    if (/head in ren's bag|comes out with the bread/.test(low)) {
+      Miso.hold('bread');
+      if (Miso.dog) { FX.text(Miso.dog.x, Miso.dog.y, 'nom', '#d8b48a'); Snd.play('chatter', 0.3); }
+      Miso.lead = [P.x + rnd(-3, 3), P.y + rnd(-3, 3)];
+    }
+    if (/has daichi's dried fish/.test(low)) {
+      Miso.hold('fish');
+      const d = m.get('daichi'); if (d) Miso.lead = [d.x + 1.8, d.y + 0.6];
+      if (Miso.dog) FX.text(Miso.dog.x, Miso.dog.y, 'mine now', '#d8b48a');
+    }
+    if (/asleep on top of the medicine chest|on top of the medicine/.test(low)) { Miso.onHorse(); if (Miso.dog) FX.text(Miso.dog.x, Miso.dog.y, 'zzz', '#d8b48a'); }
+    if (/lying between kumo's forelegs/.test(low)) Miso.atFeet();
+    if (/leans his whole weight/.test(low) && G.horse) {
+      const d = m.get('daichi'); if (d) { G.horse.goto = [d.x + 0.35, d.y + 0.25]; G.horse.head = 1; }
+    }
+  },
   // a line spoken by somebody who is not there (or far off) - kept for the playtest bot
   ghosts: [],
   ghostCheck(parts, near) {
@@ -13080,6 +13532,13 @@ const Missions = {
     P.story.n = n; if (n >= 6 && !P.horse) P.horse = { coat: 4 };
     if (n >= 6) { if (!G.horse) G.horse = Horse.make(G.player.x + 1, G.player.y, 4); G.horse.coat = 4; }
     if (n > 10) P.flags.miso = true;
+    if (G.horse) {
+      if (n > 20) Horse.addPack('woodhorse');
+      if (n > 32) Horse.addPack('crates');
+      if (n > 38) Horse.addPack('chest');
+      if (n > 75 && n < 91) Horse.addPack('bell');
+      if (n > 95) Horse.addPack('tools');
+    }
     const d = this.def(n); for (const id of d.sites || []) StoryMap.ensure(id); const p = StoryMap.at(d.at);
     const tmp = new MCtx(d); tmp.put(p, false);
     if (o.start !== false) this.start(d, { quiet: o.quiet, now: true });
@@ -13218,7 +13677,7 @@ M({
       ['headman', 'Enough. The children are listening.'],
       ['merchant', 'Good.'] ] },
     { t: 'scene', parts: [['headman', 'Every family brings two sacks of rice to the threshing floor. Now. And not one word of it outside this village.'], ['jiro', 'Ren. You heard him. The storehouses.']] },
-    { t: 'use', ats: ['kiyo.storeA', 'kiyo.storeB'], label: 'Shoulder a rice sack', thing: 'ricesacks', take: true, text: 'Carry rice from the storehouses', hint: 'Two sacks. They are heavier than you are.', on(m) { m.goTo('headman', ['kiyo.square', -4.5, 3.5]); m.goTo('jiro', 'kiyo.storeA'); }, onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, 'oof', '#efe3c8'); } },
+    { t: 'use', ats: ['kiyo.storeA', 'kiyo.storeB'], label: 'Shoulder a rice sack', thing: 'ricesacks', take: true, text: 'Carry rice from the storehouses', hint: 'Two sacks. They are heavier than you are.', dur: 1.2, busy: 'Shouldering the sack…', on(m) { m.goTo('headman', ['kiyo.square', -4.5, 3.5]); m.goTo('jiro', 'kiyo.storeA'); }, onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, 'oof', '#efe3c8'); } },
     { t: 'go', at: ['kiyo.square', -6, 5], r: 2.4, text: 'Bring the rice to the threshing floor', talk: [['hana', 'Why are we hiding rice under the floor?'], ['ren', 'So it doesn\'t get cold.'], ['hana', 'Rice doesn\'t get cold.']] },
     { t: 'scene', parts: [['narr', 'Under the threshing floor, in the dark: rice sacks, and a family Ren has never seen, staring up at him.'], ['Stranger', '(whispering) Please. Don\'t tell anyone we\'re here.'], ['headman', 'They came over the mountains from Ishimura. If anyone asks, Ren, they do not exist.']] },
     { t: 'wait', dur: 1.6, text: 'A horn sounds beyond Kiyohara\'s fields', on(m) { if (!m.fast) { Snd.play('gong', 0.8); G.shake = 2; } } },
@@ -13410,7 +13869,7 @@ M({
     { t: 'use', at: ['oldshrine.fire', 0, 1.4], label: 'Light the fire', text: 'Light a fire', dur: 2, busy: 'Striking the flint…', onUse(m) { m.prop('campfire', 'oldshrine.fire', { light: { r: 50, c: '255,140,60' } }); } },
     { t: 'use', at: 'oldshrine.fire', label: 'Divide the last of the rice', text: 'Share out the last of the stolen rice' },
     { t: 'scene', parts: [['ren', 'Half each. The bigger half, apparently.'], ['ren', 'An entire army tries to kill me, and I still lose dinner to a horse.']] },
-    { t: 'fn', run(m) { G.profile.flags.miso = true; const a = m.at('oldshrine.altar'); Miso.place(a[0], a[1]); Miso.stay = true; if (!m.fast) Snd.play('chatter', 0.4); } },
+    { t: 'fn', run(m) { G.profile.flags.miso = true; const a = m.at('oldshrine.altar'); Miso.place(a[0], a[1]); Miso.stay = true; Miso.hold('fish'); if (!m.fast) Snd.play('chatter', 0.4); } },
     { t: 'scene', parts: [
       ['narr', 'A scruffy brown dog behind the altar, one ear up, one ear folded, a fish in its mouth almost as big as its head.'],
       ['ren', '...Hello.'],
@@ -13460,7 +13919,7 @@ M({
     { t: 'go', at: () => Miso.dog ? [Miso.dog.x, Miso.dog.y] : m_(), r: 1.6, text: 'Quiet Miso before someone wakes up', hint: 'Walk over to him.', each(m) { } },
     { t: 'sneak', at: 'depot.store', r: 1.8, text: 'Creep to the rear storehouse', hint: 'Mind the guards at the gate and in the yard.', why: 'A guard saw you in the yard.' },
     { t: 'use', at: 'depot.store', label: 'Pick the storehouse lock', text: 'Pick the storehouse lock', dur: 2, busy: 'Working the lock…' },
-    { t: 'use', ats: [['depot.storeIn', -1, 0], ['depot.storeIn', 1, 0], ['depot.storeIn', 0, -1], ['depot.storeIn', 0, 1]], label: 'Fill your bags', thing: 'ricesacks', take: true, text: 'Fill your bags: rice, dried fish, beans, salt', onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, pick(['rice', 'dried fish', 'beans', 'salt']), '#efe3c8'); } },
+    { t: 'use', ats: [['depot.storeIn', -1, 0], ['depot.storeIn', 1, 0], ['depot.storeIn', 0, -1], ['depot.storeIn', 0, 1]], label: 'Fill your bags', thing: 'ricesacks', take: true, text: 'Fill your bags: rice, dried fish, beans, salt', dur: 1.2, busy: 'Stuffing sacks…', onUse(m) { if (!m.fast) FX.text(G.player.x, G.player.y, pick(['rice', 'dried fish', 'beans', 'salt']), '#efe3c8'); } },
     { t: 'sneak', at: 'depot.room', r: 1.8, text: 'Look into the officer\'s locked stores', why: 'A guard saw you in the yard.' },
     { t: 'use', at: 'depot.room', label: 'Pick the lock', text: 'Pick the officer\'s lock', dur: 2, busy: 'Working the lock…' },
     { t: 'choice', key: 'depotLoot', ask: ['ren', 'Uji tea. Dried persimmons. Good sake.', 'And enough rice to feed a refugee camp.'], options: [['Take the rice. Leave the fine things.', 'rice'], ['Take the tea and the sake as well', 'all', [['ren', '...No. Rice. I came for rice.']]]] },
@@ -13488,7 +13947,7 @@ M({
     { t: 'use', at: 'bath.soak', label: 'Soak in the hot water', text: 'Soak in the hot water' },
     { t: 'rest', title: 'Eleven glorious minutes', sub: 'Hot water. Silence. Nobody shooting at him.', tod: undefined, dur: 3.5, then(m) { G.tod = Math.min(0.7, G.tod + 0.01); } },
     { t: 'scene', parts: [['Officer', '(outside) That horse! That is the grey nag from the governor\'s rice wagon! Find the rider!'], ['ren', '...Eleven minutes. A personal record.']] },
-    { t: 'use', at: ['bath.soak', 1, 0.5], label: 'Grab the first clothes you can find', text: 'Climb out and grab your clothes', onUse(m) { if (!m.fast) { const d = Miso.dog; if (d) FX.text(d.x, d.y, 'a whole cooked fish', '#efe3c8'); } } },
+    { t: 'use', at: ['bath.soak', 1, 0.5], label: 'Grab the first clothes you can find', text: 'Climb out and grab your clothes', onUse(m) { Miso.hold('fish'); if (!m.fast) { const d = Miso.dog; if (d) FX.text(d.x, d.y, 'a whole cooked fish', '#efe3c8'); } } },
     { t: 'scene', on(m) { m.spawn('officer', 'bath.door', 1, { tag: 'foe', key: 'Officer', name: 'Imperial Officer', attack: false }); }, parts: [['Officer', 'You! Stand where you are!'], ['ren', 'Officer. You\'ve mistaken me for someone far more important.'], ['bathowner', 'If one screen breaks, I am billing the imperial government!']] },
     { t: 'escape', at: 'bath.window', r: 2, cp: true, text: 'Escape through the laundry', hint: 'Customers scream. Buckets fly. Do not stop to fight unless you must.', on(m) { const o = m.get('Officer'); if (o) { o.ai.mode = 'fight'; o.ai.target = G.player; o.aware = 1; } m.spawn('imperial', 'bath.street', 2, { tag: 'foe' }); for (const a of m.group('bathers')) { a.sitting = false; a.ai.mode = 'flee'; a.ai.from = G.player; } } },
     { t: 'escape', at: 'bath.bank', r: 4, text: 'Run for the riverbank', hint: 'Kumo knows where you are going even if you do not. Whistle (H) once you are clear.' },
@@ -13502,7 +13961,7 @@ M({
   recap: 'Miso led Ren into a cabbage garden, which cost two coppers and a lecture on civic responsibility. The farmer told him the village healer had been taken to a checkpoint for refusing to hand over medicine meant for sick children.',
   setup(m) { const g = m.at('cabbage.garden'); m.cast('cabbage', g ? [g[0] + 2, g[1] + 4.5] : 'cabbage.square', { face: PI * 0.25 }); m.spawn('villager', 'cabbage.square', 4, { calm: true, tag: 'folk', wanderR: 7, post: false }); checkpointGuards(m); },
   steps: [
-    { t: 'ride', at: 'cabbage.c', r: 9, text: 'Ride east to Hatakemura', hint: 'Farm country. Somewhere to buy rice with what\'s left.', talk: [['ren', 'Miso. Ground rules.'], ['ren', 'We don\'t steal from people who look poorer than us.'], ['ren', 'We don\'t steal from people holding pitchforks.'], ['ren', 'We don\'t steal from anyone while I\'m watching.'], ['narr', 'Miso is chewing something.'], ['ren', '...Where did you get that?']] },
+    { t: 'ride', at: 'cabbage.c', r: 9, text: 'Ride east to Hatakemura', hint: 'Farm country. Somewhere to buy rice with what\'s left.', on() { Miso.hold('cabbage'); Miso.chewing = true; }, talk: [['ren', 'Miso. Ground rules.'], ['ren', 'We don\'t steal from people who look poorer than us.'], ['ren', 'We don\'t steal from people holding pitchforks.'], ['ren', 'We don\'t steal from anyone while I\'m watching.'], ['narr', 'Miso is chewing something.'], ['ren', '...Where did you get that?']] },
     { t: 'go', at: 'cabbage.stall', r: 3, foot: true, text: 'Follow Miso', hint: 'On foot. He knows where he is going.', on(m) { Miso.lead = m.at('cabbage.stall'); }, talk: [['ren', 'That is a food stall, Miso. Not a business opportunity.']] },
     { t: 'go', at: 'cabbage.gardenGate', r: 3.5, text: 'Miso has bolted into a cabbage garden', on(m) { Miso.lead = m.at('cabbage.garden'); }, each(m) { m.talkNear('gonbei', '@cabbage', 13, [['cabbage', 'HEY! GET OUT OF MY CABBAGES, YOU MONGREL!']]); } },
     { t: 'go', at: () => Miso.dog ? [Miso.dog.x, Miso.dog.y] : m_(), r: 1.4, text: 'Catch Miso', hint: 'He thinks it is a game.', each(m, dt) { m._dogT = (m._dogT || 0) - dt; const g = m.at('cabbage.garden'); if (g && m._dogT <= 0) { m._dogT = 1.6; Miso.lead = [g[0] + rnd(-3, 3), g[1] + rnd(-2.5, 2.5)]; } }, done(m) { Miso.lead = null; } },
@@ -13686,7 +14145,7 @@ M({
     { t: 'talk', who: 'boy', text: 'A little boy is waving at you in the village', hint: 'Kawanami village square.', parts: [['boy', 'Mister! Are you the one leaving rice at the tents?'], ['ren', '...No.'], ['boy', 'Here. It is a horse. My father made it out of firewood, before the soldiers took him.', 'You have a horse, so you should have one too.'], ['ren', '...'], ['ren', '...Thank you.']] },
     { t: 'go', at: 'boyvil.riverbank', r: 3, text: 'Sit by the river while Kumo drinks', hint: 'Down by the water.' },
     { t: 'use', at: 'boyvil.riverbank', label: 'Sit down on the rock', text: 'Sit with the wooden horse', onUse(m) { m.prop('woodhorse', [G.player.x + 0.7, G.player.y + 0.4]); } },
-    { t: 'scene', parts: [['narr', 'Kumo drinks. The wooden horse has a chipped ear and two initials cut into its belly.'], ['ren', '...Hana would have liked this.']], done() { G.profile.flags.woodhorse = true; } },
+    { t: 'scene', parts: [['narr', 'Kumo drinks. The wooden horse has a chipped ear and two initials cut into its belly.'], ['ren', '...Hana would have liked this.']], done() { G.profile.flags.woodhorse = true; Horse.addPack('woodhorse'); } },
   ],
 });
 // ============================================================ ACT II · THE PEOPLE LEFT BEHIND (missions 21-40)
@@ -13714,7 +14173,7 @@ M({
     m.spawn('villager', 'sazanami.square', 5, { calm: true, tag: 'folk', wanderR: 8, post: false });
     m.spawn('merchant', 'sazanami.stall', 1, { calm: true, tag: 'shop', key: 'Shopkeeper', name: 'Leather Merchant', face: PI * 0.25 });
     m.cast('aiko', 'sazanami.fish', { face: PI * 0.25 });
-    const p = midway(m, 'boyvil.riverbank', 'sazanami.gateE', 0.5, 'cart'); m.prop('cart', [p[0] + 3, p[1] + 1], { solid: true }); m.spawn('villager', [p[0] + 4, p[1] + 2.5], 1, { calm: true, key: 'Farmer', name: 'Farmer on the Road' }); m.spawn('kid', [p[0] + 5, p[1] + 1], 1, { calm: true, key: 'Daughter', name: 'Farmer\'s Daughter' });
+    const p = midway(m, 'boyvil.riverbank', 'sazanami.gateE', 0.5, 'cart'); m.prop('cart', [p[0] + 3, p[1] + 1], { solid: true, noWheel: true, tilt: true }); m.spawn('villager', [p[0] + 4, p[1] + 2.5], 1, { calm: true, key: 'Farmer', name: 'Farmer on the Road' }); m.spawn('kid', [p[0] + 5, p[1] + 1], 1, { calm: true, key: 'Daughter', name: 'Farmer\'s Daughter' });
   },
   steps: [
     { t: 'ride', at: m => midway(m, 'boyvil.riverbank', 'sazanami.gateE', 0.5, 'cart'), r: 8, text: 'Ride south toward Sazanami', hint: 'A market town. Leatherwork sells there.', talk: [['ren', 'Stop looking at it, Miso. It\'s a toy.'], ['ren', 'It isn\'t for you either, Kumo.'], ['ren', '...It\'s for nobody. It\'s just on the saddle.']] },
@@ -13760,8 +14219,8 @@ M({
     { t: 'fn', run(m) { const w = m.wagons && m.wagons[0]; if (w) { Missions.removeObj(w); m.prop('rubble', [w.cx, w.cy], { solid: false }); m.prop('crates', [w.cx + 1, w.cy], { solid: false }); if (!m.untie()) m.loose([w.cx, w.cy], 2); } if (!m.fast) { G.shake = 4; Snd.play('thud', 1); } m.alarm('watch'); const g = m.get('genda'); if (g) { g.mEnemy = true; g.ai.mode = 'fight'; g.ai.target = G.player; } } },
     { t: 'scene', parts: [['aiko', 'That was not the plan.'], ['ren', 'It is now.']] },
     { t: 'kill', tag: 'watch', cp: true, text: 'Fight through the confusion', hint: 'Use the narrow bridge: they can only come at you a few at a time. Aiko\'s arrows pin their uniforms to the posts.', on(m) { const o = m.get('Horn Officer'); if (o) m.walk(o, ['convoy.farB', m.at('convoy.farB', 14, 6)], { run: 1.2 }); if (!m.fast) Subs.add([['aiko', 'The one with the horn! He\'s running for the far bank!']]); } },
-    { t: 'use', ats: [m => { const w = m.wagons && m.wagons[1]; return w ? [w.cx + 1, w.cy + 1] : m.at('convoy.deck'); }, m => { const w = m.wagons && m.wagons[2]; return w ? [w.cx + 1, w.cy + 1] : m.at('convoy.endB'); }], label: 'Recover the cargo', text: 'Recover the medicine and the records' },
-    { t: 'horse', label: 'Load the medicine', text: 'Load the medicine crates onto Kumo', hint: 'Whistle him (H). Quickly.', after: [['aiko', 'Willow bark. Fever powder. Bandages, a whole crate of them.'], ['aiko', 'This was going to a fortress. Not a village. A fortress.']] },
+    { t: 'use', ats: [m => { const w = m.wagons && m.wagons[1]; return w ? [w.cx + 1, w.cy + 1] : m.at('convoy.deck'); }, m => { const w = m.wagons && m.wagons[2]; return w ? [w.cx + 1, w.cy + 1] : m.at('convoy.endB'); }], label: 'Recover the cargo', thing: 'crates', take: true, text: 'Recover the medicine and the records', dur: 1.4, busy: 'Hauling crates…' },
+    { t: 'horse', label: 'Load the medicine', text: 'Load the medicine crates onto Kumo', hint: 'Whistle him (H). Quickly.', busy: 'Heaving crates onto the saddle…', after: [['aiko', 'Willow bark. Fever powder. Bandages, a whole crate of them.'], ['aiko', 'This was going to a fortress. Not a village. A fortress.']] },
     { t: 'go', at: 'convoy.bankA', r: 3, text: 'Retreat into the reeds before the reinforcements arrive', on(m) { m.remove(m.get('Horn Officer')); if (!m.fast) { Snd.play('gong', 0.4); Subs.add([['aiko', 'That\'s the horn. We have minutes.']]); } } },
     { t: 'scene', parts: [['aiko', 'Most of the medicine is intact. No thanks to you.'], ['ren', 'Your plan needed improvement.'], ['aiko', 'If I had a rock large enough, I would use it to improve your head.'], ['narr', 'Ren laughs. She looks as surprised as he does.']] },
   ],
@@ -13907,8 +14366,8 @@ M({
     { t: 'talk', who: 'Smuggler', text: 'Speak to the smuggler', parts: [['Smuggler', 'Mountain passes, night tides, and no questions. That is my price, and my promise.']] },
     { t: 'talk', who: 'Messenger', text: 'Speak to the messenger', parts: [['Messenger', 'I can run from here to the coast in three days. Faster if somebody is chasing me.']] },
     { t: 'use', ats: ['refuge.lantern1', 'refuge.lantern2', 'refuge.lantern3'], label: 'Hang a lantern by the safe path', text: 'Hang lanterns beside the safe path', onUse(m, k) { m.prop('lanternpost', ['refuge.lantern' + (k + 1), 0, 0], { solid: true, light: { r: 34, c: '255,190,110' } }); } },
-    { t: 'scene', parts: [['Messenger', 'A lantern where the path is safe. No lantern, you hide.'], ['Smuggler', 'The Lantern Route. Sounds like a teahouse.'], ['aiko', 'One rule. Nobody is sent into danger without knowing why it matters.'], ['ren', 'And another. No one gets attached.'], ['aiko', 'You have a dog, an old horse, and a network of people who would cross a mountain to find you.'], ['ren', 'They are exceptions.'], ['aiko', 'Naturally.'], ['narr', 'Miso has his head in Ren\'s bag. He comes out with the bread.']] },
-    { t: 'go', at: () => Miso.dog ? [Miso.dog.x, Miso.dog.y] : m_(), r: 1.4, text: 'Get your bread back from Miso', hint: 'Certain members of the network are about to have their wages withheld.', each(m, dt) { m._dogT = (m._dogT || 0) - dt; const c = m.at('refuge.c'); if (c && m._dogT <= 0) { m._dogT = 1.4; Miso.lead = [c[0] + rnd(-6, 6), c[1] + rnd(-5, 5)]; } }, done(m) { Miso.lead = null; } },
+    { t: 'scene', on(m) { Miso.hold('bread'); if (Miso.dog) { Miso.lead = [G.player.x + 0.8, G.player.y + 0.4]; Miso.stay = true; } }, parts: [['Messenger', 'A lantern where the path is safe. No lantern, you hide.'], ['Smuggler', 'The Lantern Route. Sounds like a teahouse.'], ['aiko', 'One rule. Nobody is sent into danger without knowing why it matters.'], ['ren', 'And another. No one gets attached.'], ['aiko', 'You have a dog, an old horse, and a network of people who would cross a mountain to find you.'], ['ren', 'They are exceptions.'], ['aiko', 'Naturally.'], ['narr', 'Miso has his head in Ren\'s bag. He comes out with the bread.']] },
+    { t: 'go', at: () => Miso.dog ? [Miso.dog.x, Miso.dog.y] : m_(), r: 1.4, text: 'Get your bread back from Miso', hint: 'Certain members of the network are about to have their wages withheld.', each(m, dt) { m._dogT = (m._dogT || 0) - dt; const c = m.at('refuge.c'); if (c && m._dogT <= 0) { m._dogT = 1.4; Miso.lead = [c[0] + rnd(-6, 6), c[1] + rnd(-5, 5)]; } }, done(m) { Miso.lead = null; Miso.hold(null); Miso.stay = false; } },
     { t: 'scene', parts: [['aiko', 'Ha! HA! Look at him go!'], ['ren', 'That was my BREAKFAST.']] },
   ],
 });
@@ -13950,7 +14409,7 @@ M({
       ['haru', 'And a sword does not make a person wise.'],
       ['aiko', 'Before this becomes a philosophical duel: the marsh villages are dying because their medicine is being withheld. Not in battle. Withheld.'],
       ['haru', 'Then I will bring what remains in my stores. But the fever is complicated. Some of them need rest and clean water more than the rare medicines your governor guards.'] ] },
-    { t: 'use', at: 'quietrain.shed', label: 'Load the medicine', text: 'Load Haru\'s medicine onto Kumo', dur: 1.2, busy: 'Loading…' },
+    { t: 'use', at: 'quietrain.shed', label: 'Load the medicine', thing: 'crates', take: true, text: 'Load Haru\'s medicine onto Kumo', dur: 1.8, busy: 'Hauling sacks onto Kumo…', onUse() { Horse.addPack('crates'); } },
     { t: 'go', at: 'marsh.hall', r: 4, text: 'Ride back to the marsh with Haru', hint: 'He rides with you.', on(m) { m.comp('haru'); },
       talk: [['haru', 'Old Kenzo at the hall. Cough, three days, no fever yet. His wife cannot take rice gruel. Their granddaughter, Saki, is allergic to the willow bark.'], ['ren', 'You remember all of them.'], ['haru', 'Every one I have tried to save. And you?'], ['ren', 'The names of my enemies.'], ['haru', '...Hm.']] },
   ],
@@ -13969,10 +14428,10 @@ M({
     { t: 'scene', parts: [['haru', 'Take only what is listed here.'], ['ren', 'There is an entire room full of supplies.'], ['haru', 'And many people need them. If you empty the room, the next village will have nothing.'], ['ren', '...'], ['aiko', 'Drainage outlet on the north corner. Two at the gate, one walking the wall. The roof is yours.']] },
     { t: 'sneak', at: 'meddepot.roof', r: 2, cp: true, text: 'Get to the depot roof', hint: 'Crouch (C). The roof is on the depot by the north-west wall.', why: 'A guard saw you on the wall.' },
     { t: 'use', at: 'meddepot.roof', label: 'Drop in through the roof', text: 'Drop into the medicine depot', onUse(m) { m.cutTo(() => { m.put('meddepot.cratesIn', false, { local: true }); m.place('haru', ['meddepot.cratesIn', 1, 0]); }); } },
-    { t: 'use', ats: [['meddepot.cratesIn', -1, -1], ['meddepot.cratesIn', 1, -1], ['meddepot.cratesIn', 0, 1]], label: 'Take the crate on Haru\'s list', thing: 'crates', take: true, text: 'Find the crates on Haru\'s list', hint: 'Haru points them out.' },
+    { t: 'use', ats: [['meddepot.cratesIn', -1, -1], ['meddepot.cratesIn', 1, -1], ['meddepot.cratesIn', 0, 1]], label: 'Take the crate on Haru\'s list', thing: 'crates', take: true, text: 'Find the crates on Haru\'s list', hint: 'Haru points them out.', dur: 1.2, busy: 'Lifting the crate…' },
     { t: 'scene', on(m) { m.spawn('imperial', ['meddepot.cratesIn', 2, 2], 1, { tag: 'soldier', key: 'Soldier', canYield: true, attack: false, name: 'Depot Soldier' }); }, parts: [['Soldier', 'You. The healer from the shrine.', 'You treat rebels without imperial permission.'], ['haru', 'Yes.'], ['Soldier', 'Then you\'re under arrest.']] },
     { t: 'defeat', who: 'Soldier', cp: true, text: 'Disarm the soldier', hint: 'Beat him until he yields. He does not need to die.', on(m) { const a = m.get('Soldier'); if (a) { a.ai.mode = 'fight'; a.ai.target = G.player; } } },
-    { t: 'survive', dur: 20, at: 'meddepot.yard', max: 4, every: 6, cp: true, text: 'Hold the guards back while Haru loads the cart', hint: 'Aiko holds the gate. You hold the yard.', on(m) { m.alarm('watch'); m.comp('aiko'); }, wave(m) { m.spawn('imperial', m.at('meddepot.gate', rnd(-2, 2), 2), 2); } },
+    { t: 'survive', dur: 20, at: 'meddepot.yard', max: 4, every: 6, cp: true, text: 'Hold the guards back while Haru loads the cart', hint: 'Aiko holds the gate. You hold the yard.', on(m) { m.alarm('watch'); m.comp('aiko'); const h = m.get('haru'), c = m.at('meddepot.cart'); if (h && c) { h.x = c[0] + 0.9; h.y = c[1] + 0.4; h.mPath = null; h.post = [h.x, h.y]; h.faceTo(c[0], c[1]); h.state = 'work'; h.work = { kind: 'pack', hold: 'crate', t: 0, dur: 20, beat: 0.55, fxT: 0, at: c }; } }, wave(m) { m.spawn('imperial', m.at('meddepot.gate', rnd(-2, 2), 2), 2); }, done(m) { const h = m.get('haru'); if (h) { h.state = 'idle'; h.work = null; } Horse.addPack('crates'); } },
     { t: 'escape', at: 'meddepot.out', r: 4, text: 'Get away with the cart', on(m) { const h = m.get('haru'); if (h) m.walk(h, ['meddepot.drain', 'meddepot.out'], { run: 1.1 }); } },
     { t: 'scene', parts: [['haru', 'Willow bark, two crates. Fever powder, one. Bandages, one. That\'s the list.'], ['ren', 'We left half the room.'], ['haru', 'We did.']] },
   ],
@@ -13997,7 +14456,7 @@ M({
       ['haru', 'Then who decides which wounded boys bleed out? You?'],
       ['aiko', 'Both of you, outside, before you wake him.'] ] },
     { t: 'go', at: 'clinic.yard', r: 2.5, text: 'Storm outside', on(m) { m.stay('haru', ['clinic.inside', -1, 0]); } },
-    { t: 'horse', label: 'Mend Kumo\'s saddle', text: 'Work on Kumo\'s saddle and calm down', hint: 'Whistle him (H) and press E beside him.' },
+    { t: 'horse', label: 'Mend Kumo\'s saddle', text: 'Work on Kumo\'s saddle and calm down', hint: 'Whistle him (H) and press E beside him.', busy: 'Working the leather…' },
     { t: 'rest', title: 'Night', sub: 'The conscript wakes.', tod: 0.95 },
     { t: 'scene', on(m) { m.place('haru', 'clinic.door'); }, parts: [['haru', '(from the doorway) Ren. He is awake. He has told me something you will want to hear.']] },
     { t: 'go', at: 'clinic.inside', r: 2, text: 'Go back inside' },
@@ -14037,6 +14496,7 @@ M({
     m.spawn('imperial', 'quietrain.court', 5, { watch: true, tag: 'watch', spread: 4, viewR: 8 }); m.spawn('rifleman', 'quietrain.roof', 1, { watch: true, tag: 'watch', viewR: 9 });
     for (const w of ['quietrain.patient1', 'quietrain.patient2', 'quietrain.patient3']) { const [a] = m.spawn('villager', w, 1, { calm: true, tag: 'patients', spread: 0.12, appear: true }); sickLook(a); }
   },
+  end() { G.profile.flags.quietrainBurnt = true; if (typeof StoryMap !== 'undefined' && StoryMap.wreck) StoryMap.wreck('quietrain', true); },
   steps: [
     { t: 'ride', at: 'quietrain.gate', r: 8, text: 'Ride after Haru to the Shrine of Quiet Rain', hint: 'He went ahead to his patients.', talk: [['aiko', 'He rode off before dawn. Didn\'t even eat.'], ['ren', 'His patients.'], ['aiko', 'Ren. Riders on the shrine road. Imperial.'], ['ren', 'How many?'], ['aiko', 'Enough to search a shrine.'], ['ren', 'Ride.']] },
     { t: 'go', at: 'quietrain.gate', r: 4, text: 'Get to the shrine', on(m) { m.goTo('officer', ['quietrain.gate', 0, -3.5]); } },
@@ -14046,7 +14506,7 @@ M({
     { t: 'escort', who: m => m.group('patients'), path: ['quietrain.court', 'quietrain.gate', 'quietrain.hills'], text: 'Get the patients out to the hills', hint: 'Haru takes the passage under the main hall. You take the courtyard.', on(m) { for (const a of m.group('patients')) { a.state = 'idle'; a.yieldLock = false; a.lying = false; a.sleeping = false; } const h = m.get('haru'); if (h) m.walk(h, ['quietrain.hall'], { run: 1 }); } },
     { t: 'use', at: 'quietrain.hall', label: 'Drag Haru out', text: 'Haru went back for his records. Drag him out before the roof falls', hint: 'He is in the burning hall.', cp: true, on(m) { m.place('haru', 'quietrain.hall'); } },
     { t: 'escape', at: 'quietrain.hills', r: 5, text: 'Get into the hills', on(m) { const h = m.get('haru'); if (h) { h.mPath = null; h.mTag = true; } } },
-    { t: 'scene', parts: [['narr', 'The shrine roof goes in. Haru kneels in the wet grass, gathering scattered pages.'], ['haru', 'Kenzo. Saki. The Ota twins...'], ['haru', 'Nine years of them.']], done(m) { const h = m.get('haru'); if (h) { h.mTag = false; h.state = 'kneel'; h.yieldLock = true; } } },
+    { t: 'scene', on(m) { m.look('quietrain.hall', 8); }, parts: [['narr', 'The shrine roof goes in. Haru kneels in the wet grass, gathering scattered pages.'], ['haru', 'Kenzo. Saki. The Ota twins...'], ['haru', 'Nine years of them.']], done(m) { if (typeof StoryMap !== 'undefined' && StoryMap.wreck) StoryMap.wreck('quietrain', m.fast); const h = m.get('haru'); if (h) { h.mTag = false; h.state = 'kneel'; h.yieldLock = true; } } },
     { t: 'use', ats: [['@haru', 1.5, 0.5], ['@haru', -1.2, 1.4], ['@haru', 0.4, -1.6], ['@haru', 2, -1]], label: 'Pick up the pages', thing: 'pages', take: true, text: 'Help him pick up the pages', done(m) { const h = m.get('haru'); if (h) { h.state = 'idle'; h.yieldLock = false; } } },
   ],
 });
@@ -14054,7 +14514,7 @@ M({
   n: 37, title: 'The Man with the Empty Hands', at: 'quietrain.hills', giver: 'haru', sites: ['clinic'], reward: 60,
   brief: 'A ruined farmhouse, a long night, and a question Ren cannot answer.',
   recap: 'At the ruined farmhouse Ren told Haru about Kiyohara, the horse, and fifteen years of treating everyone as a threat. Haru asked what Ren wanted his own life to look like after the war. Ren could not answer. In the morning a patient was waiting outside, and Ren picked up a bucket.',
-  setup(m) { m.cast('haru', 'quietrain.hills', { face: 0 }); m.spawn('villager', 'quietrain.hills', 3, { calm: true, tag: 'patients', spread: 3 }); },
+  setup(m) { m.cast('haru', 'quietrain.hills', { face: 0 }); m.spawn('villager', 'quietrain.hills', 3, { calm: true, tag: 'patients', spread: 3 }); m.prop('bucket', 'clinic.bucket', { solid: false }); },
   steps: [
     { t: 'go', at: 'clinic.yard', r: 4, mounted: true, text: 'Lead the patients to the ruined farmhouse', hint: 'Haru and the patients follow the road; ride ahead and see the place is safe.', talk: [['haru', 'Slowly. Some of them haven\'t walked this far in a month.'], ['haru', 'The little one asked me if there will be a roof.'], ['ren', 'Will there?'], ['haru', 'There will be a roof. It leaks. They\'ll like it.']], on(m) { m.comp('haru'); for (const a of m.group('patients')) m.walk(a, [['clinic.yard', rnd(-3, 3), rnd(-2, 2)]], { run: 0.6 }); } },
     { t: 'rest', title: 'Night', sub: 'The surviving patients sleep. The two of them do not.', tod: 0.94, then(m) { for (const a of m.group('patients')) { m.stopWalk(a); a.x = a.post[0] = m.at('clinic.inside')[0] + rnd(-1.5, 1.5); a.y = a.post[1] = m.at('clinic.inside')[1] + rnd(-1, 1); m.doze(a); } } },
@@ -14067,10 +14527,10 @@ M({
     { t: 'choice', key: 'whatAfter', ask: ['ren', '...'], options: [['"I don\'t know."', 'unknown'], ['"Quiet."', 'quiet'], ['Say nothing', 'none']], after: [['haru', 'Hm. Ask yourself again in a year.']] },
     { t: 'rest', title: 'Morning', tod: 0.3, then(m) { const h = m.get('haru'); if (h) { G.gang = G.gang.filter(b => b !== h); h.comp = false; h.faction = 'civ'; h.post = m.at('clinic.door', 1, 0); } m.spawn('prisoner', ['clinic.door', 2, 1.5], 1, { calm: true, tag: 'waiting', name: 'Elderly Patient' }); } },
     { t: 'scene', parts: [['Elderly Patient', 'Is the healer open? My chest is bad again.'], ['haru', 'Come in, grandfather. Ren, the well.']] },
-    { t: 'use', at: 'clinic.well', label: 'Draw water', text: 'Pick up a bucket and draw water' },
-    { t: 'use', at: 'clinic.door', label: 'Carry the water in', text: 'Carry the water to Haru' },
-    { t: 'use', at: 'clinic.well', label: 'Draw water', text: 'Again' },
-    { t: 'use', at: 'clinic.door', label: 'Carry the water in', text: 'And again', after: [['haru', 'Thank you.'], ['ren', '...Where do you want the next one?']] },
+    { t: 'use', at: 'clinic.well', label: 'Draw water', text: 'Pick up a bucket and draw water', dur: 1.8, busy: 'The rope, then the bucket…' },
+    { t: 'use', at: 'clinic.door', label: 'Carry the water in', text: 'Carry the water to Haru', dur: 1.1, busy: 'Carrying the bucket…' },
+    { t: 'use', at: 'clinic.well', label: 'Draw water', text: 'Again', dur: 1.6, busy: 'Drawing water…' },
+    { t: 'use', at: 'clinic.door', label: 'Carry the water in', text: 'And again', dur: 1.1, busy: 'Carrying the bucket…', after: [['haru', 'Thank you.'], ['ren', '...Where do you want the next one?']] },
   ],
 });
 M({
@@ -14108,8 +14568,8 @@ M({
   steps: [
     { t: 'ride', at: 'clinic.yard', r: 8, text: 'Ride back to the clinic', talk: [['aiko', 'Saeki\'s escort will report him by tonight.'], ['haru', 'And by tomorrow someone will report us.'], ['aiko', 'A sweep. Probably toward the clinic.'], ['haru', 'Then we ride faster.'], ['ren', 'We are riding faster.'], ['haru', 'Then faster than that.']] },
     { t: 'scene', parts: [['aiko', 'A sweep is coming down the valley. Twenty soldiers, maybe more. They know about the clinic.'], ['haru', 'Then we close it. Everything that matters goes in the chest.']] },
-    { t: 'use', ats: [['clinic.inside', 1, 0], ['clinic.inside', -1, 0], ['clinic.bench', 0, 0]], label: 'Pack it up', text: 'Pack up the clinic', dur: 0.8, busy: 'Packing…' },
-    { t: 'horse', label: 'Rearrange the saddle for the medicine chest', text: 'Make room on Kumo for Haru\'s medicine chest', hint: 'Whistle him (H).', after: [['ren', 'Kumo is a horse, Haru. Not a pharmacy.'], ['haru', 'Miso seems to approve.'], ['narr', 'Miso is asleep on top of the medicine chest.']] },
+    { t: 'use', ats: [['clinic.inside', 1, 0], ['clinic.inside', -1, 0], ['clinic.bench', 0, 0]], label: 'Pack it up', thing: k => ['crates', 'ricesacks', 'bedroll'][k], take: true, text: 'Pack up the clinic', dur: 1.5, busy: 'Folding blankets, packing jars…', on(m) { const h = m.get('haru'); if (h) { h.state = 'work'; h.work = { kind: 'pack', hold: 'crate', t: 0, dur: 12, beat: 0.55, fxT: 0 }; } }, done(m) { const h = m.get('haru'); if (h) { h.state = 'idle'; h.work = null; } } },
+    { t: 'horse', label: 'Lash the medicine chest to the saddle', text: 'Make room on Kumo for Haru\'s medicine chest', hint: 'Whistle him (H).', busy: 'Heaving the chest onto Kumo…', onUse() { Horse.addPack('chest'); Miso.onHorse(); }, after: [['ren', 'Kumo is a horse, Haru. Not a pharmacy.'], ['haru', 'Miso seems to approve.'], ['narr', 'Miso is asleep on top of the medicine chest.']] },
     { t: 'go', at: m => midway(m, 'clinic.yard', 'foundry.approach', 0.35, 'm1'), r: 7, mounted: true, on(m) { const p = midway(m, 'clinic.yard', 'foundry.approach', 0.35, 'm1'); const [a] = m.spawn('villager', [p[0] + 2, p[1] + 2], 1, { calm: true, tag: 'hurt', name: 'Wounded Traveller', appear: true }); sickLook(a); m.hurt = a; }, text: 'Take the road north with Haru and Aiko', talk: [['ren', 'We are becoming a travelling hospital, not a resistance.'], ['haru', 'A resistance is considerably less useful when all its members are dead.']] },
     { t: 'use', at: m => { const p = midway(m, 'clinic.yard', 'foundry.approach', 0.35, 'm1'); if (!m.hurt) { const [a] = m.spawn('villager', [p[0] + 2, p[1] + 2], 1, { calm: true, tag: 'hurt', name: 'Wounded Traveller' }); sickLook(a); m.hurt = a; } return [m.hurt.x, m.hurt.y]; }, label: 'Stop for the wounded traveller', text: 'Haru insists on stopping for a wounded traveller', onUse(m) { const a = m.hurt; if (a) { a.lying = false; a.yieldLock = false; a.state = 'idle'; } }, after: [['haru', 'A cut from a bayonet. Clean it, bind it, keep it dry. You will walk tomorrow.']] },
     { t: 'go', at: m => midway(m, 'clinic.yard', 'foundry.approach', 0.7, 'm2'), r: 7, mounted: true, text: 'Ride on. Aiko leads you around a patrol', talk: [['aiko', 'Patrol on the ridge road. Left, through the trees. Quietly.'], ['ren', 'That is the fourth time today.'], ['aiko', 'And you are alive four more times.']] },
@@ -14260,10 +14720,10 @@ M({
     { t: 'scene', parts: [['narr', 'Daichi feeds his commission papers to the fire, one page at a time. His insignia goes to a refugee child.'], ['Child', 'Is it real gold?'], ['daichi', 'Brass. Tell them it is gold. They will believe you; they believed me.']] },
     { t: 'scene', parts: [['daichi', 'Now. The proper maintenance of a small field cannon. First the bore: you scour it after every twelfth charge, unless the powder is damp, in which case every eighth, and you will want to check the vent for fouling, which brings us to the matter of the touch-hole, of which there are three schools of thought...']] },
     { t: 'rest', title: 'Some time later', sub: 'Ren has fallen asleep beside the fire. Aiko has heard the entire lecture.', tod: 0.86 },
-    { t: 'scene', parts: [['aiko', 'That was the most effective sleep remedy I have ever encountered.'], ['daichi', 'I beg your pardon?'], ['haru', 'It might be more useful with fewer diagrams.'], ['narr', 'Miso has Daichi\'s dried fish.']] },
+    { t: 'scene', on() { Miso.hold('fish'); }, parts: [['aiko', 'That was the most effective sleep remedy I have ever encountered.'], ['daichi', 'I beg your pardon?'], ['haru', 'It might be more useful with fewer diagrams.'], ['narr', 'Miso has Daichi\'s dried fish.']] },
     { t: 'wait', dur: 5, text: 'Watch Daichi argue with Miso about personal property', on(m) { const d = m.get('daichi'); Miso.lead = d ? [d.x + 2.5, d.y + 1] : null; }, talk: [['daichi', 'That is mine. Mine. Personal property is the foundation of civilisation, dog.'], ['daichi', 'Do not look at me like that.']], done() { Miso.lead = null; } },
     { t: 'scene', parts: [['ren', 'Ha!'], ['ren', '...Daichi. Kumo\'s saddle rubs him on the left side. Would you look at it?'], ['daichi', 'Of course.']] },
-    { t: 'horse', label: 'Hold Kumo for Daichi', text: 'Bring Kumo over for Daichi to look at his saddle', hint: 'Whistle him (H) and press E.', after: [['daichi', 'The saddle tree is cracked. Here. And the girth is a hand too tight.', 'There. Better, old man?'], ['narr', 'Kumo leans his whole weight against Daichi.']] },
+    { t: 'horse', label: 'Hold Kumo for Daichi', text: 'Bring Kumo over for Daichi to look at his saddle', hint: 'Whistle him (H) and press E.', busy: 'Daichi works the girth…', onUse(m) { const d = m.get('daichi'); if (d && G.horse) { d.x = G.horse.x + 0.9; d.y = G.horse.y + 0.4; d.mPath = null; d.faceTo(G.horse.x, G.horse.y); d.state = 'work'; d.work = { kind: 'hammer', t: 0, dur: 2.2, beat: 0.42, at: [G.horse.x, G.horse.y], fxT: 0 }; setTimeout(() => { if (d.state === 'work') { d.state = 'idle'; d.work = null; } }, 2200); } }, after: [['daichi', 'The saddle tree is cracked. Here. And the girth is a hand too tight.', 'There. Better, old man?'], ['narr', 'Kumo leans his whole weight against Daichi.']] },
   ],
 });
 // Black Reed Fort: guns on the walls, warehouses on the dock, boats in the mud
@@ -14337,7 +14797,7 @@ M({
     { t: 'scene', parts: [['aiko', 'They have posted new reward notices. You are worth more than me now. I am a little insulted.'], ['daichi', 'And my former colleagues are circulating warnings about a deserter who knows too much about their guns.'], ['ren', 'The next province belongs to the port governor at Kagetsuki. Grain, weapons, prisoners: everything that moves between here and the capital goes through his records.'], ['aiko', 'A city of informants, smugglers, corrupt officials and rival gangs.'], ['ren', 'Where every conversation is a transaction. I have no idea how to work in a place like that.']] },
     { t: 'talk', who: 'aiko', text: 'Talk to Aiko', lines: ['A port city.', '...I like it already.'] },
     { t: 'talk', who: 'daichi', text: 'Talk to Daichi', lines: ['The harbour handles perhaps two hundred cargoes a week. If we assume a mean tonnage of...'] },
-    { t: 'talk', who: 'haru', text: 'Talk to Haru', lines: ['I am packing extra medicine. Cities are full of people who do not know they are ill.'] },
+    { t: 'talk', who: 'haru', text: 'Talk to Haru', lines: ['I am packing extra medicine. Cities are full of people who do not know they are ill.'], on(m) { const h = m.get('haru'); if (h) { h.state = 'work'; h.work = { kind: 'pack', hold: 'sack', t: 0, dur: 20, beat: 0.55, fxT: 0 }; m.prop('crates', ['mtncamp.haru', 1.2, 0.4], { solid: false }); } }, done(m) { const h = m.get('haru'); if (h) { h.state = 'idle'; h.work = null; } Horse.addPack('crates'); } },
     { t: 'scene', parts: [['ren', 'Daichi. Daichi. That\'s my rice.'], ['daichi', 'It was cooling. Unattended.'], ['aiko', 'He\'s been learning from Miso.']] },
   ],
 });
@@ -14649,7 +15109,7 @@ M({
     { t: 'go', at: 'estate.hallDoor', r: 3, text: 'Go to the central hall with Genjiro' },
     { t: 'go', at: m => { const a = m.get('masanori'); return a ? [a.x + 1.5, a.y + 1.5] : m.at('estate.hallDoor'); }, r: 2.6, text: 'Confront Lord Masanori' },
     { t: 'scene', parts: [['masanori', 'So you are Ren Kisaragi. Smaller than the posters.', 'Let me be practical. Money. A place at the imperial court. You stop playing bandit, and I make sure the north is governed gently.'], ['masanori', 'The occupation is inevitable. Cooperation is the only realistic way to protect ordinary people. I have protected thousands that way.'], ['genjiro', '(quietly) Every collaborator I ever met said those exact words.']] },
-    { t: 'choice', key: 'masanori', ask: ['masanori', 'Well?'], options: [['"No."', 'no'], ['"...How much?"', 'how', [['genjiro', '(clears his throat)'], ['ren', 'No.']]]], after: [['masanori', 'Then you are a fool, and fools do not last.'], ['narr', 'A panel slides in the wall. He is gone.']], done(m) { m.remove(m.get('masanori'), true); } },
+    { t: 'choice', key: 'masanori', ask: ['masanori', 'Well?'], options: [['"No."', 'no'], ['"...How much?"', 'how', [['genjiro', '(clears his throat)'], ['ren', 'No.']]]], after: [['masanori', 'Then you are a fool, and fools do not last.'], ['narr', 'A panel slides in the wall. He is gone.']], done(m) { m.remove(m.get('masanori')); } },
     { t: 'rest', title: 'Dawn', tod: 0.27, then(m) { m.place('nao', ['estate.street', -3, 1.5]); m.place('aiko', ['estate.street', -1, 2]); } },
     { t: 'use', ats: [['estate.street', -6, -1], ['estate.street', 2, -1], ['estate.square', 0, -2]], label: 'Pull down the banner', text: 'Help the villagers pull down the lord\'s banners', onUse(m, k) { if (!k) m.talk([['Villager', 'Half his guards walked off in the night!'], ['Villager', 'And the elders have his account books!']]); const o = m.objs.filter(o => o.t === 'sunbanner')[k]; if (o) Missions.removeObj(o); } },
     { t: 'scene', parts: [['nao', 'No battle. No siege. Everyone just... stopped turning up for work.'], ['genjiro', 'That is how most lords fall. Nobody writes songs about it.']] },
@@ -14795,7 +15255,7 @@ M({
     { t: 'scene', on(m) { m.place('haru', ['hidden.sit', 1.5, 0.5]); }, parts: [['ren', 'I never told him he was right. About anything. I argued with every single thing he said.'], ['haru', 'He knew. That is why he argued back.']] },
     { t: 'rest', title: 'Dawn', tod: 0.26, then(m) { m.place('aiko', ['hidden.sit', -1.5, 0.5]); m.place('nao', ['hidden.sit', 0.5, 1.8]); m.prop('bedroll', ['hidden.sit', 0.3, 1.2]); } },
     { t: 'scene', parts: [['nao', 'Rice.'], ['ren', '...No joke?'], ['nao', 'Not today.']] },
-    { t: 'horse', label: 'Tie Genjiro\'s bell to the saddle', text: 'Tie Genjiro\'s bell to Kumo\'s saddle', hint: 'Whistle him (H).', after: [['ren', 'That bridge has to lead somewhere, Kumo.'], ['ren', 'Somewhere worth getting to.']] },
+    { t: 'horse', label: 'Tie Genjiro\'s bell to the saddle', text: 'Tie Genjiro\'s bell to Kumo\'s saddle', hint: 'Whistle him (H).', busy: 'Tying the bell to the saddle…', after: [['ren', 'That bridge has to lead somewhere, Kumo.'], ['ren', 'Somewhere worth getting to.']] },
   ],
 });
 M({
@@ -15069,12 +15529,12 @@ M({
   setup(m) { m.cast('aiko', ['hall.ammo', 1, 0]); m.cast('daichi', ['hall.fire', 2, 0]); m.cast('haru', ['hall.table', -1, 0.5]); m.prop('satchel', ['hall.table', 1.2, -0.6], { solid: false }); },
   steps: [
     { t: 'ride', at: m => midway(m, 'capital.square', 'hall.yard', 0.5, 'rmid'), r: 10, text: 'Ride out of the capital', talk: [['narr', 'The city is still shouting behind him. On the road out it gets quieter, and then quiet.'], ['ren', 'Kumo.'], ['ren', '...Nothing. Keep going.']] },
-    { t: 'ride', at: 'hall.yard', r: 8, text: 'Ride back to the headquarters', hint: 'West, the old hall.', talk: [['narr', 'Miso trots ahead, stops, waits, trots ahead again.']] },
+    { t: 'ride', at: 'hall.yard', r: 8, text: 'Ride back to the headquarters', hint: 'West, the old hall.', talk: [['narr', 'Miso trots ahead, stops, waits, trots ahead again.']], each(m, dt) { m._dogT = (m._dogT || 0) - dt; if (m._dogT > 0) return; m._dogT = 2.6; const p = G.player, f = (p.mounted && G.horse ? G.horse.face : p.face); Miso.lead = [p.x + Math.cos(f) * 7, p.y + Math.sin(f) * 7]; }, done() { Miso.lead = null; } },
     { t: 'use', at: ['hall.table', 1.2, 0.6], label: 'Look at Nao\'s satchel', text: 'Look at Nao\'s satchel' },
     { t: 'wait', dur: 6, text: 'Watch the others work', talk: [['haru', 'Bandages, forty. Splints, twelve. It won\'t be enough. It never is.'], ['daichi', 'If they attack this place, we hold for half a day. Perhaps less. I would rather it were more.']] },
-    { t: 'go', at: 'hall.kumo', r: 2.4, text: 'Walk out into the yard, to Kumo', on(m) { m.horse('hall.kumo'); const p = m.at('hall.kumo'); if (p) Miso.lead = [p[0] + 0.8, p[1] + 0.6]; } },
-    { t: 'scene', on(m) { m.place('haru', ['hall.kumo', -1.5, 0.8]); }, parts: [['narr', 'Miso is lying between Kumo\'s forelegs. He does not get up.'], ['ren', 'Nao used to give him the fish skins.'], ['haru', 'I know.'], ['ren', 'It doesn\'t get smaller, does it? You\'d think, with more of them, each one would...'], ['haru', 'No. It doesn\'t.'], ['ren', 'Then how does anybody keep going?'], ['haru', 'You don\'t carry all of it at once. You pick up the next thing. Then the next.']], done() { Miso.lead = null; } },
-    { t: 'horse', label: 'Take Genjiro\'s bell from the saddle', text: 'Take Genjiro\'s bell from the saddle', after: [['ren', 'Aiko. Daichi. Haru.'], ['ren', 'We have a war to finish.']] },
+    { t: 'go', at: 'hall.kumo', r: 2.4, text: 'Walk out into the yard, to Kumo', on(m) { m.horse('hall.kumo'); Miso.atFeet(); } },
+    { t: 'scene', on(m) { m.place('haru', ['hall.kumo', -1.5, 0.8]); Miso.atFeet(); }, parts: [['narr', 'Miso is lying between Kumo\'s forelegs. He does not get up.'], ['ren', 'Nao used to give him the fish skins.'], ['haru', 'I know.'], ['ren', 'It doesn\'t get smaller, does it? You\'d think, with more of them, each one would...'], ['haru', 'No. It doesn\'t.'], ['ren', 'Then how does anybody keep going?'], ['haru', 'You don\'t carry all of it at once. You pick up the next thing. Then the next.']], done() { Miso.atFeet(); } },
+    { t: 'horse', label: 'Take Genjiro\'s bell from the saddle', text: 'Take Genjiro\'s bell from the saddle', busy: 'Unfastening the bell…', after: [['ren', 'Aiko. Daichi. Haru.'], ['ren', 'We have a war to finish.']] },
   ],
 });
 M({
@@ -15156,7 +15616,7 @@ M({
     { t: 'scene', parts: [['aiko', 'Ren.'], ['aiko', '...He did the maths. He always did the maths.']] },
     { t: 'use', at: m => { const P = G.player; return [P.x + 0.9, P.y + 0.5]; }, label: 'Take Daichi\'s tools', thing: 'satchel', take: true, text: 'Take the small set of tools Daichi left in his pack' },
     { t: 'narr', lines: ['A file, a gauge, two small wrenches. MORI burned into one handle.'] },
-    { t: 'horse', label: 'Tie the tools beside the bell', text: 'Tie Daichi\'s tools beside Genjiro\'s bell', hint: 'Whistle Kumo (H) if he is not near.', after: [['narr', 'The tools clink against Genjiro\'s bell.']] },
+    { t: 'horse', label: 'Tie the tools beside the bell', text: 'Tie Daichi\'s tools beside Genjiro\'s bell', hint: 'Whistle Kumo (H) if he is not near.', busy: 'Lashing the tools on…', after: [['narr', 'The tools clink against Genjiro\'s bell.']] },
   ],
   end() { G.profile.flags.daichiGone = true; },
 });
@@ -15339,6 +15799,8 @@ const Render = {
       o.lvl = (!G.mp && o.hk === 'hall') ? Math.min(3, Math.floor(Object.values(G.profile ? G.profile.hideout : {}).reduce((s, v) => s + v, 0) / 5)) : (src[o.hk] || 0);
       extra = 'L' + o.lvl;
     }
+    if (o.noWheel) extra += 'W';
+    if (o.tilt) extra += 'T';
     const s = Props.sprite(o, extra);
     if (s) o.smokeAt = s.smoke ? -s.smoke[1] : (o.t === 'smith' ? 36 : 0);
     return s;
@@ -15371,7 +15833,7 @@ const Render = {
     for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
       const sx = (i - j) * HTW - camX; if (sx < -140 || sx > VW + 140) continue;
       const sy = (i + j) * HTH - camY; if (sy < -20 || sy > VH + 260) continue;
-      for (const o of World.at(i, j)) { if (o.indoor && o.indoor.open < 0.02) continue; D.push({ k: o.key, o }); this.visibleObjs.push(o); }
+      for (const o of World.at(i, j)) { if (o.hide || (o.indoor && o.indoor.open < 0.02)) continue; D.push({ k: o.key, o }); this.visibleObjs.push(o); }
     }
     // anyone on a bridge stands on its deck, a few pixels up
     const BL = Bridges.list.length ? (x, y) => Bridges.lift(x, y) : () => 0;
@@ -15554,11 +16016,25 @@ function figOf(a, t) {
   else if (a.state === 'stagger') { pose = 'stagger'; pt = a.sT; }
   else if (a.state === 'kneel') pose = 'kneel';
   else if (a.state === 'bow') pose = 'bow';
+  else if (a.state === 'work' && a.work) {
+    const w = a.work, u = (w.t / Math.max(0.28, w.beat || 0.55)) % 1; pt = u;
+    if (w.kind === 'haul') pose = 'haul';
+    else if (w.kind === 'heave') pose = 'heave';
+    else if (w.kind === 'cut') { pose = u < 0.42 ? 'windup' : 'swing'; pt = u < 0.42 ? u / 0.42 : (u - 0.42) / 0.58; }
+    else if (w.kind === 'hammer') { pose = u < 0.55 ? 'hwindup' : 'hswing'; pt = u < 0.55 ? u / 0.55 : (u - 0.55) / 0.45; }
+    else if (w.kind === 'dig') pose = 'dig';
+    else if (w.kind === 'pry') pose = 'pry';
+    else if (w.kind === 'pack') pose = 'pack';
+    else pose = 'work';
+  }
+  else if (a.carry) { pose = a.carry === 'bucket' || a.carry === 'beam' ? 'haul' : 'pack'; pt = (a.walk || 0) % 1; }
   else if (a.aimAt) { pose = 'thrust'; pt = 0.55; }
-  const showGun = !!(a.gun && pose !== 'sleep' && pose !== 'sit' && pose !== 'kneel' && pose !== 'bow' && a.state !== 'atk');
+  const showGun = !!(a.gun && pose !== 'sleep' && pose !== 'sit' && pose !== 'kneel' && pose !== 'bow' && a.state !== 'atk' && a.state !== 'work');
   const down = pose === 'sleep' || pose === 'sit';
-  const armed = !down && (showGun || (a.wpn !== 'fists' && (fighting || pose !== 'idleArmed')));
-  return { face: a.face, look: a.look, wpn: showGun ? 'arquebus' : a.wpn, armor: a.armor, pose, t: pt, moving: a.moving && !down && pose !== 'kneel', walk: a.walk, bloody: a.bloody, flash: a.flash > 0, unarmed: !armed, sheath: !armed && !down && (a.wpn !== 'fists' ? !['hoe', 'kama'].includes(a.wpn) : a === G.player && G.profile.weapons.length > 0), trailCol: a.riposte > 0 ? '#ffd27a' : null, crouch: !!a.crouch && !a.mounted, child: childOf(a) };
+  const working = a.state === 'work';
+  const carrying = !!a.carry;
+  const armed = !down && !working && !carrying && (showGun || (a.wpn !== 'fists' && (fighting || pose !== 'idleArmed')));
+  return { face: a.face, look: a.look, wpn: showGun ? 'arquebus' : a.wpn, armor: a.armor, pose, t: pt, moving: a.moving && !down && pose !== 'kneel' && pose !== 'heave', walk: a.walk, bloody: a.bloody, flash: a.flash > 0, unarmed: !armed, sheath: !armed && !down && (a.wpn !== 'fists' ? !['hoe', 'kama'].includes(a.wpn) : a === G.player && G.profile.weapons.length > 0), trailCol: a.riposte > 0 ? '#ffd27a' : null, crouch: !!a.crouch && !a.mounted && !working && !carrying, child: childOf(a), hold: (working && a.work && a.work.hold) || a.carry || null };
 }
 function drawActor(ctx, a, sx, sy, t, riding = false) {
   if (a.dummy) {
@@ -15568,7 +16044,7 @@ function drawActor(ctx, a, sx, sy, t, riding = false) {
   }
   const F = figOf(a, t);
   if (riding) { F.riding = true; F.noShadow = true; F.moving = false; F.crouch = false; }
-  if (a === G.player) { const was = a._wasArmed; a._wasArmed = !F.unarmed; if (!was && a._wasArmed) Snd.play('draw', 0.6); if (!F.unarmed) a._armedT = 4; else a._armedT = (a._armedT || 0) - 0.016; if (a._armedT > 0) { F.unarmed = false; F.sheath = false; } }
+  if (a === G.player && a.state !== 'work' && !a.carry) { const was = a._wasArmed; a._wasArmed = !F.unarmed; if (!was && a._wasArmed) Snd.play('draw', 0.35); if (!F.unarmed) a._armedT = 4; else a._armedT = (a._armedT || 0) - 0.016; if (a._armedT > 0) { F.unarmed = false; F.sheath = false; } }
   if (a.state === 'charge' && a.chargeT > 0.3) sx += Math.round(Math.sin(t * 60));
   if (a.state === 'roll') {
     const k = clamp(a.sT / 0.36, 0, 1), sgn = Math.cos(a.face) - Math.sin(a.face) >= 0 ? 1 : -1;
