@@ -2012,6 +2012,47 @@ const World = {
     return o;
   },
   removeObj(o) { const k = this.key(Math.floor(o.cx), Math.floor(o.cy)), L = this.grid.get(k); if (!L) return; const i = L.indexOf(o); if (i >= 0) L.splice(i, 1); if (!L.length) this.grid.delete(k); },
+  // lasting marks a mission leaves behind. G.profile.world holds the small records; placeStamp puts them back after a rebuild.
+  stampList() { return (G.profile && (G.profile.world || (G.profile.world = []))) || []; },
+  stampSite(S, st) {
+    if (!S || !st) return false;
+    if (!st.site) return st.t === 'farm' && S.bb && st.x >= S.bb[0] && st.y >= S.bb[1] && st.x <= S.bb[2] && st.y <= S.bb[3];
+    const id = st.site;
+    return S.story === id || S.adopted === id || S.id === id || S.id === 'st_' + id || S.layout === id;
+  },
+  applyStamps(S) {
+    const L = G.profile && G.profile.world; if (!L || !S) return;
+    for (const st of L) if (this.stampSite(S, st)) this.placeStamp(st);
+  },
+  placeStamp(st) {
+    if (!st || !st.id) return;
+    if (!this._stampOn) this._stampOn = new Set();
+    if (st.t === 'prop') {
+      if (this._stampOn.has(st.id)) return;
+      this._stampOn.add(st.id);
+      const ex = Object.assign({ solid: false, keep: true, stampId: st.id }, st.extra || {});
+      this.addObj(st.kind, st.x, st.y, st.w || 1, st.h || 1, ex);
+      return;
+    }
+    if (st.t === 'defense') { this.stampMilitia(st); return; }
+    if (st.t === 'bridge' && st.down && typeof StoryMap !== 'undefined' && StoryMap.collapse) { if (!this._stampOn.has(st.id)) { this._stampOn.add(st.id); StoryMap.collapse(st.site, true); } return; }
+    if (st.t === 'ruin' && typeof StoryMap !== 'undefined' && StoryMap.wreck) { if (!this._stampOn.has(st.id)) { this._stampOn.add(st.id); StoryMap.wreck(st.site, true); } return; }
+    if (st.t === 'farm') {
+      if (this._stampOn.has(st.id)) return;
+      this._stampOn.add(st.id);
+      if (this.field) this.field(st.x, st.y, st.w, st.h, { crops: true, gate: st.gate || 'N' });
+    }
+  },
+  stampMilitia(st) {
+    if (typeof G === 'undefined' || !G.actors || typeof makeNPC !== 'function') return;
+    const spots = st.spots || []; if (!spots.length) return;
+    let n = 0; for (const a of G.actors) if (a && !a.gone && !a.dead && a.stampId === st.id) n++;
+    for (let i = n; i < 3; i++) {
+      const q = spots[Math.min(i, spots.length - 1)];
+      const a = makeNPC('ronin', q[0] + (i - 1) * 0.7, q[1] + 0.5, { persistent: true, faction: 'civ', ally: true, name: 'Militia', wanderR: 1.4, post: [q[0], q[1]] });
+      a.stampId = st.id; a.realm = st.site; a.mEnemy = false; G.actors.push(a);
+    }
+  },
   free(x, y, w = 1, h = 1, pad = 0) {
     for (let j = y - pad; j < y + h + pad; j++) for (let i = x - pad; i < x + w + pad; i++) if (!this.in(i, j) || this.clearAt(i, j) || this.solidAt(i, j) || TINFO[this.tileAt(i, j)].water) return false;
     return true;
@@ -2143,7 +2184,7 @@ const World = {
   gen(seed) {
     const t0 = performance.now();
     Noise.seed = seed; this.seed = seed; const R = RNG(seed);
-    this.chunks = new Array(NCK * NCK); this.sub = new Map(); this.grid = new Map(); this.bmap = new Map(); this.feat = new Map();
+    this.chunks = new Array(NCK * NCK); this.sub = new Map(); this.grid = new Map(); this.bmap = new Map(); this.feat = new Map(); this._stampOn = new Set();
     this.live = new Set(); this.chunkObjs = new Map(); this.chestAt = new Map();
     this.spots = {}; this.towers = []; this.chests = []; this.steam = []; this.farms = []; this.farmG = new Map(); PLACES.length = HPLACES;
     Buildings.reset(); Bridges.reset();
@@ -3546,6 +3587,7 @@ const Realm = {
     const has = { ['sq_ik_' + S.id]: () => (S.keepers || []).some(k => k.key === 'ik_' + S.id), ['sq_lord_' + S.id]: () => S.lord && S.lord.at, ['sq_lady_' + S.id]: () => S.lady && S.lady.at };
     for (const id in has) if (QDEFS[id] && !has[id]() && !(G.profile && G.profile.quests[id])) delete QDEFS[id];
     if (S.tower) World.tower(S.tower.towerId, Math.round(S.tower.cx), Math.round(S.tower.cy), S.tower.tname);
+    World.applyStamps(S);
     Ground.invalidateRect(x0, y0, x1, y1);
   },
   // streets follow the ground: bent lanes, staggered lots, vacant gaps; a castle town (and Edo) keeps its lord's palace to the north
@@ -3647,6 +3689,11 @@ const Realm = {
     }
     if (sub === 'fishing') for (let k = 0; k < 6; k++) { q = spot(cx - L - 6, last + 3, cx + L + 6, last + 10); if (q) W.deco(k < 3 ? 'fishrack' : 'boat', q[0], q[1], 1, 1, { solid: k < 3 }); }
     W.keepClear(cx, cy + 1, 4);
+    if (S.spots) {
+      if (S.square) S.spots.square = S.square.slice();
+      const st = streets[0];
+      if (st) S.spots.street = [(st.x0 + st.x1) / 2, st.y + 1];
+    }
   },
   // the town square: packed earth in a ragged disc, a well, the notice board, lamps
   square(S, R, cx, cy, r, path) {
@@ -6316,7 +6363,7 @@ const G = {
       weapons: ['katana', 'tanto'], stash: [], wpn: 'katana', lastBlade: 'katana', worldV: 7, minis: {}, armors: [0], armor: 0, bandages: 3, sake: 1, day: 1, tod: 0.3,
       hideout: { barracks: 0, forge: 0, shrine: 0, dojo: 0, garden: 0, kura: 0, walls: 0 }, gang: [], blades: {}, bounties: [], bountyDay: 0,
       discovered: {}, kills: 0, severs: 0, deaths: 0, duelsWon: 0, prayed: 0, secondDay: 0, graves: [], innDay: 0, recruits: [], bestStreak: 0,
-      quests: {}, track: null, flags: {}, chests: {}, towers: {}, camps: {}, fog: '', horse: null, pos: null, bonusHp: 0, assassinations: 0
+      quests: {}, track: null, flags: {}, chests: {}, towers: {}, camps: {}, fog: '', horse: null, pos: null, bonusHp: 0, assassinations: 0, world: []
     };
   },
   start(profile, skipTutorial = false) {
@@ -7240,6 +7287,7 @@ const Systems = {
       s.flags = {}; s.horse = null;
     }
     if (s.look) fixLook(s.look);
+    if (!Array.isArray(s.world)) s.world = [];
     if (s.worldV !== 6 && s.worldV !== 7) {
       const outer = k => /^(r\d|ron|rt|rc|rs\d|oc\d|rq_|sq_|hm_|edo|fumoto|sengen|fuji|lord_|lady_|ik_|km_|sk_|dj_|st_)/.test(k);
       for (const key of ['discovered', 'towers', 'camps', 'chests', 'quests']) if (s[key]) for (const k of Object.keys(s[key])) if (outer(k)) delete s[key][k];
@@ -11885,7 +11933,8 @@ const SPOT_ALIAS = {
   forgeIn: 'forge', kanaIn: 'kana', officeIn: 'office', hallIn: 'hall', adminIn: 'admin', innIn: 'inn',
   workIn: 'workshop', recordsIn: 'records', powderIn: 'powder', warehouseIn: 'warehouse', demo: 'demo1',
   sign: 'sign1', herb: 'herb1', shelter: 'shelter1', patient: 'patient1', channel: 'channel1',
-  standard: 'standard1', grain: 'grain1', house: 'house1', tents: 'tents', lordAt: 'hallDoor'
+  standard: 'standard1', grain: 'grain1', house: 'house1', tents: 'tents', lordAt: 'hallDoor',
+  cell4In: 'cell4', cell3In: 'cell3', cell2In: 'cell2', cell1In: 'cell1'
 };
 const StoryMap = {
   sites: {}, list: [],
@@ -12043,6 +12092,7 @@ const StoryMap = {
     const S = this.sites[id]; if (!S) return;
     const [x0, y0, x1, y1] = S.bb; for (let y = y0; y <= y1 + 31; y += 32) for (let x = x0; x <= x1 + 31; x += 32) World.completeAt(Math.min(x, x1), Math.min(y, y1));
     if (!S.built) Realm.build(S);
+    else World.applyStamps(S);
     const n = G.profile && G.profile.story && G.profile.story.n;
     if (id === 'stonebridge' && n > 35 && S.bridge && !S.bridge.fallen) this.collapse(id, true);
     if (id === 'oldbridge' && n > 75 && S.bridge && !S.bridge.fallen) this.collapse(id, true);
@@ -12402,7 +12452,7 @@ const LAYOUTS = {
   // ---- Red Pine Ridge: drill field, platforms, artillery yard, barracks, the records warehouse, kitchen, ammo yard
   redpine: {
     r: 40, name: 'Red Pine Ridge Training Ground', jp: '赤松練兵場', spur: ['gate'],
-    spots: { approach: [-6, 40], ridge1: [-46, -30], ridgeTop: [-50, -40], gate: [0, 32], southFence: [-10, 30], field: [2, 4], platform: [-8, 2], wagon: [12, 14], kitchen: [-16, 12], ammo: [18, -6], sheds: [22, -16], records: [-8, -16], recordsIn: [-8, -19], drain: [-26, -26], forest: [-38, -36], dummies: [10, 0], guns: [16, -14], mule: [8, 16], barracks: [-22, -6], tunnel: [-20, -20] },
+    spots: { approach: [-6, 40], ridge1: [-46, -30], ridgeTop: [-50, -40], gate: [0, 32], southFence: [-10, 30], field: [2, 4], platform: [-8, 2], wagon: [12, 14], kitchen: [-16, 12], ammo: [18, -6], sheds: [22, -16], records: [-8, -16], recordsIn: [-8, -19], drain: [-30, -30], drainMid: [-24, -26], forest: [-38, -36], dummies: [10, 0], guns: [16, -14], mule: [8, 16], barracks: [-22, -6], tunnel: [-20, -20] },
     build(S, P) {
       P.clear(0, 0, 34); P.disc(1, 1, 32, TILE.GRAVEL); P.tile(-10, -6, 24, 16, TILE.PATH);
       P.yard('palisade', -27, -27, 27, 29, { N: [[0, 3]], S: [[24, 30]], E: [[16, 20]] });
@@ -12419,7 +12469,9 @@ const LAYOUTS = {
       P.d('wagon', 12, 14, 1, 1, { sun: true }); P.spot('wagon', 12.5, 16.5);
       P.banners([[-3, 28], [3, 28], [-6, -6], [8, -6], [24, 26]]); P.d('watchtower', 24, 24, 1, 1); P.d('watchtower', -24, 24, 1, 1); P.d('watchtower', 24, -24, 1, 1);
       for (const [dx, dy] of [[-3, 30], [3, 30], [-14, 10], [14, 10], [0, -14]]) P.lamp(dx, dy, 'stonelantern');
-      P.d('grate', -21, -21, 1, 1, { solid: false }); P.spot('tunnel', -20.5, -19.5); P.spot('drain', -30, -30);
+      P.d('grate', -21, -21, 1, 1, { solid: false }); P.spot('tunnel', -20.5, -19.5);
+      sewerHall(P, -36, -36, 18, 20, 'WE');
+      P.spot('drain', -30, -30); P.spot('drainMid', -24, -26);
       P.spot('ridge1', -46, -30); P.spot('ridgeTop', -50, -40); P.o('rock', -52, -42); P.o('rock', -48, -42);
       P.trees(110, 30, 56, ['pine', 'pine', 'maple', 'bush'], [[-46, -30, 4], [-50, -40, 4], [-38, -36, 4], [-30, -30, 4], [0, 34, 4], [-6, 40, 3], [-10, 31, 2], [-34, -34, 3]]);
       P.freeSpots();
@@ -12606,7 +12658,7 @@ const LAYOUTS = {
   },
   customs: {
     r: 18, name: 'Kagetsuki Customs House', jp: '影月税関', spur: ['bridge'],
-    spots: { bridge: [-14, 8], checkN: [-14, -12], canal: [12, 12], yard: [6, 6], archive: [0, -1], ledger: [-4, -4], office: [4, -4], officeIn: [4, -6], window: [10, -6], boat: [16, 16], island: [0, 4] },
+    spots: { bridge: [-14, 8], checkN: [-14, -12], canal: [12, 12], yard: [6, 6], archive: [0, -1], ledger: [-4, -4], office: [4, -4], officeIn: [4, -6], window: [10, -6], boat: [16, 16], island: [0, 4], drain1: [18, 24], drain2: [18, 34], drainOut: [18, 42] },
     build(S, P) {
       P.clear(0, 0, 16);       P.tile(-8, -10, 18, 18, TILE.STONE);
       for (let i = -11; i <= 13; i++) for (const [x, y] of [[i, -12], [i, 10], [-11, i - 1], [13, i - 1]]) P.water(x, y, 1, 1);
@@ -12615,6 +12667,9 @@ const LAYOUTS = {
       P.b('kura', -7, -9, 9, 7, { name: 'Customs Archive', spot: 'archive', in: 'ledger' }); P.b('machiya', 3, -9, 6, 8, { name: 'Secretary\'s Office', spot: 'office', in: 'officeIn' });
       P.d('crates', 4, 4); P.d('ricesacks', -4, 4); P.banners([[-9, 6], [8, 6]]); P.lamp(-6, 2, 'stonelantern'); P.lamp(6, 2, 'stonelantern');
       P.spot('window', 9.5, -2); P.d('boat', 14, 14, 1, 1, { solid: false });
+      P.d('grate', 15, 15, 1, 1, { solid: false });
+      sewerHall(P, 12, 16, 10, 30, 'N');
+      P.spot('drain1', 18, 24); P.spot('drain2', 18, 34); P.spot('drainOut', 18, 42);
       P.freeSpots();
     }
   },
@@ -12714,14 +12769,17 @@ const LAYOUTS = {
   },
   prison: {
     r: 20, name: 'The Western Complex', jp: '西院', spur: ['gate'],
-    spots: { gate: [0, 16], lever: [-4, 12], records: [6, -8], recordsIn: [6, -11], corridor: [-6, -2], cell1: [-12, -8], cell2: [-12, 2], cell3: [-2, -10], cell4: [-12, 8], drain: [-16, 14], yard: [2, 4] },
+    spots: { gate: [0, 16], lever: [-4, 12], records: [6, -8], recordsIn: [6, -11], corridor: [-6, -2], cell1: [-12, -8], cell2: [-12, 2], cell3: [-2, -10], cell4: [-12, 8], drain: [-13, 10.5], drainMid: [-24, 10], drainOut: [-34, 10], yard: [2, 4] },
     build(S, P) {
       P.clear(0, 0, 16); P.disc(0, 0, 17, TILE.STONE);
       P.yard('cwall', -15, -15, 15, 14, { S: [[13, 17]] });
       P.b('machiya', 3, -13, 7, 8, { name: 'Records Office', spot: 'records', in: 'recordsIn' });
       P.b('kura', -13, -13, 6, 5, { name: 'Cells', door: 'E', spot: 'cell1', in: 'cell1In' }); P.b('kura', -13, -4, 6, 5, { name: 'Cells', door: 'E', spot: 'cell2', in: 'cell2In' }); P.b('kura', -5, -13, 6, 5, { name: 'Cells', spot: 'cell3', in: 'cell3In' }); P.b('kura', -13, 5, 6, 5, { name: 'Cells', door: 'E', spot: 'cell4', in: 'cell4In' });
       P.d('cage', -6.4, -10.2, 1.6, 1.6, { solid: false, lift: 0.35 }); P.d('cage', -6.4, -1.2, 1.6, 1.6, { solid: false, lift: 0.35 }); P.d('cage', -6.4, 7.8, 1.6, 1.6, { solid: false, lift: 0.35 });
-      P.d('chestlock', -4, 11); P.spot('lever', -3.5, 12.5); P.d('grate', -14, 12, 1, 1, { solid: false }); P.spot('drain', -13, 12.5);
+      P.d('chestlock', -4, 11); P.spot('lever', -3.5, 12.5);
+      P.d('grate', -14, 10, 1, 1, { solid: false }); P.spot('drain', -13, 10.5);
+      sewerHall(P, -36, 6, 24, 10, 'E');
+      P.spot('drainMid', -24, 10); P.spot('drainOut', -34, 10);
       P.banners([[-3, 12], [3, 12]]); for (const [dx, dy] of [[-3, 15], [3, 15], [0, 0]]) P.lamp(dx, dy, 'stonelantern'); P.freeSpots();
     }
   },
@@ -12868,7 +12926,7 @@ const EXTRAS = {
   cabbage(S, P) {
     const L = S.L || 22, q = freeRectNear(P, L + 6, 4, 9, 7) || [L + 6, 4];
     const [x, y] = q; P.field(x, y, 9, 7, { tile: TILE.DGRASS, crops: true, gate: 'S' });
-    P.spot('garden', x + 4.5, y + 3.5); P.spot('gardenGate', x + 4.5, y + 8.5); const sx = S.spots.square[0] - P.ox, sy = S.spots.square[1] - P.oy; P.d('stall', sx + 3, sy - 1, 1, 1); P.spot('stall', sx + 3.5, sy + 1.2);
+    P.spot('garden', x + 4.5, y + 3.5); P.spot('gardenGate', x + 4.5, y + 8.5); const sq = S.spots.square || S.square; if (sq) { const sx = sq[0] - P.ox, sy = sq[1] - P.oy; P.d('stall', sx + 3, sy - 1, 1, 1); P.spot('stall', sx + 3.5, sy + 1.2); }
   },
   boyvil(S, P) {
     const L = S.L || 22;
@@ -12879,7 +12937,7 @@ const EXTRAS = {
     if (S.spots.square) { const sx = Math.round(S.spots.square[0] - P.ox), sy = Math.round(S.spots.square[1] - P.oy); for (const [dx, dy] of [[-5, 4], [4, 4], [-1, -5]]) P.d('stall', sx + dx, sy + dy, 1, 1); }
   },
   sazanami(S, P) {
-    const [sx, sy] = [S.spots.square[0] - P.ox, S.spots.square[1] - P.oy];
+    const sq = S.spots.square || S.square || [P.ox, P.oy], [sx, sy] = [sq[0] - P.ox, sq[1] - P.oy];
     P.d('stall', sx - 5, sy + 6, 1, 1); P.d('stall', sx + 5, sy + 6, 1, 1); P.spot('stall', sx - 5, sy + 8); P.spot('veg', sx + 5, sy + 8);
     const f = freeRectNear(P, (S.L || 32) + 10, 8, 8, 6) || [(S.L || 32) + 10, 8]; P.tile(f[0], f[1], 8, 6, TILE.FLOOR); for (const [i, j] of [[1, 1], [5, 1], [1, 4], [5, 4]]) P.d('fishrack', f[0] + i, f[1] + j); P.spot('fish', f[0] + 4, f[1] + 3); P.spot('fishOut', f[0] + 4, f[1] + 7.5);
     P.banners([[sx - 7, sy - 3], [sx + 7, sy - 3]]);
@@ -12888,7 +12946,7 @@ const EXTRAS = {
     const t = freeRectNear(P, 0, -24, 14, 10) || [0, -24]; P.b('honden', t[0], t[1] + 2, 7, 6, { name: 'Village Temple', spot: 'temple' }); P.b('kura', t[0] + 8, t[1], 5, 5, { name: 'Hidden Storehouse', spot: 'storehouse', in: 'storeIn' });
     const c = freeRectNear(P, -(S.L || 22) - 22, 10, 12, 8); if (c) { P.field(c[0], c[1], 12, 8, { gate: 'E' }); P.creek([[c[0], c[1] - 1], [c[0] + 12, c[1] - 1]], 0.5); for (let i = 0; i < 3; i++) P.spot('channel' + (i + 1), c[0] + 1.5 + i * 4, c[1] + 1.2); } else for (let i = 0; i < 3; i++) P.spot('channel' + (i + 1), -16 + i * 4, 12);
     const b = freeRectNear(P, (S.L || 22) + 14, -6, 4, 8); if (b) { P.creek([[b[0] + 2, b[1] - 6], [b[0] + 2, b[1] + 14]], 1.1); P.d('rubble', b[0], b[1] + 3); P.spot('bridge1', b[0] - 0.5, b[1] + 4); P.spot('bridge2', b[0] - 0.5, b[1] + 1); } else { P.creek([[20, -8], [20, 10]], 1.1); P.d('rubble', 18, 2); P.spot('bridge1', 18, 4); P.spot('bridge2', 18, 1); }
-    const wx = Math.round(S.spots.square[0] - P.ox), wy = Math.round(S.spots.square[1] - P.oy); P.d('well', wx, wy - 1); P.spot('well', wx + 0.5, wy + 1.2);
+    const wq = S.spots.square || S.square; if (wq) { const wx = Math.round(wq[0] - P.ox), wy = Math.round(wq[1] - P.oy); P.d('well', wx, wy - 1); P.spot('well', wx + 0.5, wy + 1.2); }
   },
   marsh(S, P) {
     P.water(-12, 22, 28, 10);
@@ -12906,7 +12964,7 @@ const EXTRAS = {
     P.spot('haru', 0.5, 5); P.spot('court', 0, 8); P.spot('gate', 0.5, 16); P.spot('hills', -24, -20); P.spot('roof', -3, 1); P.spot('hall', 0, 2);
   },
   kurohama(S, P) {
-    const [sx, sy] = [S.spots.square[0] - P.ox, S.spots.square[1] - P.oy];
+    const kq = S.spots.square || S.square || [P.ox, P.oy], [sx, sy] = [kq[0] - P.ox, kq[1] - P.oy];
     P.d('stall', sx, sy - 3, 1, 1); P.banners([[sx - 3, sy - 4], [sx + 3, sy - 4]]); P.spot('stage', sx, sy - 1.5); P.spot('crowd', sx, sy + 3);
     const o = freeRectNear(P, -(S.L || 32) - 14, -6, 8, 6) || [-(S.L || 32) - 14, -6]; P.b('quarters', o[0], o[1], 8, 6, { name: 'Governor\'s Office', spot: 'office', in: 'officeIn' });
     const r = freeRectNear(P, (S.L || 32) + 30, 20, 3, 3, 30) || [(S.L || 32) + 30, 20]; P.spot('road', r[0] + 1, r[1] + 1);
@@ -13342,6 +13400,25 @@ class MCtx {
   }
   // a prop for this mission only (removed when it ends)
   prop(t, w, ex = {}) { const p = this.at(w); if (!p) return null; const W_ = ex.w || 1, H_ = ex.h || 1; const o = World.addObj(t, p[0] - W_ / 2, p[1] - H_ / 2, W_, H_, Object.assign({ solid: false }, ex)); this.objs.push(o); return o; }
+  // a mark that stays after the mission: written onto the profile and put back whenever the site is built
+  stamp(rec) {
+    if (!G.profile || !rec) return null;
+    const L = G.profile.world || (G.profile.world = []);
+    const site = rec.site || ((this.def && this.def.sites && this.def.sites[0]) || '');
+    const st = Object.assign({ site }, rec);
+    if (!st.id) st.id = [st.t, st.site, st.kind || '', Math.round((st.x || 0) * 2), Math.round((st.y || 0) * 2)].join(':');
+    let row = null; for (const o of L) if (o.id === st.id) { row = o; break; }
+    if (!row) { L.push(st); row = st; }
+    World.placeStamp(row);
+    return row;
+  }
+  stampProp(kind, w, ex = {}) {
+    const p = this.at(w); if (!p) return null;
+    const W_ = ex.w || 1, H_ = ex.h || 1, extra = {};
+    for (const k in ex) if (k !== 'w' && k !== 'h' && typeof ex[k] !== 'function') extra[k] = ex[k];
+    if (extra.solid === undefined) extra.solid = true;
+    return this.stamp({ t: 'prop', kind, x: +(p[0] - W_ / 2).toFixed(2), y: +(p[1] - H_ / 2).toFixed(2), w: W_, h: H_, extra });
+  }
   // a place to press E
   usePoint(w, label, k, step) {
     if (typeof w === 'string' && w[0] === '@') {
@@ -15442,7 +15519,10 @@ M({
     { t: 'use', at: 'redpine.recordsIn', label: 'Search the records room', text: 'Search the records room' },
     { t: 'doc', id: 'example' },
     { t: 'scene', parts: [['ren', '"Example authorized."'], ['ren', '...Example.'], ['aiko', 'Two guards at the east door. One on the roof. The drain is this way.']] },
-    { t: 'escape', at: 'redpine.forest', r: 5, cp: true, text: 'Escape through the drainage tunnel into the forest', hint: 'The tunnel comes out beyond the north-west wall.', on(m) { m.walk(m.get('aiko'), ['redpine.tunnel', 'redpine.drain', 'redpine.forest'], { run: 1 }); m.alarm('*', true); const here = m.group('chase'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', m.at('redpine.records', 4, 4), 3); m.spawn('rifleman', m.at('redpine.records', 6, 2), 1); } } },
+    { t: 'go', at: 'redpine.tunnel', r: 2.4, cp: true, text: 'Get to the drainage grate', hint: 'North-west of the records warehouse, by the wall.', on(m) { m.walk(m.get('aiko'), ['redpine.tunnel'], { run: 1 }); m.alarm('*', true); const here = m.group('chase'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', m.at('redpine.records', 4, 4), 3); m.spawn('rifleman', m.at('redpine.records', 6, 2), 1); } } },
+    { t: 'go', at: 'redpine.drainMid', r: 2.6, text: 'Follow Aiko into the drain', hint: 'Stay on the bank. The channel is deep.', talk: [['aiko', 'Heads down. They will look in the forest first.']], on(m) { m.place('aiko', ['redpine.drainMid', 0.8, 0.3]); } },
+    { t: 'go', at: 'redpine.drain', r: 2.5, text: 'Keep going under the wall', on(m) { m.walk(m.get('aiko'), ['redpine.drain', 'redpine.forest'], { run: 1 }); } },
+    { t: 'escape', at: 'redpine.forest', r: 5, cp: true, text: 'Climb out into the forest', hint: 'The tunnel comes out beyond the north-west wall.' },
   ],
 });
 M({
@@ -15643,7 +15723,7 @@ M({
   ],
 });
 M({
-  n: 26, title: 'The Man Who Broke the Cage', at: 'labor.forest', atR: 8, giver: 'aiko', sites: ['mtnvil'], party: ['aiko'], reward: 60,
+  n: 26, title: 'The Man Who Broke the Cage', at: 'labor.forest', atR: 8, giver: 'aiko', sites: ['labor', 'mtnvil'], party: ['aiko'], reward: 60,
   brief: 'The freed prisoners hide in a mountain village that is very frightened of them.',
   recap: 'Takamine\'s elder asked who would save the village when the army came for it. Ren found the food they had hidden behind the temple and did not steal it. Instead he made a deal: the freed prisoners repaired the irrigation and rebuilt the bridge, and the village gave enough supplies to carry everyone to safety.',
   setup(m) { m.cast('elder', 'mtnvil.well', { face: PI * 0.25 }); m.spawn('villager', 'mtnvil.square', 6, { calm: true, tag: 'folk', wanderR: 6, post: false }); m.spawn('kid', 'mtnvil.square', 2, { calm: true, tag: 'folk', wanderR: 4, post: false }); const [fp] = m.spawn('prisoner', 'labor.forest', 1, { calm: true, tag: 'freed', key: 'Freed Prisoner', name: 'Freed Prisoner' }); if (fp) m.walk(fp, ['mtnvil.gateE', ['mtnvil.square', -2, 1]], { run: 0.7 }); for (const a of m.spawn('prisoner', 'labor.forest', 8, { calm: true, tag: 'freed', spread: 3 })) m.walk(a, ['mtnvil.gateE', ['mtnvil.square', rnd(-3, 3), rnd(-2, 2)]], { run: 0.7 }); m.prop('ricesacks', 'mtnvil.storeIn', { solid: false }); m.prop('crates', ['mtnvil.storeIn', 1.2, 0.4], { solid: false }); const bp = m.at('mtnvil.bridge1'); if (bp) for (const br of Bridges.near(bp[0] - 8, bp[1] - 8, bp[0] + 10, bp[1] + 12)) Bridges.drop(br); },
@@ -15653,7 +15733,14 @@ M({
     { t: 'go', at: 'mtnvil.storehouse', r: 2.6, text: 'Look around the village', hint: 'There is a storehouse behind the temple that nobody has mentioned.' },
     { t: 'scene', on(m) { m.place('elder', ['mtnvil.storehouse', 1.5, 1], { run: 1 }); }, parts: [['ren', 'Rice. Pickles. Medicine. For a village with nothing to spare.'], ['elder', '...The officers take whatever they can find. So we make sure they can\'t find it.']] },
     { t: 'choice', key: 'elderFood', ask: ['elder', 'Well? Take it, then. Everyone else does.'], options: [['Take what you need', 'take', [['aiko', 'Ren.'], ['ren', '...']]], ['Make him an offer', 'deal']], after: [['ren', 'Your channels are clogged and your bridge is in the river. The people we freed can work.', 'They fix both. You give us enough to get everyone west.'], ['elder', '...Agreed.']] },
-    { t: 'use', ats: ['mtnvil.channel1', 'mtnvil.channel2', 'mtnvil.channel3'], label: 'Clear the channel', thing: 'debris', take: true, text: 'Clear the irrigation channels with the freed prisoners', dur: 2.8, busy: 'Digging…', on(m) { let k = 0; for (const a of m.group('freed')) { const dest = m.at('mtnvil.channel' + (1 + k++ % 3), rnd(-1, 1), 1); if (!dest) continue; m.job(a, 'dig', null, dest, 24); } } },
+    { t: 'use', ats: ['mtnvil.channel1', 'mtnvil.channel2', 'mtnvil.channel3'], label: 'Clear the channel', thing: 'debris', take: true, text: 'Clear the irrigation channels with the freed prisoners', dur: 2.8, busy: 'Digging…', on(m) {
+      let crew = m.group('freed');
+      if (crew.length < 4) { for (let i = crew.length; i < 6; i++) m.spawn('prisoner', 'mtnvil.channel' + (1 + i % 3), 1, { calm: true, tag: 'freed', spread: 1.1 }); crew = m.group('freed'); }
+      let k = 0; for (const a of crew) {
+        const dest = m.at('mtnvil.channel' + (1 + k++ % 3), rnd(-1, 1), 1); if (!dest) continue;
+        a.x = dest[0]; a.y = dest[1]; a.mPath = null; m.setWork(a, 'dig', null, dest, 24);
+      }
+    } },
     { t: 'use', ats: ['mtnvil.bridge1', 'mtnvil.bridge2'], label: 'Haul a beam into place', thing: 'lumber', take: true, text: 'Rebuild the collapsed bridge', dur: 1.2, busy: 'Hauling…', on(m) { let k = 0; const p = m.at('mtnvil.bridge1'); for (const a of m.group('freed')) { const dest = m.at('mtnvil.bridge' + (1 + k++ % 2), rnd(-1.2, 1.2), 1); if (!dest) continue; if (m.fast || dist(a.x, a.y, dest[0], dest[1]) > 16) { a.x = dest[0]; a.y = dest[1]; a.mPath = null; } else m.walk(a, [dest], { run: 0.85 }); m.setWork(a, 'haul', 'beam', dest); } for (const a of m.group('folk').slice(0, 4)) { if (p) { if (m.fast) { a.x = p[0] + rnd(-2, 2); a.y = p[1] + rnd(1, 2.5); a.mPath = null; } else m.walk(a, [[p[0] + rnd(-2, 2), p[1] + rnd(1, 2.5)]], { run: 0.7 }); m.setWork(a, 'haul', 'beam', p); } } }, onUse(m, k) { if (k !== 1) return; const p = m.at('mtnvil.bridge1'); if (!p) return; const br = Bridges.add({ ax: p[0] - 1, ay: p[1] - 3, bx: p[0] + 5, by: p[1] + 1, hw: 0.95, kind: 'flat' }); if (br) Bridges.stamp(br); } },
     { t: 'scene', parts: [['aiko', 'You might actually be useful to someone other than yourself.'], ['ren', 'Don\'t tell anyone. I have a reputation.']] },
   ],
@@ -15746,7 +15833,7 @@ M({
     { t: 'ride', at: 'marsh.c', r: 9, text: 'Ride on to the marsh villages', talk: [['aiko', 'You were quiet back there.'], ['ren', 'An old man in my village said exactly that. About his ox. The day they came.'], ['aiko', '...What happened to the ox?'], ['ren', 'They took it.']] },
     { t: 'wait', dur: 4, text: '', on(m) { m.look('marsh.c', 4); }, talk: [['aiko', 'No children by the river.'], ['ren', 'No birds on the roofs.']] },
     { t: 'scene', parts: [['oldwoman', 'Fever. Half the village is too weak to stand. The healer here has the medicine, but the governor forbids him to give it out without official approval.', 'It is for the soldiers, they say.'], ['ren', 'Then we break into the government storehouse.'], ['aiko', 'And the sick survive a fight that leaves the medicine burning? Herbs first. Boiled water. Then we think.']] },
-    { t: 'use', ats: ['marsh.herb1', 'marsh.herb2', 'marsh.herb3'], label: 'Gather herbs', text: 'Gather fever herbs around the village', hint: 'Low plants at the edges of the fields.', onUse(m, k) { m.open('marsh.herb' + (k + 1), 'bush', 4, true); } },
+    { t: 'use', ats: ['marsh.herb1', 'marsh.herb2', 'marsh.herb3'], label: 'Gather herbs', text: 'Gather fever herbs around the village', hint: 'Low plants at the edges of the fields.', on(m) { for (let i = 1; i <= 3; i++) { const p = m.at('marsh.herb' + i); if (!p) continue; m.spawn('villager', p, 2, { calm: true, tag: 'folk', spread: 1.1 }); for (const a of G.actors) if (a && a.tag === 'folk' && !a.dead && dist(a.x, a.y, p[0], p[1]) < 2.4 && a.state !== 'work') m.setWork(a, 'cut', null, p, 16); } }, onUse(m, k) { m.open('marsh.herb' + (k + 1), 'bush', 4, true); } },
     { t: 'use', at: 'marsh.pot', label: 'Boil water and herbs', text: 'Boil the water', dur: 2, busy: 'Boiling…', on(m) { m.place('oldwoman', ['marsh.pot', 1.4, 0.6]); const h = m.get('Healer'); if (h) { const p = m.at('marsh.pot'); if (p) { h.x = p[0] - 1.1; h.y = p[1] + 0.5; h.mPath = null; } } }, after: [['narr', 'The pot boils over. A basket of roots goes into the mud.'], ['oldwoman', 'Ha! The great outlaw, defeated by a basket!'], ['ren', '...It was a very difficult basket.']] },
     { t: 'use', ats: [m => m.sick[0] ? [m.sick[0].x, m.sick[0].y] : m.at('marsh.c'), m => m.sick[1] ? [m.sick[1].x, m.sick[1].y] : m.at('marsh.c'), m => m.sick[2] ? [m.sick[2].x, m.sick[2].y] : m.at('marsh.c')], label: 'Help them up', text: 'Help the weakest to their feet', onUse(m, k) { const a = m.sick[k]; if (a) { a.state = 'idle'; a.yieldLock = false; a.yielded = false; a.lying = false; a.sleeping = false; m.walk(a, ['marsh.hall'], { run: 0.5 }); } } },
     { t: 'go', at: 'marsh.hall', r: 3, text: 'Get them into the dry communal hall' },
@@ -16295,9 +16382,16 @@ M({
     { t: 'scene', parts: [['nao', 'My shoulder! You nearly pulled my arm out of its socket!'], ['ren', 'You are welcome.'], ['Guard', 'BIRDS! Why are there BIRDS?']] },
     { t: 'use', at: 'customs.bridge', label: 'Jam the bridge mechanism', thing: 'winch', text: 'Help Daichi sabotage the bridge mechanism', dur: 1.5, busy: 'Jamming the gears…', on(m) { const p = m.at('customs.bridge'); m.cast('daichi', p ? [p[0] - 1.5, p[1] + 1] : ['customs.bridge', -1.5, 1]); const d = m.get('daichi'); if (d && p) { d.x = p[0] - 1.5; d.y = p[1] + 1; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'hammer', null, p, 10); } if (p && !Bridges.near(p[0] - 10, p[1] - 10, p[0] + 10, p[1] + 10).length) { const br = Bridges.add({ ax: p[0] - 6, ay: p[1], bx: p[0] + 6, by: p[1], hw: 1.45, kind: 'arch' }); if (br) Bridges.stamp(br); } } },
     { t: 'escape', at: 'customs.boat', r: 3, cp: true, text: 'Get to the canal before the boats close the harbour', spawn(m) { const here = m.group('foe'); if (here.length) { for (const a of here) { a.mEnemy = true; a.faction = 'imperial'; a.post = null; a.ai.mode = 'fight'; a.ai.target = G.player; a.aware = 1; } } else { m.spawn('imperial', 'customs.yard', 3); m.spawn('rifleman', ['customs.yard', 3, -3], 1); } } },
-    { t: 'use', at: 'customs.boat', label: 'Drop into the drain', text: 'Drop into the old drainage tunnels with Haru', dur: 1.6, busy: 'Down the grate…', onUse(m) { m.comp('daichi'); m.comp('haru'); m.cutTo(() => { m.put('foxden.drainIn'); for (const id of ['haru', 'daichi', 'nao', 'aiko']) { const a = m.get(id); if (a) { const q = m.at('foxden.drainIn', rnd(-1.2, 1.2), rnd(0.4, 1.6)); if (q) { a.x = q[0]; a.y = q[1]; a.mPath = null; } } } }); } },
-    { t: 'go', at: 'foxden.drainMid', r: 2.4, text: 'Follow the drain under the canals', talk: [['haru', 'Heads down. The channel is low here.'], ['nao', 'I have been in worse. Briefly.']] },
-    { t: 'go', at: 'foxden.grate', r: 2.5, text: 'Climb out under the bridge', hint: 'They come out under a bridge in the fishing district.' },
+    { t: 'use', at: 'customs.boat', label: 'Drop into the drain', text: 'Drop into the old drainage tunnels with Haru', hint: 'The grate by the boat.', dur: 1.6, busy: 'Down the grate…', onUse(m) {
+      m.comp('daichi'); m.comp('haru');
+      m.put('customs.drain1');
+      for (const [id, dx] of [['haru', 0.8], ['daichi', -0.8], ['nao', 0.3], ['aiko', -0.3]]) {
+        const a = m.get(id); const q = m.at('customs.drain1', dx, 0.6); if (a && q) { a.x = q[0]; a.y = q[1]; a.mPath = null; }
+      }
+    } },
+    { t: 'go', at: 'customs.drain2', r: 2.4, text: 'Follow the drain under the canals', talk: [['haru', 'Heads down. The channel is low here.'], ['nao', 'I have been in worse. Briefly.']], on(m) { for (const id of ['haru', 'daichi', 'nao', 'aiko']) m.place(id, ['customs.drain2', rnd(-0.8, 0.8), rnd(0.2, 0.8)]); } },
+    { t: 'go', at: 'customs.drainOut', r: 2.4, text: 'Keep going until you see the far grate', hint: 'The tunnel runs under the canals toward the fishing district.' },
+    { t: 'use', at: 'customs.drainOut', label: 'Climb out', text: 'Climb out under the bridge', hint: 'They come out under a bridge in the fishing district.', dur: 2, busy: 'Climbing the grate…', onUse(m) { m.cutTo(() => { m.put('foxden.grate'); for (const [id, d] of [['haru', 1], ['daichi', 2], ['nao', 3], ['aiko', 4]]) { const a = m.get(id); const q = m.at('foxden.grate', d * 0.7, 1); if (a && q) { a.x = q[0]; a.y = q[1]; a.mPath = null; } } }); } },
     { t: 'scene', parts: [['narr', 'Somewhere above the bridge, a town crier.'], ['Town Crier', '(on the bridge above) By order of the governor! Armed enemies of the empire! Priceless records stolen! Public property damaged! A ceremonial goldfish...'], ['nao', 'The goldfish was already trying to escape.'], ['ren', 'I refuse to discuss it.']] },
     { t: 'doc', id: 'ledgers' },
     { t: 'scene', parts: [['nao', 'I\'ll help you deliver it.'], ['ren', 'I haven\'t invited you to join the Lantern Route.'], ['nao', 'I haven\'t asked permission.']] },
@@ -16582,14 +16676,15 @@ M({
       onUse(m, k) {
         const keys = ['rivercity.defense1', 'rivercity.defense2', 'rivercity.defense3'], p = m.at(keys[k]); if (!p) return;
         if (k === 0) {
-          m.prop('cannon', p, { dir: 0 }); m.prop('crates', [p[0] - 1.6, p[1] + 0.8], { solid: true });
+          m.stampProp('cannon', p, { dir: 0, solid: true }); m.stampProp('crates', [p[0] - 1.6, p[1] + 0.8], { solid: true });
           m.stay('daichi', [p[0] + 1.2, p[1] + 0.5]); const d = m.get('daichi'); if (d) m.setWork(d, 'hammer', null, p, 24);
         } else if (k === 1) {
-          m.prop('barrels', p, { solid: true }); m.prop('crates', [p[0] + 1.5, p[1] + 0.2], { solid: true });
+          m.stampProp('barrels', p, { solid: true }); m.stampProp('crates', [p[0] + 1.5, p[1] + 0.2], { solid: true });
           m.stay('aiko', [p[0] - 1.1, p[1] + 0.8]); const a = m.get('aiko'); if (a) a.aimAt = m.at('rivercity.gateW');
         } else {
-          m.prop('crates', p, { solid: true }); m.prop('barrels', [p[0] - 1.4, p[1] + 0.5], { solid: true });
-          if (!m.group('militia').length) m.spawn('ronin', p, 3, { calm: true, tag: 'militia', faction: 'civ', ally: true, spread: 1.4, appear: false, here: true, exact: true });
+          m.stampProp('crates', p, { solid: true }); m.stampProp('barrels', [p[0] - 1.4, p[1] + 0.5], { solid: true });
+          const spots = ['rivercity.defense1', 'rivercity.defense2', 'rivercity.defense3'].map(key => m.at(key)).filter(Boolean);
+          m.stamp({ t: 'defense', site: 'rivercity', id: 'defense:rivercity', spots });
         }
         if (!m.fast) { Snd.play('thud', 0.45); FX.dust(p[0], p[1] + 0.6, 10); }
         m.look(p, 2.4);
@@ -16781,7 +16876,7 @@ M({
     for (const a of m.group('watch')) a.gateG = true;
     m.spawn('imperial', ['prison.records', 0, 2.5], 1, { watch: true, tag: 'watch', key: 'Guard', name: 'Guard', spread: 0.3, face: PI * 0.25, viewR: 6.5 });
     const [p] = m.spawn('imperial', ['prison.yard', 6, 0], 1, { watch: true, tag: 'watch', post: false, viewR: 6 }); m.walk(p, [['prison.yard', 6, 0], ['prison.yard', 6, -8], ['prison.yard', -2, -6]], { loop: true, run: 0.32 });
-    m.cast('haru', 'prison.drain'); m.cast('nao', ['prison.gate', 2, 4], { face: PI * 1.25 }); m.cast('aiko', ['prison.gate', -2, 4], { face: PI * 1.25 });
+    m.cast('haru', 'prison.drainMid'); m.cast('nao', ['prison.gate', 2, 4], { face: PI * 1.25 }); m.cast('aiko', ['prison.gate', -2, 4], { face: PI * 1.25 });
     m.spawn('kid', ['prison.cell3', 0, 1.6], 3, { calm: true, tag: 'kids', spread: 0.8 });
     m.spawn('kid', ['prison.cell3', 1, 1.6], 1, { calm: true, tag: 'kids', key: 'Messenger Boy', name: 'Kenta' });
     m.spawn('imperial', 'prison.recordsIn', 1, { calm: true, key: 'Cell Guard', name: 'Prison Guard' });
@@ -16812,7 +16907,7 @@ M({
     m.spawn('prisoner', ['prison.cell1', -0.8, -1.1], 1, { calm: true, tag: 'captives', key: 'Prisoner', name: 'Prisoner' });
     m.spawn('kid', ['prison.cell2', -0.6, -0.4], 1, { calm: true, tag: 'captives', spread: 0.15 });
     m.spawn('kid', ['prison.cell2', -1.6, -0.9], 1, { calm: true, tag: 'captives', spread: 0.15 });
-    m.cast('judge', ['prison.cell4', -1.4, -1.2], { appear: false }); m.cast('haru', 'prison.drain', { appear: false });
+    m.cast('judge', ['prison.cell4', -1.4, -1.2], { appear: false }); m.cast('haru', 'prison.drainMid', { appear: false });
     m.spawn('imperial', ['prison.gate', 0, -4], 2, { spread: 1.5 });
   },
   each(m, dt) { if (m.step && (m.step.t === 'use' || m.step.t === 'escort')) { m._gt = (m._gt ?? 12) - dt; if (m._gt <= 0 && m.alive('foe').length < 3) { m._gt = 16; m.spawn('imperial', m.at('prison.gate', rnd(-2, 2), -3), 2, { spread: 1.5 }); } } },
@@ -16821,8 +16916,10 @@ M({
     { t: 'scene', parts: [['Prisoner', 'If I walk out, they punish my family. They told me so every morning.'], ['ren', 'They told you that so you\'d stay.'], ['haru', '(from the drain) Anyone who can walk, carry someone who can\'t! One at a time through the grate!']] },
     { t: 'talk', who: 'judge', at: 'prison.cell4', r: 3, text: 'Speak with the old man in the last cell', on(m) { const door = m.at('prison.cell4'); let p = m.at('prison.cell4In') || door; if (p === door && door && typeof Buildings !== 'undefined') { const b = Buildings.list.find(bb => bb && bb.name === 'Cells' && dist(bb.x + bb.w / 2, bb.y + bb.h / 2, door[0], door[1]) < 10); if (b) p = [b.x + b.w * 0.45, b.y + b.h * 0.55]; } m.place('judge', p ? [p[0] - 0.4, p[1] - 0.3] : 'prison.cell4'); const j = m.get('judge'); if (j) { j.mStay = true; j.post = [j.x, j.y]; } m.stay('aiko', ['prison.yard', 4, -2]); m.stay('daichi', 'prison.gate'); m.stay('nao', ['prison.yard', -3, 1]); for (const a of m.group('foe')) { const g = m.at('prison.gate'); if (g) { a.x = g[0] + rnd(-2, 2); a.y = g[1] - 3; a.mPath = null; } } if (p) m.put([p[0] + 0.6, p[1] + 0.3]); }, parts: [['judge', 'Hoshino. I was a provincial judge, before I refused to approve the execution of seven village elders.', 'Those papers in your coat. May I?'], ['judge', 'They are authentic. And you are reading them as one crime.'], ['judge', 'Every province has a military tribunal now. Emergency decrees. A clerk can take a farm, a family, a village, and nobody ever reviews it.'], ['judge', 'Kahn is one man. That is a thousand clerks.']] },
     { t: 'choice', ask: ['ren', 'Then killing him alone changes nothing.'], options: [['"Can the provinces govern themselves, once he falls?"', 'govern']], after: [['judge', 'If they can stop fighting each other long enough. It has never happened yet.'], ['ren', '...An old man told me something like that once.']] },
-    { t: 'escort', who: m => [...m.group('captives'), m.get('judge')].filter(Boolean), path: ['prison.yard', 'prison.drain'], wait: 30, run: 0.85, text: 'Lead the prisoners to the drainage tunnel', hint: 'Stay near them. Guards are still coming.' },
+    { t: 'escort', who: m => [...m.group('captives'), m.get('judge')].filter(Boolean), path: ['prison.yard', 'prison.drain'], wait: 30, run: 0.85, text: 'Lead the prisoners to the drainage grate', hint: 'Stay near them. Guards are still coming.' },
     { t: 'hold', at: 'prison.drain', r: 8, dur: 20, every: 7, max: 4, clear: true, cp: true, text: 'Hold the damaged gate open while the last group passes', hint: 'Daichi has his shoulder under the gate. Keep them off him.', wave(m, i) { m.spawn('imperial', m.at('prison.gate', rnd(-2, 2), -3), 2, { spread: 1.5 }); } },
+    { t: 'go', at: 'prison.drainMid', r: 2.6, text: 'Follow Haru into the drain', hint: 'Stay on the bank. One at a time through the grate.', on(m) { m.place('haru', ['prison.drainMid', 0.8, 0.3]); for (const a of [...m.group('captives'), m.get('judge')].filter(Boolean)) m.walk(a, ['prison.drainMid', 'prison.drainOut'], { run: 0.7 }); } },
+    { t: 'go', at: 'prison.drainOut', r: 2.6, text: 'Get the last of them through the tunnel', talk: [['haru', 'Keep moving. The channel is low here.'], ['judge', 'I have not run in twelve years. I am considering not starting now.']] },
     { t: 'scene', parts: [['haru', 'Forty-one. Forty-one out through the drain.'], ['judge', 'And forty-one people who will stand up in any court and say what was done to them.']] },
   ],
   end() { G.profile.flags.judge = true; },

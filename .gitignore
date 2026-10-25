@@ -1,5 +1,6 @@
 .DS_Store
 *.log
+KEEP_WORKING.txt
 restore-save.html
 sfx-listen/_save-mission11.json
 sfx-listen/_save-mission35.json
