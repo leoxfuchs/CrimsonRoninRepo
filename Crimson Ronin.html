@@ -2034,6 +2034,11 @@ const World = {
   },
   // lasting marks a mission leaves behind. G.profile.world holds the small records; placeStamp puts them back after a rebuild.
   stampList() { return (G.profile && (G.profile.world || (G.profile.world = []))) || []; },
+  note(st) { if (!st || !st.id || !G.profile) return; const L = this.stampList(); if (!L.some(s => s.id === st.id)) L.push(st); },
+  restoreSpans() {
+    const L = G.profile && G.profile.world; if (!L) return;
+    for (const st of L) if (st.t === 'bridge' && !st.down) this.placeStamp(st);
+  },
   stampSite(S, st) {
     if (!S || !st) return false;
     if (!st.site) return st.t === 'farm' && S.bb && st.x >= S.bb[0] && st.y >= S.bb[1] && st.x <= S.bb[2] && st.y <= S.bb[3];
@@ -2051,10 +2056,24 @@ const World = {
       if (this._stampOn.has(st.id)) return;
       this._stampOn.add(st.id);
       const ex = Object.assign({ solid: false, keep: true, stampId: st.id }, st.extra || {});
+      if (ex.replace) {
+        const x0 = Math.floor(st.x) - 1, y0 = Math.floor(st.y) - 1, x1 = Math.ceil(st.x + (st.w || 1)) + 1, y1 = Math.ceil(st.y + (st.h || 1)) + 1;
+        for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) for (const o of this.at(i, j).slice()) if (o.t === ex.replace && !o.open && !o.stampId) {
+          if (typeof Missions !== 'undefined' && Missions.removeObj) Missions.removeObj(o); else this.removeObj(o);
+        }
+      }
       this.addObj(st.kind, st.x, st.y, st.w || 1, st.h || 1, ex);
       return;
     }
     if (st.t === 'defense') { this.stampMilitia(st); return; }
+    if (st.t === 'bridge' && !st.down) {
+      if (st.ax == null || typeof Bridges === 'undefined') return;
+      const x0 = Math.min(st.ax, st.bx) - 2, y0 = Math.min(st.ay, st.by) - 2, x1 = Math.max(st.ax, st.bx) + 2, y1 = Math.max(st.ay, st.by) + 2;
+      if (Bridges.near(x0, y0, x1, y1).some(b => !b.fallen)) return;
+      const br = Bridges.add({ ax: st.ax, ay: st.ay, bx: st.bx, by: st.by, hw: st.hw || 1, kind: st.kind || 'flat' });
+      if (br) Bridges.stamp(br);
+      return;
+    }
     if (st.t === 'bridge' && st.down && typeof StoryMap !== 'undefined' && StoryMap.collapse) { if (!this._stampOn.has(st.id)) { this._stampOn.add(st.id); StoryMap.collapse(st.site, true); } return; }
     if (st.t === 'ruin' && typeof StoryMap !== 'undefined' && StoryMap.wreck) { if (!this._stampOn.has(st.id)) { this._stampOn.add(st.id); StoryMap.wreck(st.site, true); } return; }
     if (st.t === 'farm') {
@@ -12161,6 +12180,7 @@ const StoryMap = {
   collapse(id, quiet) {
     const S = this.sites[id], b = S && S.bridge; if (!b || b.fallen) return;
     Bridges.drop(b);
+    World.note({ t: 'bridge', site: id, down: true, id: 'bridge:' + id });
     if (!quiet) { Snd.play('cannon', 0.8); Snd.play('thud', 1); G.shake = 6; for (let k = 0; k < 30; k++) { const t = Math.random(); FX.addPart({ t: 'dust', x: lerp(b.ax, b.bx, t) + rnd(-1, 1), y: lerp(b.ay, b.by, t) + rnd(-1, 1), z: rnd(0, 8), vx: rnd(-2, 2), vy: rnd(-2, 2), vz: rnd(20, 70), life: rnd(0.8, 1.6), max: 1.6, col: 'rgba(140,130,120,' }); } }
   },
   uncollapse(id) {
@@ -12179,6 +12199,7 @@ const StoryMap = {
   wreck(id, quiet) {
     const S = this.sites[id]; if (!S) return;
     if (G.profile) G.profile.flags.quietrainBurnt = true;
+    World.note({ t: 'ruin', site: id, id: 'ruin:' + id });
     if (S._wrecked) return;
     S._wrecked = true;
     const near = (test) => Buildings.list.find(b => dist(b.x + b.w / 2, b.y + b.h / 2, S.x, S.y) < 28 && test(b));
@@ -13562,6 +13583,17 @@ class MCtx {
     if (extra.solid === undefined) extra.solid = true;
     return this.stamp({ t: 'prop', kind, x: +(p[0] - W_ / 2).toFixed(2), y: +(p[1] - H_ / 2).toFixed(2), w: W_, h: H_, extra });
   }
+  // an opened gate or cage that stays open after the mission, and is opened again when the site is rebuilt
+  stampOpen(w, kind, r = 4) {
+    const p = this.at(w); if (!p) return null;
+    let best = null, bd = r;
+    for (let j = Math.floor(p[1] - r); j <= Math.floor(p[1] + r); j++) for (let i = Math.floor(p[0] - r); i <= Math.floor(p[0] + r); i++) for (const o of World.at(i, j)) if (o.t === kind && !o.open && dist(o.cx, o.cy, p[0], p[1]) < bd) { bd = dist(o.cx, o.cy, p[0], p[1]); best = o; }
+    if (!best) return null;
+    const extra = { open: true, solid: false, replace: kind };
+    if (best.lift) extra.lift = best.lift;
+    if (best.dir) extra.dir = best.dir;
+    return this.stamp({ t: 'prop', kind, x: +best.x.toFixed(2), y: +best.y.toFixed(2), w: best.w, h: best.h, extra, id: 'open:' + kind + ':' + Math.round(best.x * 2) + ':' + Math.round(best.y * 2) });
+  }
   // a place to press E
   usePoint(w, label, k, step) {
     if (typeof w === 'string' && w[0] === '@') {
@@ -14236,7 +14268,7 @@ const Missions = {
     Cannon.stopBarrage(); Subs.clear();
     P.story.n = def.n + 1; P.story.best = Math.max(P.story.best || 0, def.n); P.story.done = P.story.done || {}; P.story.done[def.n] = Math.round(m.t);
     const mon = def.reward ?? (15 + Math.round(def.n * 1.6)); if (mon) G.addGold(mon); G.addXP(30 + def.n);
-    this.clearWorld(m, true); this.cur = null; this.objective(); this.restT = 3.5;
+    this.clearWorld(m, true); World.restoreSpans(); this.cur = null; this.objective(); this.restT = 3.5;
     Card.show('Mission complete', def.title, (mon ? mon + ' mon · ' : '') + fmtTime(m.t), 4, 'done'); Snd.play('level', 0.7);
     Systems.save();
     const nx = this.def(def.n + 1);
@@ -14281,6 +14313,7 @@ const Missions = {
     this.clearWorld(m); this.cur = null; this.failing = false;
     const P = G.player; P.dead = false; P.state = 'idle'; P.hp = P.maxHp; P.bleed = 0; if (!G.actors.includes(P)) G.actors.push(P);
     if (m.def.chain || m.def.kid) { const p = StoryMap.at(m.def.at); if (p) m.put(p); }
+    World.restoreSpans();
     UI.fade(); this.objective(); Systems.save();
   },
   // linger: the mission is over, not undone. Its people, bodies, fires and props stay where they are until Ren has left
@@ -15859,7 +15892,7 @@ M({
     { t: 'sneak', at: 'labor.signal', r: 1.8, cp: true, text: 'Sneak to the watchtower\'s signal bell', hint: 'Crouch (C). The rain covers footsteps, not shapes.', why: 'A guard saw you in the yard.' },
     { t: 'use', at: 'labor.signal', label: 'Jam the signal mechanism', text: 'Sabotage the signal bell', dur: 2, busy: 'Wedging the clapper…' },
     { t: 'kill', tag: 'watch', cp: true, text: 'The alarm is up, but the bell will not ring. Deal with the guards', on(m) { m.alarm('watch', true); if (!m.fast) Subs.add([['Guard', 'Ring the bell! RING IT!'], ['Guard', 'It won\'t ring!']]); } },
-    { t: 'use', at: ['labor.drain', -3.6, -1], label: 'Lift the bar on the drain gate', text: 'Open the gate where the drainage channel runs out under the wall', dur: 1.5, busy: 'Lifting the bar…', onUse(m) { m.open(['labor.drain', -5, -1], 'gatewood', 3); } },
+    { t: 'use', at: ['labor.drain', -3.6, -1], label: 'Lift the bar on the drain gate', text: 'Open the gate where the drainage channel runs out under the wall', dur: 1.5, busy: 'Lifting the bar…', onUse(m) { if (!m.stampOpen(['labor.drain', -5, -1], 'gatewood', 4)) m.stampOpen('labor.drain', 'grate', 6); } },
     { t: 'escort', who: m => m.group('prisoners'), path: ['labor.drain', ['labor.drain', -3, -1], ['labor.drain', -8, -1], 'labor.forest'], text: 'Lead the prisoners out into the forest', hint: 'They follow when you are near.' },
     { t: 'scene', on(m) { m.cast('aiko', 'labor.forest'); }, parts: [['aiko', 'He isn\'t here.', 'They moved a batch deeper into the empire. Months ago. The page just... stops.'], ['ren', '...'], ['narr', 'She holds the transfer book against her chest in the rain.']] },
     { t: 'wait', dur: 5, text: 'Stay beside her until she is ready to move' },
@@ -15885,7 +15918,7 @@ M({
         a.x = dest[0]; a.y = dest[1]; a.mPath = null; m.setWork(a, 'dig', null, dest, 24);
       }
     } },
-    { t: 'use', ats: ['mtnvil.bridge1', 'mtnvil.bridge2'], label: 'Haul a beam into place', thing: 'lumber', take: true, text: 'Rebuild the collapsed bridge', dur: 1.2, busy: 'Hauling…', on(m) { let k = 0; const p = m.at('mtnvil.bridge1'); for (const a of m.group('freed')) { const dest = m.at('mtnvil.bridge' + (1 + k++ % 2), rnd(-1.2, 1.2), 1); if (!dest) continue; if (m.fast || dist(a.x, a.y, dest[0], dest[1]) > 16) { a.x = dest[0]; a.y = dest[1]; a.mPath = null; } else m.walk(a, [dest], { run: 0.85 }); m.setWork(a, 'haul', 'beam', dest); } for (const a of m.group('folk').slice(0, 4)) { if (p) { if (m.fast) { a.x = p[0] + rnd(-2, 2); a.y = p[1] + rnd(1, 2.5); a.mPath = null; } else m.walk(a, [[p[0] + rnd(-2, 2), p[1] + rnd(1, 2.5)]], { run: 0.7 }); m.setWork(a, 'haul', 'beam', p); } } }, onUse(m, k) { if (k !== 1) return; const p = m.at('mtnvil.bridge1'); if (!p) return; const br = Bridges.add({ ax: p[0] - 1, ay: p[1] - 3, bx: p[0] + 5, by: p[1] + 1, hw: 0.95, kind: 'flat' }); if (br) Bridges.stamp(br); } },
+    { t: 'use', ats: ['mtnvil.bridge1', 'mtnvil.bridge2'], label: 'Haul a beam into place', thing: 'lumber', take: true, text: 'Rebuild the collapsed bridge', dur: 1.2, busy: 'Hauling…', on(m) { let k = 0; const p = m.at('mtnvil.bridge1'); for (const a of m.group('freed')) { const dest = m.at('mtnvil.bridge' + (1 + k++ % 2), rnd(-1.2, 1.2), 1); if (!dest) continue; if (m.fast || dist(a.x, a.y, dest[0], dest[1]) > 16) { a.x = dest[0]; a.y = dest[1]; a.mPath = null; } else m.walk(a, [dest], { run: 0.85 }); m.setWork(a, 'haul', 'beam', dest); } for (const a of m.group('folk').slice(0, 4)) { if (p) { if (m.fast) { a.x = p[0] + rnd(-2, 2); a.y = p[1] + rnd(1, 2.5); a.mPath = null; } else m.walk(a, [[p[0] + rnd(-2, 2), p[1] + rnd(1, 2.5)]], { run: 0.7 }); m.setWork(a, 'haul', 'beam', p); } } }, onUse(m, k) { if (k !== 1) return; const p = m.at('mtnvil.bridge1'); if (!p) return; const br = Bridges.add({ ax: p[0] - 1, ay: p[1] - 3, bx: p[0] + 5, by: p[1] + 1, hw: 0.95, kind: 'flat' }); if (br) { Bridges.stamp(br); m.stamp({ t: 'bridge', site: 'mtnvil', down: false, id: 'bridge:mtnvil:rebuilt', ax: +br.ax.toFixed(2), ay: +br.ay.toFixed(2), bx: +br.bx.toFixed(2), by: +br.by.toFixed(2), hw: br.hw, kind: br.kind }); } } },
     { t: 'scene', parts: [['aiko', 'You might actually be useful to someone other than yourself.'], ['ren', 'Don\'t tell anyone. I have a reputation.']] },
   ],
 });
@@ -17056,12 +17089,12 @@ M({
   },
   each(m, dt) { if (m.step && (m.step.t === 'use' || m.step.t === 'escort')) { m._gt = (m._gt ?? 12) - dt; if (m._gt <= 0 && m.alive('foe').length < 3) { m._gt = 16; m.spawn('imperial', m.at('prison.gate', rnd(-2, 2), -3), 2, { spread: 1.5 }); } } },
   steps: [
-    { t: 'use', ats: [['prison.cell1', 0.6, 0], ['prison.cell2', 0.6, 0], ['prison.cell4', 0.6, 0]], label: 'Break the lock', text: 'Open the cells', hint: 'Aiko covers the exits. Daichi watches the gate.', dur: 1, busy: 'Prising the bolt…', cp: true, on(m) { m.stay('aiko', ['prison.yard', 4, -2]); m.stay('daichi', 'prison.gate'); const a = m.get('aiko'); if (a) a.aimAt = m.at('prison.gate'); }, done(m) { const a = m.get('aiko'); if (a) a.aimAt = null; m.comp('aiko'); m.comp('daichi'); } },
+    { t: 'use', ats: [['prison.cell1', 0.6, 0], ['prison.cell2', 0.6, 0], ['prison.cell4', 0.6, 0]], label: 'Break the lock', text: 'Open the cells', hint: 'Aiko covers the exits. Daichi watches the gate.', dur: 1, busy: 'Prising the bolt…', cp: true, on(m) { m.stay('aiko', ['prison.yard', 4, -2]); m.stay('daichi', 'prison.gate'); const a = m.get('aiko'); if (a) a.aimAt = m.at('prison.gate'); }, onUse(m, k) { m.stampOpen(['prison.cell1', 'prison.cell2', 'prison.cell4'][k], 'cage', 7); }, done(m) { const a = m.get('aiko'); if (a) a.aimAt = null; m.comp('aiko'); m.comp('daichi'); } },
     { t: 'scene', parts: [['Prisoner', 'If I walk out, they punish my family. They told me so every morning.'], ['ren', 'They told you that so you\'d stay.'], ['haru', '(from the drain) Anyone who can walk, carry someone who can\'t! One at a time through the grate!']] },
     { t: 'talk', who: 'judge', at: 'prison.cell4', r: 3, text: 'Speak with the old man in the last cell', on(m) { const door = m.at('prison.cell4'); let p = m.at('prison.cell4In') || door; if (p === door && door && typeof Buildings !== 'undefined') { const b = Buildings.list.find(bb => bb && bb.name === 'Cells' && dist(bb.x + bb.w / 2, bb.y + bb.h / 2, door[0], door[1]) < 10); if (b) p = [b.x + b.w * 0.45, b.y + b.h * 0.55]; } m.place('judge', p ? [p[0] - 0.4, p[1] - 0.3] : 'prison.cell4'); const j = m.get('judge'); if (j) { j.mStay = true; j.post = [j.x, j.y]; } m.stay('aiko', ['prison.yard', 4, -2]); m.stay('daichi', 'prison.gate'); m.stay('nao', ['prison.yard', -3, 1]); for (const a of m.group('foe')) { const g = m.at('prison.gate'); if (g) { a.x = g[0] + rnd(-2, 2); a.y = g[1] - 3; a.mPath = null; } } if (p) m.put([p[0] + 0.6, p[1] + 0.3]); }, parts: [['judge', 'Hoshino. I was a provincial judge, before I refused to approve the execution of seven village elders.', 'Those papers in your coat. May I?'], ['judge', 'They are authentic. And you are reading them as one crime.'], ['judge', 'Every province has a military tribunal now. Emergency decrees. A clerk can take a farm, a family, a village, and nobody ever reviews it.'], ['judge', 'Kahn is one man. That is a thousand clerks.']] },
     { t: 'choice', ask: ['ren', 'Then killing him alone changes nothing.'], options: [['"Can the provinces govern themselves, once he falls?"', 'govern']], after: [['judge', 'If they can stop fighting each other long enough. It has never happened yet.'], ['ren', '...An old man told me something like that once.']] },
     { t: 'escort', who: m => [...m.group('captives'), m.get('judge')].filter(Boolean), path: ['prison.yard', 'prison.drain'], wait: 30, run: 0.85, text: 'Lead the prisoners to the drainage grate', hint: 'Stay near them. Guards are still coming.' },
-    { t: 'hold', at: 'prison.drain', r: 8, dur: 20, every: 7, max: 4, clear: true, cp: true, text: 'Hold the damaged gate open while the last group passes', hint: 'Daichi has his shoulder under the gate. Keep them off him.', wave(m, i) { m.spawn('imperial', m.at('prison.gate', rnd(-2, 2), -3), 2, { spread: 1.5 }); } },
+    { t: 'hold', at: 'prison.drain', r: 8, dur: 20, every: 7, max: 4, clear: true, cp: true, text: 'Hold the damaged gate open while the last group passes', hint: 'Daichi has his shoulder under the gate. Keep them off him.', on(m) { const p = m.at('prison.drain'); const d = m.get('daichi'); if (d && p) { d.x = p[0] + 0.4; d.y = p[1] + 0.6; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'heave', null, p, 20); } m.stampOpen('prison.drain', 'grate', 5); }, wave(m, i) { m.spawn('imperial', m.at('prison.gate', rnd(-2, 2), -3), 2, { spread: 1.5 }); } },
     { t: 'go', at: 'prison.drainMid', r: 2.6, text: 'Follow Haru into the drain', hint: 'Stay on the bank. One at a time through the grate.', on(m) { m.place('haru', ['prison.drainMid', 0.8, 0.3]); for (const a of [...m.group('captives'), m.get('judge')].filter(Boolean)) m.walk(a, ['prison.drainMid', 'prison.drainOut'], { run: 0.7 }); } },
     { t: 'go', at: 'prison.drainOut', r: 2.6, text: 'Get the last of them through the tunnel', talk: [['haru', 'Keep moving. The channel is low here.'], ['judge', 'I have not run in twelve years. I am considering not starting now.']] },
     { t: 'scene', parts: [['haru', 'Forty-one. Forty-one out through the drain.'], ['judge', 'And forty-one people who will stand up in any court and say what was done to them.']] },
