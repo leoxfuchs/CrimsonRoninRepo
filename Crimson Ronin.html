@@ -1990,6 +1990,36 @@ const World = {
     const t = this.tileAt(x, y), bd = t === TILE.BRIDGE ? this.bdirAt(x, y) : 0; if (!TINFO[t].water && bd < 2) return 0;
     const s = Realm.seaVal(x, y); return s > 0 ? Math.min(255, s) : t === TILE.DEEP || bd === 3 ? 6 : 1;
   },
+  // open water. A bridge deck is dry. Mud and paddy are not water.
+  inWater(x, y) {
+    const t = this.tileAt(x, y);
+    if (t === TILE.BRIDGE) return false;
+    return !!(TINFO[t] && TINFO[t].water);
+  },
+  // the nearest dry tile, stepped a little inland so a crowd is not left on the lip
+  ashore(x, y) {
+    if (!this.inWater(x, y) && !blockedCircle(x, y, 0.28)) return [x, y];
+    for (let r = 1; r <= 36; r++) for (let a = 0; a < 18; a++) {
+      const px = x + Math.cos(a / 18 * TAU) * r, py = y + Math.sin(a / 18 * TAU) * r;
+      if (this.inWater(px, py) || blockedCircle(px, py, 0.28)) continue;
+      const dx = px - x, dy = py - y, len = Math.hypot(dx, dy) || 1;
+      const ix = px + dx / len * 2.4, iy = py + dy / len * 2.4;
+      if (!this.inWater(ix, iy) && !blockedCircle(ix, iy, 0.28)) return [ix, iy];
+      return [px, py];
+    }
+    return null;
+  },
+  // index i of n, lined along the bank and facing the water
+  bank(x, y, i = 0, n = 1) {
+    const a = this.ashore(x, y); if (!a) return [x, y];
+    const dx = a[0] - x, dy = a[1] - y, len = Math.hypot(dx, dy) || 1, tx = -dy / len, ty = dx / len;
+    const s = (i - (n - 1) / 2) * 1.35;
+    const px = a[0] + tx * s, py = a[1] + ty * s;
+    if (!this.inWater(px, py) && !blockedCircle(px, py, 0.26)) return [px, py];
+    const q = this.randomWalkable(a[0] + tx * s * 0.4, a[1] + ty * s * 0.4, 0, 2.2, 20);
+    if (q && !this.inWater(q[0], q[1])) return q;
+    return a;
+  },
   isSolid(x, y) { return this.solidAt(x, y) > 0; },
   // ---- writing builds the block's terrain first
   wc(x, y) { const k = ((y >> 5) + OC) * NCK + (x >> 5) + OC, c = this.chunks[k]; return c && c.st ? c : this.terrain(k); },
@@ -5832,6 +5862,18 @@ class Actor {
   duelFoe() { return !this.isP && !this.yielded && (this.dueling || this.roadDuel || this.faction === 'duelist' || (G.duel && G.duel.foe === this)); }
   die(killer, info = {}) {
     if (this.dead) return;
+    // water does not spare anyone: not a story role, not a follower, not a civilian
+    if (info.drown) {
+      this.dead = true; this.hp = 0; this.state = 'dead'; this.gone = true; this.persistent = false;
+      this.voiceLock = false; this.essential = false; this.mPath = null; this.bleed = 0; this.yielded = false;
+      if (this.isP && this.mounted) { this.mounted = false; G.horse = null; }
+      this.mount = null;
+      Snd.play('splash', this.isP ? 0.9 : 0.6);
+      FX.text(this.x, this.y, 'drowned', '#d5e8f6');
+      for (let i = 0; i < 7; i++) FX.addPart({ t: 'ripple', x: this.x + rnd(-0.5, 0.5), y: this.y + rnd(-0.35, 0.35), z: 0, life: 0.9, max: 0.9 });
+      G.onKill(null, this, info);
+      return;
+    }
     // somebody who still has a line to say does not die in the middle of it
     if (this.voiceLock || (this.essential && !this.isP && !info.assassin)) {
       this.hp = 1; this.bleed = 0; return;
@@ -6168,8 +6210,24 @@ function perceive(a, dt) {
   else a.aware = Math.max(0, (a.aware || 0) - dt * 0.22);
   return a.aware >= 1 ? best : null;
 }
+function drownTick(a, dt) {
+  if (!a || a.dead || a.dummy) return;
+  if (a.drownT > 0) {
+    a.drownT -= dt; a.mPath = null; a.vx = a.vy = 0;
+    if (a.ai) { a.ai.mode = 'idle'; a.ai.target = null; }
+    if (!a._wet) { a._wet = 1; Snd.play('splash', a.isP ? 0.85 : 0.5); FX.text(a.x, a.y, 'drowning', '#c5dff0'); }
+    if (Math.random() < dt * 10) FX.addPart({ t: 'ripple', x: a.x + rnd(-0.35, 0.35), y: a.y + rnd(-0.25, 0.25), z: 0, life: 0.65, max: 0.65 });
+    if (a.drownT <= 0) a.die(null, { drown: true, assassin: true });
+    return;
+  }
+  const x = a.isP && a.mounted && G.horse ? G.horse.x : a.x, y = a.isP && a.mounted && G.horse ? G.horse.y : a.y;
+  if (!World.inWater(x, y)) return;
+  a.drownT = 1.15; a.mPath = null;
+  if (a.isP && a.mounted) { a.mounted = false; G.horse = null; }
+  if (a.mount) a.mount = null;
+}
 function aiUpdate(a, dt) {
-  if (a.dead || a === G.player || a.dummy) return;
+  if (a.dead || a === G.player || a.dummy || a.drownT > 0) return;
   // Ren's riders, and anyone the road put in a saddle: everyone else gets down
   if (a.mount && !G.gang.includes(a) && !a.roadRide) GangRide.getDown(a);
   if (a.sparring) return Spar.ai(a, dt);
@@ -6602,6 +6660,11 @@ const G = {
     if ((this.realmT = (this.realmT || 0) - dt) <= 0) { this.realmT = 0.5; Realm.update(p.x, p.y); const pv = Realm.provinceAt(p.x, p.y); if (pv !== this.curProv) { if (this.curProv !== undefined && pv) UI.bigBanner(pv.jp, pv.name); this.curProv = pv; } }
     this.updatePlayer(dt);
     Horse.update(dt);
+    if (this.horse && !p.mounted && World.inWater(this.horse.x, this.horse.y)) {
+      Snd.play('splash', 0.7); FX.text(this.horse.x, this.horse.y, 'drowned', '#c5dff0');
+      for (let i = 0; i < 5; i++) FX.addPart({ t: 'ripple', x: this.horse.x + rnd(-0.4, 0.4), y: this.horse.y + rnd(-0.3, 0.3), z: 0, life: 0.8, max: 0.8 });
+      this.horse = null;
+    }
     GangRide.updateLoose(dt);
     Traffic.update(dt);
     Wildlife.update(dt); Bamboo.tick(dt); Restricted.update(dt);
@@ -6609,7 +6672,7 @@ const G = {
     this.attackers = 0;
     for (const a of this.actors) if (!a.dead && a.ai?.target === p && (a.state === 'atk' || a.ai.token)) this.attackers++;
     const look = typeof Camera !== 'undefined' && Camera.look && Camera.look.t > 0 && Camera.look;
-    for (const a of this.actors) { if (a !== p && !a.isP && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) > 60 && !(look && Math.abs(a.x - look.x) + Math.abs(a.y - look.y) < 36) && !(a.ai && a.ai.mode === 'fight')) continue; if (a !== p && !a.remote) aiUpdate(a, dt); if (a.remote) a.updateVisual(dt); else a.update(dt); }
+    for (const a of this.actors) { drownTick(a, dt); if (a.drownT > 0 || a.dead) continue; if (a !== p && !a.isP && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) > 60 && !(look && Math.abs(a.x - look.x) + Math.abs(a.y - look.y) < 36) && !(a.ai && a.ai.mode === 'fight')) continue; if (a !== p && !a.remote) aiUpdate(a, dt); if (a.remote) a.updateVisual(dt); else a.update(dt); }
     const A = this.actors;
     for (let i = 0; i < A.length; i++) { const a = A[i]; if (a.dead || a.dummy || a.mount) continue; for (let j = i + 1; j < A.length; j++) { const b = A[j]; if (b.dead || b.dummy || b.mount) continue; if ((a === p || b === p) && (p.mounted || this.sleeping || p.sleeping)) continue; const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy, m = a.r + b.r; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2), push = (m - d) * 0.5, nx = dx / d, ny = dy / d; if (a !== p || b.isP) moveActor(a, -nx * push, -ny * push, 1); moveActor(b, nx * push, ny * push, 1); } } }
     this.actors = this.actors.filter(a => !(a.gone && !a.persistent) && !(a.dead && a.deadT > 30 && !a.linger && GangRide.offscreen(a.x, a.y)));
@@ -6670,6 +6733,7 @@ const G = {
   },
   updatePlayer(dt) {
     const p = this.player;
+    if (p.drownT > 0) { p.moving = false; p.vx = p.vy = 0; return; }
     if (this.sleeping) {
       const q = (typeof Net !== 'undefined' && Net.gang && Net.gang.buildings && Net.gang.buildings.quarters) || 1;
       const rate = q >= 3 ? 4 : q >= 2 ? 2 : 1;
@@ -6822,7 +6886,7 @@ const G = {
     for (const b of this.actors) if (!b.dead && b !== a && b.ai && b.ai.mode !== 'fight' && b.hostileToP() && dist(a.x, a.y, b.x, b.y) < 8) { b.aware = Math.max(b.aware || 0, 0.85); b.lastSeen = [this.player.x, this.player.y]; b.ai.mode = 'search'; }
   },
   onKill(killer, v, info) {
-    if (v === this.player) { Systems.playerDied(killer); return; }
+    if (v === this.player) { Systems.playerDied(info.drown ? { name: 'the water', drown: true } : killer); return; }
     if (v.faction === 'gang') { Systems.gangDied(v); return; }
     if (v.rosterKey === 'chief') this.profile.flags.mukadeDead = true;
     if (v.rosterKey === 'captain') this.profile.flags.kurohigeDead = true;
@@ -7366,12 +7430,13 @@ const Systems = {
   playerDied(killer) {
     const p = G.profile; p.deaths++;
     // on a mission, death is a failed mission: try again from the checkpoint
-    if (Missions.cur) { if (G.player.mounted) G.player.mounted = false; G.duel = null; UI.letterbox(false); Missions.fail('Ren was cut down by ' + (killer ? (killer.name || killer.label || killer.role || 'an enemy') : 'his wounds') + '.'); return; }
+    const drowned = killer && killer.drown;
+    if (Missions.cur) { if (G.player.mounted) G.player.mounted = false; G.duel = null; UI.letterbox(false); Missions.fail(drowned ? 'Ren drowned.' : 'Ren was cut down by ' + (killer ? (killer.name || killer.label || killer.role || 'an enemy') : 'his wounds') + '.'); return; }
     const lost = Math.floor(p.gold * 0.1); p.gold -= lost;
     if (G.player.mounted) G.player.mounted = false;
     G.state = 'dead'; G.duel = null; UI.letterbox(false);
     const where = this.nearestSafe(); G.respawnAt = where;
-    UI.death({ killer: killer ? (killer.name || killer.role || killer.faction) : 'your wounds', lost, where: where.name });
+    UI.death({ killer: drowned ? 'the water' : (killer ? (killer.name || killer.role || killer.faction) : 'your wounds'), lost, where: where.name });
     this.save();
   },
   respawn() {
@@ -7537,7 +7602,7 @@ const UI = {
   dialogNow(speaker, lines) { const d = { speaker, lines, buttons: [{ label: 'Continue' }] }; if (this.panel) this.queue.push(['dialog', d]); else this.open('dialog', d); },
   death(info) {
     this.close(); this.showHUD(false); $('death').hidden = false; $('toasts').innerHTML = ''; $('banner').classList.remove('show'); $('qbanner').classList.remove('show'); $('prompt').hidden = true;
-    $('deathMsg').textContent = 'Cut down by ' + info.killer + '.' + (info.lost ? ' You dropped ' + info.lost + ' mon.' : '');
+    $('deathMsg').textContent = (info.killer === 'the water' ? 'You drowned.' : 'Cut down by ' + info.killer + '.') + (info.lost ? ' You dropped ' + info.lost + ' mon.' : '');
     $('btnRespawn').textContent = 'Continue from ' + info.where;
     const p = G.profile;
     $('deathStats').innerHTML = [['Kills', p.kills], ['Assassinations', p.assassinations || 0], ['Blades defeated', p.duelsWon + ' / 10'], ['Honor', p.honor + ' · ' + G.honorTitle()]].map(([a, b]) => `<span>${a}</span><span style="color:var(--paper)">${b}</span>`).join('');
@@ -8991,6 +9056,7 @@ const GangRide = {
     if (p && p.mounted) { const l = T[T.length - 1]; if (!l || Math.abs(l[0] - p.x) + Math.abs(l[1] - p.y) > 1.2) { T.push([p.x, p.y]); if (T.length > 140) T.shift(); } } else if (T.length) this.trail = [];
     // tied horses stand and graze; loose ones bolt until they are out of sight
     for (const h of this.loose) {
+      if (World.inWater(h.x, h.y)) { h.done = true; Snd.play('splash', 0.45); FX.text(h.x, h.y, 'drowned', '#c5dff0'); for (let i = 0; i < 4; i++) FX.addPart({ t: 'ripple', x: h.x + rnd(-0.3, 0.3), y: h.y + rnd(-0.2, 0.2), z: 0, life: 0.7, max: 0.7 }); continue; }
       h.t += dt;
       // a horse brought for a follower: up to them, and they are in the saddle
       if (h.to) { const a = h.to; if (a.dead || a.gone || !G.gang.includes(a) || a.mount) { h.to = null; continue; } const d = dist(h.x, h.y, a.x, a.y); h.face = turnTo(h.face, Math.atan2(a.y - h.y, a.x - h.x), dt * 4); h.spd = lerp(h.spd, d > 4 ? 6 : 2, 1 - Math.pow(0.2, dt)); Horse.move(h, dt); if (d < 1.3) { h.to = null; h.done = true; a.mount = Object.assign(h, { spd: 0, x: a.x, y: a.y }); a.ai.ride = 'ride'; a.state = 'idle'; a.crouch = false; } continue; }
@@ -13449,7 +13515,7 @@ class MCtx {
       if (asMortal) a.essential = false;
     }
   }
-  near(p, r = 1.5) { return World.randomWalkable(p[0], p[1], 0, r, 40) || p; }
+  near(p, r = 1.5) { return World.randomWalkable(p[0], p[1], 0, r, 40) || (World.inWater(p[0], p[1]) ? World.ashore(p[0], p[1]) : null) || p; }
   // a named person of the story; they cannot be harmed unless the mission says so
   cast(id, w, over = {}) {
     const key = over.key || id, old = this.get(key);
@@ -15073,7 +15139,7 @@ const Missions = {
       const tgt = (s.at ? m.at(s.at) : null) || this.target();
       if (tgt && ['go', 'ride', 'sneak', 'escape', 'chase', 'follow', 'escort', 'pursuit', 'hide', 'hold', 'talk', 'use'].includes(s.t)) {
         m.put(tgt, !!G.player.mounted);
-        if (dist(G.player.x, G.player.y, tgt[0], tgt[1]) > (s.r || 3) * 0.85) { G.player.x = tgt[0]; G.player.y = tgt[1]; }
+        if (dist(G.player.x, G.player.y, tgt[0], tgt[1]) > (s.r || 3) * 0.85) { const dry = World.inWater(tgt[0], tgt[1]) ? (World.ashore(tgt[0], tgt[1]) || tgt) : tgt; G.player.x = dry[0]; G.player.y = dry[1]; }
         if (s.t === 'hide') { G.player.crouch = true; G.player.moving = false; }
       }
       if (s.t === 'talk') {
@@ -16400,13 +16466,13 @@ M({
   n: 48, title: 'The Siege That Never Happened', at: 'blackreed.shore', atR: 7, giver: 'aiko', sites: ['fishvil'], party: ['aiko', 'haru', 'daichi'], reward: 140,
   brief: 'The fort\'s commander is bringing his guns to frighten the fishing villages into surrender.',
   recap: 'Instead of fighting the column, they took the road away from it: bridge supports cut, road markers turned toward an old marsh route. The commander reached the marsh at dusk and found his artillery sinking, his wagons stuck and his officers arguing about who had approved the route. The siege never began. Sometimes the best victories are the ones nobody knows how close they came to losing.',
-  setup(m) { m.spawn('villager', 'fishvil.harbor', 8, { calm: true, tag: 'folk', wanderR: 7, post: false }); m.spawn('kid', 'fishvil.harbor', 3, { calm: true, tag: 'folk', wanderR: 5, post: false }); const h = m.at('fishvil.harbor'); if (h) { m.prop('boat', [h[0] + 4, h[1] + 2], { solid: false }); m.prop('boat', [h[0] - 3, h[1] + 3], { solid: false }); } const p = m.at('fishvil.marsh'); if (p) { for (let i = 0; i < 8; i++) m.spawn('imperial', [p[0] + rnd(-5, 5), p[1] + rnd(-4, 4)], 1, { calm: true, tag: 'column', spread: 0.3 }); for (const [dx, dy] of [[-2, 0], [3, 2]]) m.prop('cannon', [p[0] + dx, p[1] + dy], { dir: 0, solid: true }); m.prop('wagon', [p[0] - 5, p[1] + 3], { sun: true, solid: true }); m.cast('fortcmd', [p[0], p[1] - 3]); m.spawn('officer', [p[0] + 2, p[1] - 2], 1, { calm: true, tag: 'column', key: 'Officer', name: 'Officer' }); } },
+  setup(m) { m.spawn('villager', 'fishvil.harbor', 8, { calm: true, tag: 'folk', wanderR: 7, post: false }); m.spawn('kid', 'fishvil.harbor', 3, { calm: true, tag: 'folk', wanderR: 5, post: false }); const h = m.at('fishvil.harbor'); if (h) { m.prop('boat', [h[0] + 4, h[1] + 2], { solid: false }); m.prop('boat', [h[0] - 3, h[1] + 3], { solid: false }); } const p = m.at('fishvil.marsh'); if (p) { for (let i = 0; i < 8; i++) m.spawn('imperial', World.bank(p[0], p[1], i, 8), 1, { calm: true, tag: 'column', spread: 0.2, here: true }); for (const [dx, dy] of [[-2, 0], [3, 2]]) m.prop('cannon', [p[0] + dx, p[1] + dy], { dir: 0, solid: true }); m.prop('wagon', [p[0] - 5, p[1] + 3], { sun: true, solid: true }); m.cast('fortcmd', World.bank(p[0], p[1], 1, 4)); m.spawn('officer', World.bank(p[0], p[1], 3, 4), 1, { calm: true, tag: 'column', key: 'Officer', name: 'Officer', here: true }); } },
   steps: [
     { t: 'ride', at: 'fishvil.harbor', r: 8, text: 'Ride up the coast to the fishing villages', hint: 'North along the coast road.', talk: [['haru', 'Your sleeve is still smoking.'], ['daichi', 'It is a very small fire.'], ['haru', 'It is your arm.'], ['aiko', 'The commander lost his main gun last night. He will want to win something back. Quickly.'], ['daichi', 'He has four field pieces left. Heavy ones. He will bring them up the coast road and point them at the villages.'], ['ren', 'Then we get to the villages first.']] },
     { t: 'scene', parts: [['daichi', 'He does not mean to fight. He means to frighten. Heavy guns on the ridge, a few shots into the harbour, and the villages surrender before anyone has to bleed.'], ['daichi', 'Heavy carriages need bridges that can bear them. And roads that go where the markers say.'], ['aiko', 'I will put scouts on the ridge.'], ['haru', 'Supply stations, in case we are wrong.'], ['daichi', 'I will set the charges. They will fall away from the houses. I have measured.']] },
     { t: 'use', ats: ['fishvil.demo1', 'fishvil.demo2', 'fishvil.demo3'], label: 'Set the charge', text: 'Set Daichi\'s charges where he left the powder', hint: 'Three crates beside the coast road.', dur: 1.2, busy: 'Packing powder…', on(m) { for (const k of [1, 2, 3]) m.prop('crates', 'fishvil.demo' + k, { solid: false }); const d = m.get('daichi'), p = m.at('fishvil.demo1'); if (d && p) { d.x = p[0] + 1.1; d.y = p[1] + 0.5; d.mPath = null; d.faceTo(p[0], p[1]); m.setWork(d, 'pack', 'crate', p, 10); } } },
-    { t: 'use', ats: ['fishvil.sign1', 'fishvil.sign2'], label: 'Turn the marker', text: 'Turn the road markers toward the old marsh route', done(m) { if (m.group('column').length) return; const p = m.at('fishvil.marsh'); for (let i = 0; i < 8; i++) m.spawn('imperial', [p[0] + rnd(-5, 5), p[1] + rnd(-4, 4)], 1, { calm: true, tag: 'column', spread: 0.3 }); for (const [dx, dy] of [[-2, 0], [3, 2]]) m.prop('cannon', [p[0] + dx, p[1] + dy], { dir: 0, solid: true }); m.prop('wagon', [p[0] - 5, p[1] + 3], { sun: true, solid: true }); m.cast('fortcmd', [p[0], p[1] - 3]); m.spawn('officer', [p[0] + 2, p[1] - 2], 1, { calm: true, tag: 'column', key: 'Officer', name: 'Officer' }); } },
-    { t: 'go', at: 'fishvil.marsh', r: 6, text: 'Watch the column from the edge of the marsh' },
+    { t: 'use', ats: ['fishvil.sign1', 'fishvil.sign2'], label: 'Turn the marker', text: 'Turn the road markers toward the old marsh route', done(m) { if (m.group('column').length) return; const p = m.at('fishvil.marsh'); if (p) { for (let i = 0; i < 8; i++) m.spawn('imperial', World.bank(p[0], p[1], i, 8), 1, { calm: true, tag: 'column', spread: 0.2, here: true }); for (const [dx, dy] of [[-2, 0], [3, 2]]) m.prop('cannon', [p[0] + dx, p[1] + dy], { dir: 0, solid: true }); m.prop('wagon', [p[0] - 5, p[1] + 3], { sun: true, solid: true }); m.cast('fortcmd', World.bank(p[0], p[1], 1, 4)); m.spawn('officer', World.bank(p[0], p[1], 3, 4), 1, { calm: true, tag: 'column', key: 'Officer', name: 'Officer', here: true }); } } },
+    { t: 'go', at(m) { const p = m.at('fishvil.marsh'); return (p && World.ashore(p[0], p[1])) || p; }, r: 6, text: 'Watch the column from the edge of the marsh' },
     { t: 'wait', dur: 8, text: 'Watch the guns sink', on(m) { const p = m.at('fishvil.marsh'); if (!p) return; m._mud = []; for (let j = Math.floor(p[1] - 8); j <= p[1] + 8; j++) for (let i = Math.floor(p[0] - 8); i <= p[0] + 8; i++) for (const o of World.at(i, j) || []) if ((o.t === 'cannon' || o.t === 'wagon') && dist(o.cx, o.cy, p[0], p[1]) < 8 && !m._mud.includes(o)) m._mud.push(o); for (const a of m.group('column')) if (a.role !== 'officer' && a.key !== 'fortcmd') m.setWork(a, 'heave', null, p, 8); const f = m.get('fortcmd'); if (f) f.faceTo(p[0], p[1]); }, each(m, dt) { for (const o of m._mud || []) { o.sink = Math.min(10, (o.sink || 0) + dt * 1.1); o.z = -o.sink * 2; } }, talk: [['fortcmd', 'Why are we in a swamp?'], ['Officer', 'The markers said—'], ['fortcmd', 'Who approved this route?'], ['Officer', 'You did, my lord. Through the adjutant. Who had it from the markers.'], ['fortcmd', 'GET THOSE GUNS OUT OF THE MUD!']] },
     { t: 'scene', parts: [['haru', 'Not one shot fired.'], ['aiko', 'The fishing boats are coming back in. Look.']] },
     { t: 'talk', who: 'daichi', text: 'Ask Daichi to design a safer route for the Lantern Route\'s supplies', lines: ['A safer route? Give me three days and every map you have.', '...Thank you for asking.'] },
@@ -17817,6 +17883,11 @@ function drawActor(ctx, a, sx, sy, t, riding = false) {
   const F = figOf(a, t);
   if (riding) { F.riding = true; F.noShadow = true; F.moving = false; F.crouch = false; }
   if (a.state === 'charge' && a.chargeT > 0.3) sx += Math.round(Math.sin(t * 60));
+  if (a.drownT > 0) {
+    const k = 1 - clamp(a.drownT / 1.15, 0, 1), drop = Math.round(k * 16), hide = Math.round(k * 30);
+    ctx.save(); ctx.beginPath(); ctx.rect(sx - 24, sy - 48, 48, 54 - hide); ctx.clip();
+    drawFigure(ctx, sx, sy + drop, Object.assign(F, { moving: false })); ctx.restore(); return;
+  }
   if (a.state === 'roll') {
     const k = clamp(a.sT / 0.36, 0, 1), sgn = Math.cos(a.face) - Math.sin(a.face) >= 0 ? 1 : -1;
     ctx.save(); ctx.translate(sx, sy - 7); ctx.rotate(k * TAU * sgn); drawFigure(ctx, 0, 7, Object.assign(F, { pose: 'kneel', noShadow: true, unarmed: true })); ctx.restore();
