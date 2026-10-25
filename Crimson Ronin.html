@@ -452,7 +452,12 @@ function shade(hex, amt) { const [r, g, b] = hexToRgb(hex); return amt >= 0 ? rg
 function mix(h1, h2, t) { const a = hexToRgb(h1), b = hexToRgb(h2); return rgbToHex(lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)); }
 function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h)); const x = c.getContext('2d'); x.imageSmoothingEnabled = false; return [c, x]; }
 function px(ctx, x, y, w, h, col) { ctx.fillStyle = col; ctx.fillRect(Math.round(x), Math.round(y), w, h); }
-function store(key, val) { try { if (val === undefined) return JSON.parse(localStorage.getItem(key)); localStorage.setItem(key, JSON.stringify(val)); } catch (e) { return null; } }
+function store(key, val) {
+  try {
+    if (val === undefined) { const raw = localStorage.getItem(key); return raw == null ? null : JSON.parse(raw); }
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch (e) { return null; }
+}
 
 // ============================================================ INPUT
 const Input = {
@@ -6800,10 +6805,11 @@ const Systems = {
     } else store('crimson_ronin_v2', G.profile);
   },
   load() {
-    const s = store('crimson_ronin_v2'); if (!s || s.v !== 2) return null;
+    const s = store('crimson_ronin_v2'); if (!s || +s.v !== 2) return null;
     // older saves carried a single blade: everyone now has a sidearm and a hotbar
     if (!s.minis) s.minis = {};
     if (!s.stash) s.stash = [];
+    if (!Array.isArray(s.weapons)) s.weapons = ['katana', 'tanto'];
     if (s.weapons.length < 2) s.weapons.push(s.weapons.includes('tanto') ? 'wakizashi' : 'tanto');
     while (s.weapons.filter(w => w !== 'fists').length > G.WPN_SLOTS) { const extra = s.weapons.pop(); if (extra && extra !== 'fists' && !s.stash.includes(extra)) s.stash.push(extra); }
     if (!s.lastBlade) s.lastBlade = s.wpn !== 'fists' ? s.wpn : s.weapons[0];
@@ -16227,18 +16233,39 @@ const Net = {
 };
 
 // ---- boot
+function revealSave() {
+  let save = null;
+  try { save = Systems.load(); } catch (e) { save = null; }
+  if (!save) {
+    try {
+      const raw = localStorage.getItem('crimson_ronin_v2');
+      const s = raw ? JSON.parse(raw) : null;
+      if (s && +s.v === 2) save = s;
+    } catch (e) { save = null; }
+  }
+  if (save) {
+    const b = $('btnContinue');
+    b.hidden = false;
+    b.textContent = 'Continue · ' + (save.story ? 'Mission ' + Math.min(100, save.story.n) : 'Mission 1') + ' · Day ' + (save.day || 1);
+  }
+  return save;
+}
 function boot() {
   FX.init(); Input.init(cv);
   // paint the title first, then raise the realm behind it
   const tb = [...document.querySelectorAll('.title-btns .btn')]; tb.forEach(b => { if (b.id !== 'btnSettings' && b.id !== 'btnKeys' && b.id !== 'btnControls') b.disabled = true; });
   const note = document.createElement('p'); note.className = 'title-sub'; note.id = 'genNote'; note.textContent = 'Raising the realm…'; $('title').querySelector('.title-btns').before(note);
-  setTimeout(() => { World.gen(20240917); World.streamAll(88, 100); note.textContent = 'Drawing the map…'; setTimeout(() => { UI.buildMiniImg(); tb.forEach(b => b.disabled = false); note.remove(); }, 30); }, 60);
+  setTimeout(() => { World.gen(20240917); World.streamAll(88, 100); note.textContent = 'Drawing the map…'; setTimeout(() => { UI.buildMiniImg(); tb.forEach(b => b.disabled = false); note.remove(); revealSave(); }, 30); }, 60);
   G.profile = null; G.tod = 0.76;
-  const save = Systems.load();
-  if (save) { $('btnContinue').hidden = false; $('btnContinue').textContent = 'Continue · ' + (save.story ? 'Mission ' + Math.min(100, save.story.n) : 'Mission 1') + ' · Day ' + save.day; }
+  revealSave();
+  let saveTries = 0;
+  const savePoll = setInterval(() => { revealSave(); if (!$('btnContinue').hidden || ++saveTries > 25) clearInterval(savePoll); }, 80);
+  addEventListener('pagehide', () => { try { if (G.state === 'play' && G.profile && !G.profile.dev) Systems.save(); } catch (e) {} });
+  addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && G.state === 'play' && G.profile && !G.profile.dev) try { Systems.save(); } catch (e) {} });
   $('btnContinue').onclick = () => {
     if (G.state === 'play') { $('title').hidden = true; return; }
-    Snd.init(); $('title').hidden = true; G.start(Systems.load());
+    const save = revealSave(); if (!save) return;
+    Snd.init(); $('title').hidden = true; G.start(save);
   };
   $('btnBegin').onclick = () => { Snd.init(); Creator.begin(false); };
   $('btnSkip').onclick = () => { Snd.init(); Creator.begin(true); };
