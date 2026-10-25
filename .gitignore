@@ -1,5 +1,9 @@
 .DS_Store
 *.log
+restore-save.html
+sfx-listen/_save-mission11.json
+sfx-listen/_save-mission35.json
+.tmp-py/
 .vscode/
 .idea/
 node_modules/

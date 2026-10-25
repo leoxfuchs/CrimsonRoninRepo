@@ -5339,7 +5339,7 @@ class Actor {
     const ox = this.x, oy = this.y;
     moveActor(this, dx / m * sp, dy / m * sp, dt);
     this.moving = Math.hypot(this.x - ox, this.y - oy) > sp * dt * 0.2;
-    if (this.moving) { const ow = this.walk; this.walk += dt * sp * 0.75; if (this === G.player && !this.mounted && Math.floor(ow * 2) !== Math.floor(this.walk * 2)) { Snd.play('step', this.crouch ? 0.42 : 0.82); if (G.bloodyFeet > 0) { G.bloodyFeet--; FX.foot(this.x + rnd(-0.1, 0.1), this.y + rnd(-0.1, 0.1)); } } } }
+    if (this.moving) { const ow = this.walk; this.walk += dt * sp * 0.75; if (this === G.player && !this.mounted && Math.floor(ow * 2) !== Math.floor(this.walk * 2)) { Snd.play('step', this.crouch ? 0.42 : 0.82); if (G.bloodyFeet > 0) { G.bloodyFeet--; FX.foot(this.x + rnd(-0.1, 0.1), this.y + rnd(-0.1, 0.1)); } } }
   }
   canMove() { return !this.dead && (this.state === 'idle' || this.state === 'walk' || this.state === 'block' || this.state === 'charge'); }
   faceTo(x, y) { this.face = Math.atan2(y - this.y, x - this.x); }
