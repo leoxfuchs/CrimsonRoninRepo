@@ -3,7 +3,8 @@
 import re, json, collections
 from pathlib import Path
 
-src = Path("/Users/leofuchs/Developer/crimsonronin/Crimson Ronin.html").read_text(encoding="utf-8")
+# the game sits one folder up from tools/, wherever the repository was cloned
+src = (Path(__file__).resolve().parent.parent / "Crimson Ronin.html").read_text(encoding="utf-8")
 
 # ---- LAYOUTS keys and declared spots
 layout_keys = re.findall(r"\n  ([a-z][a-z0-9]+): \{\n    r:", src)

@@ -13,3 +13,5 @@ server/data/*.json.tmp
 server/data/*.db
 server/package-lock.json
 
+# local tool settings
+.claude/
