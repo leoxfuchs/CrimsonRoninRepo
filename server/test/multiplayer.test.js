@@ -83,6 +83,21 @@ test('a host whose game stops running is replaced by a player whose game still r
   } finally { await S.stop(); }
 });
 
+test('a horse standing beside you is sent to the other player', async () => {
+  const S = await startServer();
+  try {
+    const a = new Player(S.url, 'Aiko'), b = new Player(S.url, 'Ben');
+    await a.join(); await b.join();
+    a.send({ t: 'state', x: 108, y: 130, face: 0, hp: 100, maxHp: 100, wpn: 'katana', pose: 'idle', mounted: false, horse: { x: 110.5, y: 132.25, face: 0.4, spd: 0, coat: 2, name: 'Kumo' } });
+    const st = await b.wait(m => m.t === 'state' && m.id === a.id && m.horse && m.horse.x === 110.5);
+    assert.equal(st.horse.y, 132.25);
+    assert.equal(st.horse.coat, 2);
+    assert.equal(st.horse.name, 'Kumo');
+    assert.equal(st.mounted, false);
+    await a.close(); await b.close();
+  } finally { await S.stop(); }
+});
+
 test('one clock for everybody, and it moves', async () => {
   const S = await startServer();
   try {

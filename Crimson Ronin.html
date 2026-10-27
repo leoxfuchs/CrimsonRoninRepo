@@ -7102,7 +7102,7 @@ const G = {
     // in the shared world a clan's sworn blades belong to the clan (the world host brings them); the lone road's stay home
     if (this.mp) profile.gang = [];
     for (const m of (profile.gang || [])) if (m.alive) { const q = World.randomWalkable(this.player.x, this.player.y, 1, 2.5) || [this.player.x, this.player.y]; this.spawnGangMember(m, q[0], q[1]); }
-    if (profile.horse) { const q = World.randomWalkable(this.player.x, this.player.y, 1.5, 3) || [this.player.x + 1, this.player.y]; this.horse = Horse.make(q[0], q[1], profile.horse.coat, profile.horse); }
+    if (profile.horse) { const q = World.randomWalkable(this.player.x, this.player.y, 1.5, 3) || [this.player.x + 1, this.player.y]; this.horse = Horse.make(q[0], q[1], profile.horse.coat, profile.horse); if (this.mp && typeof Net !== 'undefined' && Net.id) this.horse.ownerId = Net.id; }
     World.streamAll(this.player.x, this.player.y);
     // the island's people are made on the world host only; everyone else sees the host's
     if (!this.mp || (typeof Net !== 'undefined' && Net.isHost)) Systems.populate(); else Systems.roster = [];
@@ -8337,6 +8337,10 @@ const UI = {
     }
     for (const m of G.gang) { const [sx, sy] = toS(m.x, m.y); g.fillStyle = '#7ab8ff'; g.fillRect(sx - 1, sy - 1, 2, 2); }
     if (G.horse && !G.player.mounted) { const [sx, sy] = toS(G.horse.x, G.horse.y); g.fillStyle = '#000'; g.fillRect(sx - 2, sy - 2, 5, 4); g.fillStyle = '#c8955a'; g.fillRect(sx - 1, sy - 1, 3, 2); }
+    if (G.mp && typeof Net !== 'undefined') for (const [, r] of Net.remotes) {
+      const h = r.horse; if (!h || (r.actor && r.actor.mounted && (r.actor.mpSeat | 0) === 0)) continue;
+      const [sx, sy] = toS(h.x, h.y); g.fillStyle = '#000'; g.fillRect(sx - 2, sy - 2, 5, 4); g.fillStyle = '#c8955a'; g.fillRect(sx - 1, sy - 1, 3, 2);
+    }
     Missions.drawMapMarker(g, toS, full);
     const tgt = Track.target();
     if (tgt && Missions.cur) { const [sx, sy] = toS(tgt[0], tgt[1]); g.save(); g.translate(sx, sy); g.rotate(PI / 4); g.fillStyle = '#000'; g.fillRect(-4, -4, 8, 8); g.fillStyle = '#ffcf4a'; g.fillRect(-3, -3, 6, 6); g.restore(); }
@@ -11464,8 +11468,16 @@ const BEASTS = {
   monkey: { name: 'Snow Monkey', jp: '猿', lore: 'The Japanese macaque, thick-furred against mountain winters, warms itself in the hot springs. A symbol of deep wisdom.', L: 0.2, W: 0.09, H: 8, T: 7, nk: 0.07, nu: 3, hs: 5, mz: 0.03, ear: 1, tl: 0.05, td: 1, tw: 2, col: ['#8a7c68', '#5c5042', '#b2a48c', '#9a8c76'], face: '#d8605a', walk: 1.1, run: 5.2, r: 0.2, hp: 20, flee: 4 },
   cat: { name: 'Town Cat', jp: '猫', lore: 'Kept by every silk farmer to keep the mice from the silkworms.', L: 0.17, W: 0.06, H: 6, T: 4, nk: 0.08, nu: 3, hs: 3, mz: 0.05, ear: 2, tl: 0.28, td: -4, tw: 2, walk: 0.8, run: 5.5, r: 0.16, hp: 10, flee: 3 },
   bakeneko: { name: 'Bakeneko', jp: '化け猫', lore: 'A cat that has lived too long. Its tail splits in two, and on dark nights it rises on its hind legs to dance.', L: 0.17, W: 0.06, H: 6, T: 4, nk: 0.08, nu: 3, hs: 3, mz: 0.05, ear: 2, tl: 0.28, td: -4, tw: 2, walk: 0.7, run: 4, r: 0.18, hp: 999, flee: 0 },
+  chicken: { name: 'Chicken', jp: '鶏', hidden: true, lore: 'Yard fowl. The rooster crows; the rest keep the compound in eggs.', L: 0.12, W: 0.07, H: 5, T: 5, nk: 0.05, nu: 2, hs: 3, mz: 0.05, ear: 2, tl: 0.1, td: -2, tw: 2, col: ['#c86a32', '#8a3c18', '#e89048', '#f0c090'], walk: 0.55, run: 3.2, r: 0.14, hp: 8, flee: 3 },
 };
 const CAT_COATS = [['#f2ece0', '#d8d0c0', '#ffffff', '#f4eee4'], ['#2a2628', '#1a1618', '#3e383a', '#2a2628'], ['#d8843a', '#a85a22', '#f0a85a', '#f2e4cc'], ['#8a8278', '#5e5850', '#aaa298', '#d8d2c6']];
+const CHICKEN_COATS = [
+  ['#c86a32', '#8a3c18', '#e89048', '#f0c090'],
+  ['#e8e0d0', '#c4bcac', '#f6f0e6', '#fff8ee'],
+  ['#2a2426', '#141012', '#4a4448', '#6a6468'],
+  ['#c8a060', '#8a6a38', '#e0c080', '#f4e0b8'],
+  ['#8a8278', '#5e5850', '#aaa298', '#d8d2c6']
+];
 const DOG_COATS = [
   { name: 'brown', label: 'a scruffy brown coat', col: ['#8a5a32', '#5a3a1e', '#b8844e', '#d8b48a'] },
   { name: 'black', label: 'a black coat', col: ['#2a2426', '#141012', '#4a4448', '#3a3436'] },
@@ -11798,6 +11810,7 @@ const Wildlife = {
     else if (an.sp === 'tanuki' && an.state === 'disguise') this.drawDisguise(ctx, X, Y, an, t);
     else if (an.sp === 'bakeneko') this.drawBakeneko(ctx, X, Y, an, t);
     else if (an.sp === 'cat' && an.pose === 'sleep') this.drawCurl(ctx, X, Y, an, t);
+    else if (an.sp === 'chicken') drawChicken(ctx, X, Y, an, t);
     else drawBeast(ctx, X, Y, an, S, t);
     // foxfire after dark
     if (an.sp === 'fox' && G.night && !an.dead) for (let i = 0; i < 3; i++) { const a = t * 1.6 + i * 2.1 + an.ph, wx = X + Math.cos(a) * 9, wy = Y - 10 + Math.sin(a * 1.3) * 4 - i * 2; ctx.fillStyle = 'rgba(120,232,208,0.35)'; ctx.fillRect(Math.round(wx) - 2, Math.round(wy) - 2, 4, 4); ctx.fillStyle = '#c8fff0'; ctx.fillRect(Math.round(wx) - 1, Math.round(wy) - 1, 2, 2); }
@@ -11939,6 +11952,47 @@ function drawBeast(ctx, X, Y, an, S, t) {
   if (!headFar) drawHead();
   if (an.item) drawMisoItem(ctx, muz[0] + 1, muz[1], an.item);
   leg(legsDraw[2]); leg(legsDraw[3]);
+}
+// a yard hen or rooster, same projected strokes as the wild animals: round body, two legs, comb and beak
+function drawChicken(ctx, X, Y, an, t) {
+  const C = CHICKEN_COATS[an.coat | 0] || CHICKEN_COATS[0], [base, dark, lite, belly] = C;
+  const fx = Math.cos(an.face), fy = Math.sin(an.face), chick = !!an.chick, cock = !!an.rooster && !chick;
+  const sc = chick ? 0.62 : 1, peck = an.pose === 'graze' ? 1 : 0, k = clamp((an.spd || 0) / 2.8, 0, 1), g = (an.gait || 0) * TAU;
+  const P = (a, b, z) => { const dx = fx * a - fy * b, dy = fy * a + fx * b; return [X + (dx - dy) * 16 * sc, Y + (dx + dy) * 8 * sc - z * sc, dx + dy]; };
+  ctx.fillStyle = 'rgba(8,6,12,0.28)'; ctx.beginPath(); ctx.ellipse(X, Y, 4.5 * sc + 1, 1.8 * sc + 0.5, 0, 0, TAU); ctx.fill();
+  const zb = 5 - peck * 2.4, step = Math.sin(g) * (0.04 + 0.08 * k);
+  const hipL = P(-0.02, -0.045, zb - 1), hipR = P(-0.02, 0.045, zb - 1);
+  const footL = P(-0.02 + step, -0.05, 0), footR = P(-0.02 - step, 0.05, 0);
+  pline(ctx, hipL[0], hipL[1], footL[0], footL[1], '#e8c070', chick ? 1 : 1);
+  pline(ctx, hipR[0], hipR[1], footR[0], footR[1], '#e8c070', 1);
+  ctx.fillStyle = '#d8a050'; ctx.fillRect(Math.round(footL[0]) - 1, Math.round(footL[1]), 2, 1); ctx.fillRect(Math.round(footR[0]) - 1, Math.round(footR[1]), 2, 1);
+  const r0 = P(-0.09, 0, zb), r1 = P(0.09, 0, zb + 0.8);
+  pline(ctx, r0[0], r0[1], r1[0], r1[1], base, chick ? 4 : 6);
+  pline(ctx, r0[0], r0[1] + 2, r1[0], r1[1] + 2, belly, 2);
+  pline(ctx, r0[0], r0[1] - 2, r1[0], r1[1] - 1, lite, 1);
+  const wing = P(0.01, 0.08, zb + 1.2 + Math.abs(Math.sin(g)) * k);
+  ctx.fillStyle = dark; ctx.fillRect(Math.round(wing[0]) - 2, Math.round(wing[1]) - 1, chick ? 3 : 4, 2);
+  const head = P(0.14 + peck * 0.05, 0, zb + 5.2 - peck * 5.5);
+  pline(ctx, r1[0], r1[1], head[0], head[1], base, 2);
+  ctx.fillStyle = chick ? '#f0d060' : base; ctx.fillRect(Math.round(head[0]) - 2, Math.round(head[1]) - 2, chick ? 3 : 4, chick ? 3 : 4);
+  ctx.fillStyle = '#e8b040'; ctx.fillRect(Math.round(head[0]) + (fx + fy > 0 ? 1 : -2), Math.round(head[1]), chick ? 1 : 2, 1);
+  if (!chick) {
+    ctx.fillStyle = '#c8372d';
+    ctx.fillRect(Math.round(head[0]) - 1, Math.round(head[1]) - 4, cock ? 3 : 2, 2);
+    if (cock) ctx.fillRect(Math.round(head[0]), Math.round(head[1]) - 5, 1, 2);
+    ctx.fillRect(Math.round(head[0]), Math.round(head[1]) + 2, 1, cock ? 2 : 1);
+  }
+  ctx.fillStyle = '#0a0608'; ctx.fillRect(Math.round(head[0]), Math.round(head[1]) - 1, 1, 1);
+  const tail0 = P(-0.1, 0, zb + 1.4);
+  if (cock) {
+    const t1 = P(-0.22, 0.05, zb + 7), t2 = P(-0.2, -0.04, zb + 6), t3 = P(-0.26, 0.01, zb + 4.5);
+    pline(ctx, tail0[0], tail0[1], t1[0], t1[1], '#1a3a28', 2);
+    pline(ctx, tail0[0], tail0[1], t2[0], t2[1], '#2a4a32', 2);
+    pline(ctx, tail0[0], tail0[1], t3[0], t3[1], '#c84a2a', 1);
+  } else {
+    const t1 = P(-0.14, 0.02, zb + (chick ? 2 : 3.2));
+    pline(ctx, tail0[0], tail0[1], t1[0], t1[1], dark, chick ? 2 : 3);
+  }
 }
 function drawMisoItem(ctx, x, y, item) {
   x = Math.round(x); y = Math.round(y);
@@ -12752,6 +12806,18 @@ Props.draw.flatstone = (g, x, y) => { shadowEllipse(g, x + 1, y + 1, 11, 4); iso
 Props.draw.footbridge = (g, x, y, o) => { const w = o.w, h = o.h; shadowEllipse(g, x, y + 2, (w + h) * 8, 4); const P = isoPts(x, y, w, h, 0); for (const p of [P.top, P.right, P.bottom, P.left]) { g.fillStyle = '#4a3220'; g.fillRect(Math.round(p[0]) - 1, Math.round(p[1]) - 6, 2, 8); } isoBox(g, x, y, w, h, 2, 4, '#9a7a4e', '#7a5a34', '#6a4a2a'); const T = isoPts(x, y, w, h, 4); g.strokeStyle = '#6a4a2a'; for (let i = 1; i < w * 3; i++) { const t = i / (w * 3); g.beginPath(); g.moveTo(lerp(T.left[0], T.bottom[0], t), lerp(T.left[1], T.bottom[1], t)); g.lineTo(lerp(T.top[0], T.right[0], t), lerp(T.top[1], T.right[1], t)); g.stroke(); } };
 // an iron brazier full of coals
 Props.draw.brazier = (g, x, y) => { shadowEllipse(g, x, y + 1, 6, 2); g.fillStyle = '#2a2a2e'; g.fillRect(x - 4, y - 4, 1, 4); g.fillRect(x + 3, y - 4, 1, 4); g.fillRect(x - 5, y - 9, 10, 5); g.fillStyle = '#c84a1a'; g.fillRect(x - 4, y - 10, 8, 2); g.fillStyle = '#f0a040'; g.fillRect(x - 2, y - 11, 3, 1); return { light: { r: 30, c: '255,140,60' } }; };
+// yard chickens: the baked sprite is empty; they are drawn live so they peck and turn
+Props.draw.chicken = () => {};
+Props.dyn.chicken = (ctx, o, sx, sy, t) => {
+  const ph = o.v || 0, cycle = (t * 0.55 + ph * 9) % 6;
+  const peck = cycle < 1.15, walk = !peck && cycle < 3.1;
+  const face = (ph * TAU * 2.7 + Math.sin(t * 0.35 + ph * 6) * 0.55) % TAU;
+  drawChicken(ctx, Math.round(sx), Math.round(sy), {
+    face, spd: walk ? 0.55 : 0, gait: walk ? t * 2.4 + ph * 5 : 0, pose: peck ? 'graze' : null,
+    coat: Math.floor(ph * CHICKEN_COATS.length) % CHICKEN_COATS.length,
+    rooster: ph > 0.78, chick: ph < 0.16
+  }, t);
+};
 // a farm ox, old and patient
 Props.draw.ox = (g, x, y) => {
   shadowEllipse(g, x + 2, y + 1, 13, 4);
@@ -18655,6 +18721,13 @@ const Render = {
       for (const c of g.guns) { const sx = (c.x - c.y) * HTW - camX, sy = (c.x + c.y) * HTH - camY - BL(c.x, c.y); if (sx > -50 && sx < VW + 50 && sy > -20 && sy < VH + 80) D.push({ k: c.x + c.y + 0.2, cannon: c, sx, sy }); }
     }
     if (G.horse) { const h = G.horse, sx = (h.x - h.y) * HTW - camX, sy = (h.x + h.y) * HTH - camY - BL(h.x, h.y); if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60) D.push({ k: h.x + h.y + 0.01, h, sx, sy }); }
+    if (G.mp && typeof Net !== 'undefined') for (const [, r] of Net.remotes) {
+      const h = r.horse, a = r.actor; if (!h || h === G.horse) continue;
+      const riding = a && a.mounted && (a.mpSeat | 0) === 0;
+      if (riding && a.mount === h) continue;
+      const sx = (h.x - h.y) * HTW - camX, sy = (h.x + h.y) * HTH - camY - BL(h.x, h.y);
+      if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60) D.push({ k: h.x + h.y + 0.01, h, rider: riding ? a : null, sx, sy });
+    }
     for (const g of FX.gibs) { const sx = (g.x - g.y) * HTW - camX, sy = (g.x + g.y) * HTH - camY; if (sx > -40 && sx < VW + 40 && sy > -40 && sy < VH + 60) D.push({ k: g.x + g.y + (g.kind === 'corpse' || g.kind === 'half' ? -0.3 : 0), g }); }
     D.sort((a, b) => a.k - b.k);
     const P = G.player, pk = P && !P.dead ? P.x + P.y : -1, [psx, psy] = P ? iso(P.x, P.y) : [0, 0];
@@ -19387,12 +19460,15 @@ const Compound = {
       for (let y = b.y0 - 6; y <= b.y1 + 38; y += 32) for (let x = b.x0 - 6; x <= b.x1 + 38; x += 32) World.completeAt(Math.min(x, b.x1 + 6), Math.min(y, b.y1 + 6));
       for (let j = b.y0 - 2; j <= b.y1 + 2; j++) for (let i = b.x0 - 2; i <= b.x1 + 2; i++) if (World.in(i, j)) { World.sweepWild(i, j); World.setClear(i, j); }
       Ground.invalidateRect(b.x0 - 3, b.y0 - 3, b.x1 + 3, b.y1 + 3);
+      // dropping the rec without unbuild left the old ring standing inside the new one until a refresh
+      if (st.wall) this.unbuild(st.wall);
       st.bsig = bsig; st.wall = null;
     }
     const want = new Set();
     for (const s of gv.structs || []) {
       want.add(s.id);
-      const sig = [s.kind, s.x, s.y, s.w, s.h, s.rot, s.tier, s.damaged ? 1 : 0, JSON.stringify(s.style || null), s.banner || '', gv.palette && gv.palette.roof, gv.palette && gv.palette.wall].join('|');
+      const visP = (this.catalog()[s.kind] || {}).vis || {};
+      const sig = [s.kind, s.x, s.y, s.w, s.h, s.rot, s.tier, s.damaged ? 1 : 0, JSON.stringify(s.style || null), s.banner || '', gv.palette && gv.palette.roof, gv.palette && gv.palette.wall, visP.p, visP.n].join('|');
       const old = st.built.get(s.id);
       if (old && old.sig === sig) continue;
       if (old) this.unbuild(old);
@@ -19459,7 +19535,14 @@ const Compound = {
       } else if (vis.fence) {
         for (let i = s.x; i < s.x + s.w; i++) { this.obj(rec, 'fence', i, s.y, 1, 1, { solid: true, dir: 0 }); this.obj(rec, 'fence', i, s.y + s.h - 1, 1, 1, { solid: true, dir: 0 }); }
         for (let j = s.y + 1; j < s.y + s.h - 1; j++) { this.obj(rec, 'fence', s.x, j, 1, 1, { solid: true, dir: 1 }); if (j !== s.y + (s.h >> 1)) this.obj(rec, 'fence', s.x + s.w - 1, j, 1, 1, { solid: true, dir: 1 }); }
-        this.obj(rec, P, s.x + 2, s.y + 2, 2, 1, { solid: true });
+        const nFowl = vis.n || 1, R = RNG((s.x * 31 + s.y * 17) | 0), used = new Set();
+        for (let k = 0; k < nFowl; k++) {
+          let x, y, tries = 0;
+          do { x = s.x + 1 + Math.floor(R() * Math.max(1, s.w - 2)); y = s.y + 1 + Math.floor(R() * Math.max(1, s.h - 2)); } while (used.has(x + ',' + y) && ++tries < 16);
+          used.add(x + ',' + y);
+          const v = k === 0 ? 0.86 : k === nFowl - 1 ? 0.08 : 0.22 + (R() * 0.5);
+          this.obj(rec, P, x + 0.15 + R() * 0.55, y + 0.15 + R() * 0.55, 1, 1, { solid: false, v });
+        }
       } else {
         // several of the same: spread along the long side, or scattered inside (an orchard, a yard of straw men)
         const R = RNG((s.x * 31 + s.y * 17) | 0);
@@ -19490,6 +19573,16 @@ const Compound = {
   // the wall round the compound, the gate in its south side, towers and lamps as the walls grow
   walls(gv) {
     const W = (Net.catalog.WALLS || [])[gv.wall ? gv.wall.stage : 0] || {}, b = gv.bounds, rec = { gid: gv.id, sid: 'wall', objs: [], tiles: [], wallKeys: [], r: [b.x0, b.y0, b.x1, b.y1] };
+    // peel any ring this clan left behind (an older, smaller bound, or a raise that stacked a second prop on the same tile)
+    const pad = 6;
+    for (let j = b.y0 - pad; j <= b.y1 + pad; j++) for (let i = b.x0 - pad; i <= b.x1 + pad; i++) {
+      if (!World.in(i, j)) continue;
+      for (const o of World.at(i, j).slice()) if (o.clan === gv.id && o.sid === 'wall') {
+        World.removeObj(o);
+        if (o.solid) { World.subRect(o.x, o.y, o.x + o.w, o.y + o.h, 0); for (let y = Math.floor(o.y); y < Math.ceil(o.y + o.h); y++) for (let x = Math.floor(o.x); x < Math.ceil(o.x + o.w); x++) if (World.solidAt(x, y) === 1 && !World.bAt(x, y)) World.setSolid(x, y, 0); }
+      }
+      const k = World.key(i, j), wt = this.wallTiles.get(k); if (wt && wt.gid === gv.id) this.wallTiles.delete(k);
+    }
     if (!W.prop) return rec;
     const [gx, gy] = b.gate, put = (x, y, dir, ring = 0) => {
       x = Math.round(x); y = Math.round(y);
@@ -19945,11 +20038,20 @@ const Net = {
     a.mounted = !!p.mounted; a.mpSeat = p.seat | 0; a.mountOf = p.mountOf;
     if (p.dog && !Miso.mine()) Miso.fromNet(p.dog);
     if (p.horse) {
-      if (!r.horse) r.horse = Horse.make(p.horse.x || p.x, p.horse.y || p.y, p.horse.coat || 0, p.horse);
-      Object.assign(r.horse, p.horse); r.horse.ownerId = p.id;
-      if (p.mounted && p.seat === 0) a.mount = r.horse;
+      const hx = p.horse.x, hy = p.horse.y, hf = p.horse.face;
+      if (!r.horse) r.horse = Horse.make(hx != null ? hx : p.x, hy != null ? hy : p.y, p.horse.coat || 0, p.horse);
+      const ox = r.horse.x, oy = r.horse.y, of = r.horse.face;
+      Object.assign(r.horse, p.horse);
+      r.horse.ownerId = p.id;
+      if (hx != null && hy != null) {
+        r.horse.tx = hx; r.horse.ty = hy;
+        if (dist(ox, oy, hx, hy) > 12) { r.horse.x = hx; r.horse.y = hy; }
+        else { r.horse.x = ox; r.horse.y = oy; }
+      }
+      if (hf != null) { r.horse.tface = hf; r.horse.face = of; }
+      if (p.mounted && (p.seat | 0) === 0) { a.mount = r.horse; a.mpMount = r.horse; }
       else if (p.mountOf === this.id) { a.mpMount = G.horse; a.mount = null; }
-      else if (p.mounted && p.seat === 1) { const own = this.remotes.get(p.mountOf); a.mpMount = (own && own.horse) || r.horse; a.mount = null; }
+      else if (p.mounted && (p.seat | 0) === 1) { const own = this.remotes.get(p.mountOf); a.mpMount = (own && own.horse) || r.horse; a.mount = null; }
       else a.mount = null;
     }
   },
@@ -20143,7 +20245,14 @@ const Net = {
     for (const [, r] of this.remotes) {
       const a = r.actor; if (!a) continue;
       if (a.tx !== undefined) { const dx = a.tx - a.x, dy = a.ty - a.y; a.moving = a.moving || (Math.hypot(dx, dy) > 0.04); a.x = lerp(a.x, a.tx, k); a.y = lerp(a.y, a.ty, k); a.face = a.tface; }
-      if (r.horse && a.mounted && a.mpSeat === 0) { r.horse.x = a.x; r.horse.y = a.y; r.horse.face = a.face; a.mount = r.horse; }
+      if (r.horse) {
+        if (a.mounted && (a.mpSeat | 0) === 0) { r.horse.x = a.x; r.horse.y = a.y; r.horse.face = a.face; a.mount = r.horse; }
+        else {
+          if (r.horse.tx != null) { r.horse.x = lerp(r.horse.x, r.horse.tx, k); r.horse.y = lerp(r.horse.y, r.horse.ty, k); }
+          if (r.horse.tface != null) r.horse.face = r.horse.tface;
+        }
+        r.horse.walk = (r.horse.walk || 0) + dt * (0.6 + (r.horse.spd || 0) * 0.42);
+      }
       if (a.mounted && a.mpMount) { a.x = a.mpMount.x; a.y = a.mpMount.y; a.face = a.mpMount.face; }
     }
     if (G.player && G.player.mounted && G.player.mpSeat === 1 && G.player.mpMount) { G.player.x = G.player.mpMount.x; G.player.y = G.player.mpMount.y; G.player.face = G.player.mpMount.face; }
