@@ -60,8 +60,16 @@ function createNet(opt) {
   function toHost(msg) { const c = hostId && byId.get(hostId); if (c) send(c.ws, msg); return !!c; }
   function clockMsg() { return { tod: db.clock.tod, day: db.clock.day, rain: !!db.clock.rain, dayLen: DAY_LEN, at: U.now() }; }
 
+  function rankNameOf(g, pid) {
+    if (!g) return '';
+    const r = G.rankOf(g, pid);
+    if (r === 99) return '';
+    if (r === 0) return g.leaderTitle || C.RANKS[0];
+    return (g.rankTitles && g.rankTitles[r]) || C.RANKS[r] || '';
+  }
   function publicPlayer(p, online) {
-    return { id: p.id, name: p.name, look: p.look, x: p.x, y: p.y, face: p.face || 0, hp: p.hp, maxHp: p.maxHp || 100, wpn: p.wpn, armor: p.armor || 0, pose: p.pose || 'idle', state: p.pose || 'idle', sleeping: !!p.sleeping, armed: !!(p.wpn && p.wpn !== 'fists'), atk: p.atk || null, draw: p.draw || null, walk: p.walk || 0, moving: !!p.moving, crouch: !!p.crouch, mounted: !!p.mounted, seat: p.seat || 0, mountOf: p.mountOf || null, horse: p.horse, dog: p.dog || null, gangId: p.gangId, online: !!online, uniform: p.uniform || null };
+    const g = p.gangId && db.gangs[p.gangId];
+    return { id: p.id, name: p.name, look: p.look, x: p.x, y: p.y, face: p.face || 0, hp: p.hp, maxHp: p.maxHp || 100, wpn: p.wpn, armor: p.armor || 0, pose: p.pose || 'idle', state: p.pose || 'idle', sleeping: !!p.sleeping, armed: !!(p.wpn && p.wpn !== 'fists'), atk: p.atk || null, draw: p.draw || null, walk: p.walk || 0, moving: !!p.moving, crouch: !!p.crouch, mounted: !!p.mounted, seat: p.seat || 0, mountOf: p.mountOf || null, horse: p.horse, dog: p.dog || null, gangId: p.gangId, online: !!online, uniform: p.uniform || null, gold: p.gold | 0, ping: p.ping | 0, clan: g ? g.name : '', tag: g ? (g.tag || '') : '', rank: g ? G.rankOf(g, p.id) : 99, rankName: rankNameOf(g, p.id) };
   }
   function newPlayer(m) {
     const id = 'p_' + U.nid(4);
@@ -308,6 +316,8 @@ function createNet(opt) {
         if (m.dog !== undefined) p.dog = m.dog && typeof m.dog === 'object' ? m.dog : null;
         p.uniform = typeof m.uniform === 'string' ? m.uniform.slice(0, 24) : null;
         if (m.honor !== undefined) p.honor = U.int(m.honor, -100, 100, p.honor || 0);
+        if (m.gold !== undefined) p.gold = U.int(m.gold, 0, 99999999, p.gold || 0);
+        if (m.ping !== undefined) p.ping = U.int(m.ping, 0, 9999, p.ping || 0);
         if (U.now() - (p.lastSeen || 0) > 30000) { p.lastSeen = U.now(); touch(); }
         broadcast(Object.assign({ t: 'state', id: p.id }, publicPlayer(p, true)), ws);
         break;

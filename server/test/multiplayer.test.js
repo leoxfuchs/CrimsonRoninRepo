@@ -98,6 +98,20 @@ test('a horse standing beside you is sent to the other player', async () => {
   } finally { await S.stop(); }
 });
 
+test('state packets carry gold, ping, clan and rank for the player list', async () => {
+  const S = await startServer();
+  try {
+    const a = new Player(S.url, 'Aiko'), b = new Player(S.url, 'Ben');
+    const wa = await a.join(); await b.join();
+    a.send({ t: 'state', x: 108, y: 130, face: 0, hp: 100, maxHp: 100, wpn: 'katana', pose: 'idle', gold: 777, ping: 42 });
+    const st = await b.wait(m => m.t === 'state' && m.id === wa.id && m.gold === 777);
+    assert.equal(st.ping, 42);
+    assert.ok(st.clan, 'clan name is on the wire');
+    assert.ok(st.rankName, 'rank name is on the wire');
+    await a.close(); await b.close();
+  } finally { await S.stop(); }
+});
+
 test('one clock for everybody, and it moves', async () => {
   const S = await startServer();
   try {

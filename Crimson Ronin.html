@@ -324,6 +324,22 @@ body.talking #mObj,body.talking #mSubs{display:none;}
 #wheel .wf{display:flex;gap:4px;flex-wrap:wrap;}
 #wheel .wf button{background:#0006;border:1px solid #000;color:var(--paper-dim);padding:3px 8px;cursor:pointer;font-size:11px;text-transform:capitalize;}
 #wheel .wf button.on{color:var(--ink);background:var(--paper);}
+#roster{position:absolute;inset:0;z-index:15;display:grid;place-items:center;pointer-events:none;}
+#roster .roster-box{min-width:min(540px,92vw);max-width:min(640px,94vw);max-height:min(72vh,560px);overflow-y:auto;overscroll-behavior:contain;background:#0b080be8;border:1px solid var(--gold);box-shadow:0 0 0 2px #000,0 18px 50px #000c;padding:12px 14px 10px;}
+#roster .roster-h{display:flex;justify-content:space-between;align-items:baseline;margin:0 0 8px;color:var(--gold);font-family:var(--f-display);font-size:16px;letter-spacing:.04em;}
+#roster .roster-h span{color:var(--paper-dim);font-family:var(--f-ui);font-size:11px;letter-spacing:.08em;}
+#roster .rr{display:grid;grid-template-columns:48px minmax(0,1fr) auto auto;gap:10px 12px;align-items:center;padding:7px 2px;border-top:1px solid #ffffff12;}
+#roster .rr.me .rn{color:var(--gold);}
+#roster .rr canvas{width:48px;height:48px;image-rendering:pixelated;background:#16121a;border:1px solid #000;box-shadow:inset 0 0 0 1px #ffffff10;}
+#roster .ri{min-width:0;}
+#roster .rn{font-family:var(--f-display);font-size:16px;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#roster .rn i{font-style:normal;color:var(--paper-dim);font-family:var(--f-ui);font-size:11px;margin-left:6px;letter-spacing:.08em;}
+#roster .rc{font-size:12px;color:var(--paper-dim);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;}
+#roster .rc b{color:var(--paper);font-weight:400;}
+#roster .rm{color:var(--gold);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+#roster .rm small{color:var(--paper-dim);font-size:10px;letter-spacing:.08em;text-transform:uppercase;}
+#roster .rp{font-size:12px;text-align:right;min-width:72px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+#roster .pip{display:inline-block;width:7px;height:7px;margin-right:6px;vertical-align:middle;box-shadow:0 0 0 1px #000;}
 </style>
 
 <div id="app">
@@ -371,6 +387,12 @@ body.talking #mObj,body.talking #mSubs{display:none;}
   <div id="mObj" hidden></div>
   <div id="mFade"></div>
   <div id="mCard"></div>
+  <div id="roster" hidden>
+    <div class="roster-box">
+      <div class="roster-h"><b>Players</b><span id="rosterN"></span></div>
+      <div id="rosterList"></div>
+    </div>
+  </div>
 
   <div id="touch" hidden>
     <div id="joy"><div id="joyK"></div></div>
@@ -421,7 +443,7 @@ body.talking #mObj,body.talking #mSubs{display:none;}
         <kbd>1–9 · 0 · X</kbd><span>Switch weapons · bare hands (sheathe, folk stay calm) · quick sheathe/draw</span>
         <kbd>Q / R</kbd><span>Bandage bleeding wounds / drink sake</span>
         <kbd>J · M</kbd><span>Journal of quests · map and fast travel</span>
-        <kbd>Tab · G · Esc</kbd><span>Character · gang orders · pause</span>
+        <kbd>Tab · I · G · Esc</kbd><span>Hold for players · character · gang orders · pause</span>
       </div>
     </div>
   </div>
@@ -7349,7 +7371,7 @@ const G = {
     if (Input.hit('KeyE') && p.state !== 'work') Systems.doInteract();
     if (Input.hit('KeyM')) UI.open('map');
     if (Input.hit('KeyJ', 'KeyL')) UI.open('journal');
-    if (Input.hit('Tab', 'KeyI')) UI.open('char');
+    if (Input.hit('KeyI')) UI.open('char');
     if (Input.hit('KeyP') && this.profile.pendingPerks > 0) UI.open('perk');
     if (Input.hit('Escape') && !this.uiAte) UI.open('pause');
     Systems.findInteract();
@@ -19048,6 +19070,7 @@ function frameBody(now) {
   }
   if (World.chunks) Render.draw(G.state === 'play' ? sdt : dt);
   Creator.draw(dt);
+  if (typeof Roster !== 'undefined') Roster.tick();
   Input.endFrame();
 }
 // ---- dev kit: on the title screen, type crdk in order to unlock a mission jumper with a maxed loadout
@@ -19821,7 +19844,7 @@ const Net = {
   ws: null, id: null, token: null, ready: false, isHost: false, hostId: null, gang: null, catalog: {}, invites: [], apps: [],
   world: { gangs: new Map(), territory: {}, rivals: [], camps: new Map(), sites: [], info: null, parked: [] },
   remotes: new Map(), proxies: new Map(), sentNpc: new Map(), hostClans: new Map(), pending: new Map(),
-  clock: null, clockAt: 0, offset: 0, rid: 0, sendT: 0, npcT: 0, nidSeq: 0, fromNet: false, questRet: null, onOk: null, onErr: null,
+  clock: null, clockAt: 0, offset: 0, ping: 0, pingT: 0, rid: 0, sendT: 0, npcT: 0, nidSeq: 0, fromNet: false, questRet: null, onOk: null, onErr: null,
   url() {
     if (location.protocol === 'file:') return 'ws://127.0.0.1:8091/ws';
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -19894,7 +19917,7 @@ const Net = {
     err(m) { UI.toast(m.msg, 'shame'); if (this.onErr && G.state !== 'play') { this.onErr(m.msg); this.onErr = null; } },
     ok(m) { UI.toast(m.msg, 'good'); },
     toast(m) { UI.toast(m.msg, m.kind || ''); },
-    pong(m) { const rtt = Date.now() - m.at; this.offset = m.server + rtt / 2 - Date.now(); },
+    pong(m) { const rtt = Math.max(0, Date.now() - m.at); this.ping = rtt; this.offset = m.server + rtt / 2 - Date.now(); },
     clock(m) { this.setClock(m.clock); },
     res(m) {
       if (m.gold !== undefined && G.profile) { G.profile.gold = m.gold; G.profile.bank = m.bank; }
@@ -20011,7 +20034,7 @@ const Net = {
     if (!r) {
       const a = new Actor({ x: p.x, y: p.y, faction: 'player', name: p.name, look: p.look || {}, wpn: p.wpn || 'katana', hp: p.hp || 100, maxHp: p.maxHp || 100, persistent: true, remote: true, gangId: p.gangId });
       a.remote = true; a.pid = p.id; if (G.actors) G.actors.push(a);
-      r = { actor: a, horse: null }; this.remotes.set(p.id, r);
+      r = { actor: a, horse: null, gold: 0, ping: 0, clan: '', rankName: '', heard: 0 }; this.remotes.set(p.id, r);
       this.world.parked = this.world.parked.filter(x => x.owner !== p.id);
     }
     const a = r.actor;
@@ -20034,6 +20057,11 @@ const Net = {
         else { a.atk.t = p.atk.t || a.atk.t; a.atk.heavy = !!p.atk.heavy; }
       } else if (st !== a.state) { a.state = st; if (st !== 'atk') a.atk = null; }
     }
+    r.heard = performance.now();
+    if (p.gold != null) r.gold = p.gold | 0;
+    if (p.ping != null) r.ping = p.ping | 0;
+    if (p.clan != null) r.clan = p.clan;
+    if (p.rankName != null) r.rankName = p.rankName;
     if (p.draw) a.drawAnim = { dir: p.draw.dir, t: p.draw.t || 0, dur: p.draw.dur || 0.3, wpn: p.draw.wpn || a.wpn };
     a.mounted = !!p.mounted; a.mpSeat = p.seat | 0; a.mountOf = p.mountOf;
     if (p.dog && !Miso.mine()) Miso.fromNet(p.dog);
@@ -20236,10 +20264,11 @@ const Net = {
         sleeping: sleep, armed: !sleep && !!(p.wpn && p.wpn !== 'fists'), atk: sleep ? null : atk, draw: sleep ? null : draw, walk: p.walk, moving: !sleep && !!p.moving, crouch: !!p.crouch, look: pr.look,
         mounted: !!p.mounted, seat: p.mpSeat || 0, mountOf: (p.mpMount && p.mpMount.ownerId) || (p.mounted ? this.id : null),
         horse: h ? { x: h.x, y: h.y, face: h.face, spd: h.spd, coat: h.coat, name: h.name, spdMul: h.spdMul, seats: h.seats } : null,
-        dog: Miso.pack(), uniform: (Clan.myPreset() || {}).id || null, honor: pr.honor
+        dog: Miso.pack(), uniform: (Clan.myPreset() || {}).id || null, honor: pr.honor,
+        gold: pr.gold | 0, ping: this.ping | 0
       });
     }
-    if ((this.pingT = (this.pingT || 0) - dt) <= 0) { this.pingT = 20; this.send({ t: 'ping', at: Date.now() }); }
+    if ((this.pingT = (this.pingT || 0) - dt) <= 0) { this.pingT = (typeof Roster !== 'undefined' && Roster.on) ? 0.7 : 2; this.send({ t: 'ping', at: Date.now() }); }
     if (this.isHost) this.hostSync(dt);
     const k = 1 - Math.pow(0.0008, dt);
     for (const [, r] of this.remotes) {
@@ -21312,6 +21341,77 @@ Panels.clanNpc = o => {
   const html = ClanUI.t_retainers(Object.assign({}, g, { npcs: [n], recruit: { policy: {} } })).split('<div class="speaker">Recruitment')[0];
   setTimeout(() => ClanUI.paint(), 0);
   return { title: n.name, seal: '侍', html, on: (act, arg) => { const h = ClanUI['a_' + act]; if (h) return h.call(ClanUI, arg); } };
+};
+// ---- hold Tab: every player in the world, over the fight, until you let go
+const Roster = {
+  on: false, at: 0, sig: '',
+  tick() {
+    const want = (G.state === 'play' || G.state === 'dead') && Input.held('Tab') && !UI.panel && !(typeof Talk !== 'undefined' && Talk.d) && !(typeof Wheel !== 'undefined' && Wheel.on);
+    if (!want) { if (this.on) this.hide(); return; }
+    if (!this.on) this.show();
+    const now = performance.now();
+    if (now - this.at > 140) this.paint();
+  },
+  show() { const el = $('roster'); if (!el) return; el.hidden = false; this.on = true; this.sig = ''; this.paint(); },
+  hide() { const el = $('roster'); if (el) el.hidden = true; this.on = false; this.sig = ''; },
+  rows() {
+    const out = [];
+    const meLook = (G.player && G.player.look) || (G.profile && G.profile.look) || {};
+    out.push({
+      id: (typeof Net !== 'undefined' && Net.id) || 'you', me: true,
+      name: (G.profile && G.profile.name) || 'Ronin', look: meLook,
+      clan: (G.mp && Net.gang && Net.gang.name) || '',
+      rank: G.mp ? (Clan.rankName() || '') : (G.honorTitle ? G.honorTitle() : ''),
+      gold: (G.profile && G.profile.gold) | 0,
+      ping: G.mp ? (Net.ping | 0) : 0, heard: 0
+    });
+    if (G.mp && typeof Net !== 'undefined') for (const [id, r] of Net.remotes) {
+      const a = r.actor; if (!a) continue;
+      const gv = a.gangId && Net.world && Net.world.gangs && Net.world.gangs.get(a.gangId);
+      out.push({
+        id, me: false, name: a.name || 'Ronin', look: a.look || a.baseLook || {},
+        clan: r.clan || (gv && gv.name) || '',
+        rank: r.rankName || (Net.gang && a.gangId === Net.gang.id ? Clan.rankName(id) : ''),
+        gold: r.gold | 0, ping: r.ping | 0, heard: r.heard || 0
+      });
+    }
+    return out;
+  },
+  link(row) {
+    if (row.me) {
+      if (!G.mp) return { label: 'here', col: '#7ab8ff' };
+      if (!Net.ws || Net.ws.readyState !== 1) return { label: 'offline', col: '#ff8a7a' };
+      const p = row.ping | 0;
+      if (p <= 0) return { label: '…', col: '#e8c890' };
+      return { label: p + ' ms', col: p < 80 ? '#5fd07a' : p < 180 ? '#e8c890' : '#ff8a7a' };
+    }
+    const age = row.heard ? (performance.now() - row.heard) / 1000 : 99;
+    if (age > 4) return { label: 'lost', col: '#ff8a7a' };
+    if (age > 1.8) return { label: 'lag', col: '#e8c890' };
+    const p = row.ping | 0;
+    if (p > 0) return { label: p + ' ms', col: p < 80 ? '#5fd07a' : p < 180 ? '#e8c890' : '#ff8a7a' };
+    return { label: 'live', col: '#5fd07a' };
+  },
+  paint() {
+    this.at = performance.now();
+    const rows = this.rows(), list = $('rosterList'), n = $('rosterN');
+    if (!list) return;
+    if (n) n.textContent = rows.length + ' in the world';
+    const sig = rows.map(r => [r.id, r.name, r.clan, r.rank, JSON.stringify(r.look)].join('\0')).join('|');
+    if (sig !== this.sig) {
+      this.sig = sig;
+      list.innerHTML = rows.map((r, i) => `<div class="rr${r.me ? ' me' : ''}"><canvas width="48" height="48" data-i="${i}"></canvas><div class="ri"><div class="rn">${esc(r.name)}${r.me ? ' <i>you</i>' : ''}</div><div class="rc"><b>${esc(r.clan || '—')}</b><span>${esc(r.rank || '—')}</span></div></div><div class="rm"></div><div class="rp"></div></div>`).join('');
+      list.querySelectorAll('canvas').forEach((cv, i) => {
+        const g = cv.getContext('2d'); g.imageSmoothingEnabled = false; Portrait.draw(g, rows[i].look);
+      });
+    }
+    list.querySelectorAll('.rr').forEach((el, i) => {
+      const r = rows[i]; if (!r) return;
+      const rm = el.querySelector('.rm'), rp = el.querySelector('.rp'), L = this.link(r);
+      if (rm) rm.innerHTML = (r.gold | 0).toLocaleString() + ' <small>mon</small>';
+      if (rp) { rp.innerHTML = `<i class="pip" style="background:${L.col}"></i>${esc(L.label)}`; rp.style.color = L.col; }
+    });
+  }
 };
 // ---- the command wheel (G): orders for the clan's fighters without stopping the fight
 const Wheel = {
