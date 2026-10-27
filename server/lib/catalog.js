@@ -43,7 +43,7 @@ const REP_KEYS = ['honor', 'might', 'generosity', 'reliability', 'wealth', 'infl
 // ---- structures. vis: b = a building kind (with its door side), p = a prop, t = a ground tile filled over the footprint
 // fx per tier: beds (clan NPCs housed), heal (sleep), hp, st, dmg, train (NPC xp an hour), prod (a day), store, def,
 // appeal (visitors), trade (mon a day), intel, morale, horse, bandage. legacy keeps the old camp bonuses working.
-const T = (mon, extra = {}, time = 30) => ({ cost: Object.assign({ mon }, extra), time });
+const T = (mon, extra = {}, time = 1) => ({ cost: Object.assign({ mon }, extra), time });
 const BUILD = {};
 const add = (key, o) => { BUILD[key] = Object.assign({ key, max: 1, stage: 0, rot: true }, o); };
 // living

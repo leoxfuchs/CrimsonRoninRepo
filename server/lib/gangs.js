@@ -152,7 +152,7 @@ function createGangs(ctx) {
     banners: g.banners, hq: g.hq, wall: g.wall, stage: G.stage(g).n, leader: g.leader, members: g.members.length,
     // the ground the compound stands on (every client builds the same walls) and what its people wear
     bounds: g.hq && ctx.bounds ? ctx.bounds(g) : null, uniforms: g.uniforms,
-    structs: g.structs.map(s => ({ id: s.id, kind: s.kind, x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot, tier: s.tier, style: s.style || null, state: s.state, doneAt: s.doneAt || 0, startAt: s.startAt || 0, banner: s.banner || null })),
+    structs: g.structs.map(s => ({ id: s.id, kind: s.kind, x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot, tier: s.tier, style: s.style || null, state: s.state, doneAt: s.doneAt || 0, startAt: s.startAt || 0, banner: s.banner || null, damaged: !!s.damaged })),
     ver: g.ver
   });
   G.publicCard = (g) => ({
@@ -183,6 +183,7 @@ function createGangs(ctx) {
     if (Array.isArray(m.rankTitles)) { if (G.rankOf(g, pid) !== C.RANK_LEADER) return 'Only the leader names the ranks.'; g.rankTitles = C.RANKS.map((r, i) => U.cleanText(m.rankTitles[i], 20, r)); }
     if (m.announce !== undefined) { g.announce = U.cleanText(m.announce, 240); g.announceAt = U.now(); ctx.toGang(g, { t: 'clanAnnounce', text: g.announce, by: pid }); }
     G.log(g, (ctx.player(pid) || {}).name + ' changed the clan’s words.');
+    G.bump(g);
     return null;
   };
   // an emblem is a stack of layers on a field; everything is clamped to what the editor can draw
@@ -205,6 +206,7 @@ function createGangs(ctx) {
     if (!G.can(g, pid, 'emblem')) return 'You may not change the clan’s emblem.';
     const em = G.cleanEmblem(e); if (!em) return 'That emblem could not be read.';
     g.emblem = em; G.log(g, (ctx.player(pid) || {}).name + ' redrew the clan’s emblem.');
+    G.bump(g);
     return null;
   };
   G.setPalette = (g, pid, p) => {
@@ -214,6 +216,7 @@ function createGangs(ctx) {
     if (Array.isArray(p.ranks)) g.palette.ranks = C.RANKS.map((_, i) => U.cleanHex(p.ranks[i], g.palette.ranks[i] || '#888888'));
     if (p.contexts && typeof p.contexts === 'object') for (const c of C.UNIFORM.contexts) if (p.contexts[c]) g.palette.contexts[c] = { primary: U.cleanHex(p.contexts[c].primary, g.palette.primary), secondary: U.cleanHex(p.contexts[c].secondary, g.palette.secondary), accent: U.cleanHex(p.contexts[c].accent, g.palette.accent) };
     if (Array.isArray(p.saved)) g.palette.saved = p.saved.slice(0, 12).map(s => ({ name: U.cleanText(s && s.name, 24, 'Palette'), colors: (Array.isArray(s && s.colors) ? s.colors : []).slice(0, 8).map(c => U.cleanHex(c)) }));
+    G.bump(g);
     return null;
   };
   G.cleanPreset = (p, pal) => {
@@ -249,6 +252,7 @@ function createGangs(ctx) {
     }
     if (u.players !== undefined) g.uniforms.players = U.pickOne(u.players, ['free', 'recommend', 'require'], 'free');
     G.log(g, (ctx.player(pid) || {}).name + ' changed the clan’s uniforms.');
+    G.bump(g);
     return null;
   };
   G.setBanners = (g, pid, list) => {
@@ -262,6 +266,7 @@ function createGangs(ctx) {
       emblem: !!(b && b.emblem), border: U.pickOne(b && b.border, ['none', 'edge', 'double', 'teeth'], 'edge'), borderColor: U.cleanHex(b && b.borderColor, g.emblem.field2),
       tassels: !!(b && b.tassels), fringe: !!(b && b.fringe), wear: U.num(b && b.wear, 0, 1, 0), damage: U.num(b && b.damage, 0, 1, 0), wind: U.num(b && b.wind, 0, 1, 0.6)
     }));
+    G.bump(g);
     return null;
   };
   G.setRanks = (g, pid, m) => {
@@ -270,6 +275,7 @@ function createGangs(ctx) {
     if (Array.isArray(m.rankTitles)) g.rankTitles = C.RANKS.map((r, i) => U.cleanText(m.rankTitles[i], 20, r));
     if (m.leaderTitle !== undefined) g.leaderTitle = U.cleanText(m.leaderTitle, 20, 'Oyabun');
     G.log(g, 'The leader changed what each rank may do.');
+    G.bump(g);
     return null;
   };
   G.setRecruit = (g, pid, m) => {
@@ -280,6 +286,7 @@ function createGangs(ctx) {
       const P = m.policy;
       g.recruit.policy = { minSkill: U.num(P.minSkill, 0, 1, 0), roles: (Array.isArray(P.roles) ? P.roles : []).filter(r => C.ROLES[r]).slice(0, 8), maxRecruits: U.int(P.maxRecruits, 0, 99, 0), autoReject: U.bool(P.autoReject), references: U.bool(P.references) };
     }
+    G.bump(g);
     return null;
   };
 

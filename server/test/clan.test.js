@@ -47,8 +47,10 @@ test('buildings finish on the server’s clock, upgrades need a bigger clan, dem
   const g = W.gang(a); g.res.mon = 5000; g.res.timber = 500; g.res.stone = 500; g.res.iron = 100;
   let r = W.req(a, 'build', { kind: 'forge', x: 112, y: 118 }); assert.equal(r.ok, true, r.err);
   const s = g.structs.find(x => x.kind === 'forge');
-  assert.equal(s.state, 'building'); assert.equal(W.net.G.fx(g).dmg, 0, 'an unfinished forge sharpens nothing');
-  s.doneAt = Date.now() - 1; W.net.B.tick(g);
+  assert.equal(s.state, 'done'); assert.equal(W.net.G.fx(g).dmg, 8);
+  s.state = 'building'; s.doneAt = Date.now() - 1; g._fx = null; g._fxv = -1;
+  assert.equal(W.net.G.fx(g).dmg, 0, 'an unfinished forge sharpens nothing');
+  W.net.B.tick(g);
   assert.equal(s.state, 'done'); assert.equal(W.net.G.fx(g).dmg, 8);
   r = W.req(a, 'upgrade', { id: s.id }); assert.equal(r.ok, false); assert.match(r.err, /grow/);
   g.renown = 500; r = W.req(a, 'upgrade', { id: s.id }); assert.equal(r.ok, true, r.err); assert.equal(s.tier, 2);
@@ -58,6 +60,25 @@ test('buildings finish on the server’s clock, upgrades need a bigger clan, dem
   r = W.req(a, 'demolish', { id: s.id, confirm: true }); assert.equal(r.ok, true, r.err);
   assert.equal(g.res.mon, mon0 + (120 + 320) * 0.5);
   r = W.req(a, 'demolish', { id: g.structs.find(x => x.kind === 'hearth').id, confirm: true }); assert.equal(r.ok, false, 'the last fire stays');
+});
+
+test('restyle and colours are kept at once, and the compound version moves so every client rebuilds', () => {
+  const W = world(); const a = W.join('Stylist');
+  W.req(a, 'placeHQ', { site: 'kusamura' });
+  const g = W.gang(a);
+  const s = g.structs.find(x => x.kind === 'shelter');
+  const ver = g.ver;
+  let r = W.req(a, 'restyle', { id: s.id, style: { preset: 'luxury', roof: 'copper' } });
+  assert.equal(r.ok, true, r.err);
+  assert.ok(g.ver > ver, 'restyle bumps the compound so clients redraw');
+  assert.equal(s.style.preset, 'luxury');
+  assert.equal(s.style.roof, 'copper');
+  assert.equal(s.state, 'done');
+  const ver2 = g.ver;
+  r = W.req(a, 'palette', { palette: { roof: '#a8321e', wall: '#e6dcc4' } });
+  assert.equal(r.ok, true, r.err);
+  assert.ok(g.ver > ver2, 'colours bump the compound too');
+  assert.equal(g.palette.roof, '#a8321e');
 });
 
 test('visitors come to a clan with a home, more to a renowned one; the gate decides who stays', () => {
@@ -165,6 +186,7 @@ test('contracts are real work: progress is counted, rewards and land follow', ()
   // a duel is fought in the game of whoever took it: only they, and only there, can say it is answered
   const b = W.join('Second'); W.req(a, 'invite', { to: b.id }); const inv = W.db.invites.find(i => i.to === b.id); W.req(b, 'acceptInvite', { id: inv.id });
   const du = W.net.L.contractFor(g, 'duel'); g.contracts.push(du); r = W.req(a, 'acceptContract', { id: du.id }); assert.equal(r.ok, true, r.err);
+  W.db.players[a.id].x = du.place.x + 80; W.db.players[a.id].y = du.place.y + 80;
   r = W.req(a, 'duelDone', { id: du.id }); assert.equal(r.ok, false); assert.match(r.err, /not at/);
   W.db.players[b.id].x = du.place.x; W.db.players[b.id].y = du.place.y;
   r = W.req(b, 'duelDone', { id: du.id }); assert.equal(r.ok, false); assert.match(r.err, /someone else/);

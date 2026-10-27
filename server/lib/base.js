@@ -122,10 +122,10 @@ function createBase(ctx, G) {
     const cost = def.tiers[0].cost;
     if (!G.can(g, pid, 'spend') && cost.mon > 0) return 'Building spends clan resources, and your rank may not spend them.';
     if (!G.pay(g, cost)) return 'Not enough: ' + G.short(g, cost) + ' short.';
-    const s = B.put(g, def.key, x, y, rot, 1, false);
-    s.doneAt = U.now() + B.buildTime(g, def, 1); s.by = pid; s.style = B.cleanStyle(m.style);
+    const s = B.put(g, def.key, x, y, rot, 1, true);
+    s.by = pid; s.style = B.cleanStyle(m.style);
     G.addRenown(g, 2 + (def.stage || 0) * 2, null);
-    G.log(g, (ctx.player(pid) || {}).name + ' began building ' + def.name + '.');
+    G.log(g, (ctx.player(pid) || {}).name + ' built ' + def.name + '.');
     G.bump(g);
     return null;
   };
@@ -140,9 +140,9 @@ function createBase(ctx, G) {
     const cost = def.tiers[s.tier].cost;
     if (!G.can(g, pid, 'spend')) return 'Upgrading spends clan resources, and your rank may not spend them.';
     if (!G.pay(g, cost)) return 'Not enough: ' + G.short(g, cost) + ' short.';
-    s.tier++; s.state = 'building'; s.startAt = U.now(); s.doneAt = U.now() + B.buildTime(g, def, s.tier); s.by = pid;
+    s.tier++; s.state = 'done'; s.by = pid;
     G.addRenown(g, 3 * s.tier, null);
-    G.log(g, (ctx.player(pid) || {}).name + ' began improving ' + def.name + ' (tier ' + s.tier + ').');
+    G.log(g, (ctx.player(pid) || {}).name + ' improved ' + def.name + ' (tier ' + s.tier + ').');
     G.bump(g);
     return null;
   };
@@ -167,7 +167,6 @@ function createBase(ctx, G) {
     const fee = { mon: def.vis.b ? Math.round((def.tiers[0].cost.mon || 0) * 0.15) : 0 };
     if (fee.mon && !G.pay(g, fee)) return 'Moving it costs ' + fee.mon + ' mon.';
     Object.assign(s, { x, y, w, h, rot });
-    if (def.vis.b && s.state === 'done') { s.state = 'building'; s.startAt = U.now(); s.doneAt = U.now() + Math.round(B.buildTime(g, def, s.tier) * 0.3); }
     G.bump(g);
     return null;
   };

@@ -9894,7 +9894,9 @@ const Buildings = {
     x = seat[0]; y = seat[1];
     const st = Object.assign({}, BSTYLE[kind], opt.style || {});
     const b = { id: this.list.length, kind, x, y, w, h, st, side: opt.door || 'S', items: [], spots: {}, open: 0, behind: 0, hk: opt.hk || null, name: opt.name || '', snow: !!opt.snow, lvl: 0, opt, shop: opt.shop };
-    if (b.hk) {
+    if (opt.lvl != null) b.lvl = opt.lvl;
+    else if (opt.clan || opt.sid) b.lvl = 1;
+    else if (b.hk) {
       if (G.mp && Net && Net.gang && Net.gang.buildings) b.lvl = Net.gang.buildings[b.hk] || 0;
       else if (G.profile && G.profile.hideout) b.lvl = b.hk === 'hall' ? hallLevel() : (G.profile.hideout[b.hk] || 0);
     }
@@ -10552,7 +10554,8 @@ const BPaint = {
     const st = b.st;
     if (st.castle) return this.keep(b);
     if (st.tent) return this.tent(b);
-    if (st.levels && b.lvl === 0) { const K = bcanvas(b, (st.wallH || 30) + (st.rise || 20) + 60); return this.ruinExt(b, K, RNG(7 + b.id * 31)); }
+    // hideout halls at level 0 are wrecks; a clan building is never that (its tier is at least 1, and a raid marks damaged instead)
+    if (st.levels && b.lvl === 0 && !(b.opt && (b.opt.clan || b.opt.sid))) { const K = bcanvas(b, (st.wallH || 30) + (st.rise || 20) + 60); return this.ruinExt(b, K, RNG(7 + b.id * 31)); }
     if (st.ruin) { const K = bcanvas(b, 80); return this.ruinExt(b, K, RNG(7 + b.id * 31)); }
     return this.house(b, archSpec(b));
   },
@@ -10778,7 +10781,7 @@ const BPaint = {
       quad(A, Bq, Hh - 3, Hh, wood);
       for (let i = 0; i <= Math.round(n); i++) { const p = along(A, Bq, i / Math.round(n), 0); g.fillStyle = wood; g.fillRect(Math.round(p[0]), Math.round(p[1] - Hh), 1, Hh); }
       for (const dec of (b.decor || []).filter(dc => dc.wall === nm)) paintDecor(g, A, Bq, dec, Hh, along, quad);
-      if (st.ruin || (st.levels && L === 0)) { g.globalCompositeOperation = 'destination-out'; const R = RNG(b.id * 7 + nm.length); for (let k = 0; k < 4; k++) { const t = R(), p = along(A, Bq, t, Hh); g.beginPath(); g.ellipse(p[0], p[1], 6 + R() * 8, 4 + R() * 6, 0, 0, TAU); g.fill(); } g.globalCompositeOperation = 'source-over'; }
+      if (st.ruin || (st.levels && L === 0 && !(b.opt && (b.opt.clan || b.opt.sid)))) { g.globalCompositeOperation = 'destination-out'; const R = RNG(b.id * 7 + nm.length); for (let k = 0; k < 4; k++) { const t = R(), p = along(A, Bq, t, Hh); g.beginPath(); g.ellipse(p[0], p[1], 6 + R() * 8, 4 + R() * 6, 0, 0, TAU); g.fill(); } g.globalCompositeOperation = 'source-over'; }
     }
     // the cut top of the walls
     g.strokeStyle = shade(pl, 0.2); g.beginPath(); g.moveTo(P.left[0], P.left[1] - Hh); g.lineTo(P.top[0], P.top[1] - Hh); g.lineTo(P.right[0], P.right[1] - Hh); g.stroke();
@@ -19307,10 +19310,10 @@ const ARCH_PRESETS = {
 const Compound = {
   state: new Map(), wallTiles: new Map(), t: 0,
   catalog() { return (Net.catalog && Net.catalog.BUILD) || {}; },
-  // the compounds near anyone in the world get built (the host builds where any player is; others where they are)
+  // the compounds near anyone in the world get built (the host builds where any player is; others where they are).
+  // a version change applies this frame so a restyle or an upgrade is on the ground as soon as the world answers
   tick(dt) {
     if (!G.mp || !Net.world) return;
-    if ((this.t -= dt) > 0) return; this.t = 0.5;
     const obs = Net.observers();
     for (const gv of Net.world.gangs.values()) {
       if (!gv.hq || !gv.bounds) continue;
@@ -19319,6 +19322,7 @@ const Compound = {
       if (!near) { if (st && obs.every(([x, y]) => Math.abs(x - gv.hq.x) + Math.abs(y - gv.hq.y) > 420)) this.remove(gv.id); continue; }
       if (!st || st.ver !== gv.ver) this.apply(gv);
     }
+    if ((this.t -= dt) > 0) return; this.t = 0.5;
     for (const [gid] of this.state) if (!Net.world.gangs.has(gid) || !Net.world.gangs.get(gid).hq) this.remove(gid);
   },
   rect(s) { return [s.x, s.y, s.x + s.w, s.y + s.h]; },
@@ -19336,7 +19340,7 @@ const Compound = {
     const want = new Set();
     for (const s of gv.structs || []) {
       want.add(s.id);
-      const sig = [s.kind, s.x, s.y, s.w, s.h, s.rot, s.tier, s.state === 'building' && s.doneAt > Net.now() ? 'b' : 'd', s.damaged ? 1 : 0, JSON.stringify(s.style || null), s.banner || '', gv.palette && gv.palette.roof, gv.palette && gv.palette.wall].join('|');
+      const sig = [s.kind, s.x, s.y, s.w, s.h, s.rot, s.tier, s.damaged ? 1 : 0, JSON.stringify(s.style || null), s.banner || '', gv.palette && gv.palette.roof, gv.palette && gv.palette.wall].join('|');
       const old = st.built.get(s.id);
       if (old && old.sig === sig) continue;
       if (old) this.unbuild(old);
@@ -19378,15 +19382,6 @@ const Compound = {
   },
   build(gv, s) {
     const def = this.catalog()[s.kind] || { vis: { p: 'sign' }, name: s.kind }, vis = def.vis, rec = { gid: gv.id, sid: s.id, objs: [], tiles: [], b: null, r: this.rect(s) };
-    const pending = s.state === 'building' && s.doneAt > Net.now();
-    if (pending) {
-      // going up: a cleared footprint, timber stacked, stakes at the corners, and (for halls) a frame of posts
-      for (let j = s.y; j < s.y + s.h; j++) for (let i = s.x; i < s.x + s.w; i++) this.tile(rec, i, j, TILE.GRAVEL);
-      this.obj(rec, 'lumber', s.x, s.y + s.h - 1, 1, 1, { solid: false });
-      if (s.w > 2 && s.h > 2) for (const [x, y] of [[s.x, s.y], [s.x + s.w - 1, s.y], [s.x, s.y + s.h - 1], [s.x + s.w - 1, s.y + s.h - 1]]) this.obj(rec, 'stakes', x, y, 1, 1, { solid: false });
-      Ground.invalidateRect(s.x - 1, s.y - 1, s.x + s.w + 1, s.y + s.h + 1);
-      return rec;
-    }
     const T = { gravel: TILE.GRAVEL, paddy: TILE.PADDY, path: TILE.PATH, stone: TILE.STONE, pave: TILE.PAVE, water: TILE.WATER };
     if (vis.t) for (let j = s.y; j < s.y + s.h; j++) for (let i = s.x; i < s.x + s.w; i++) {
       const edge = i === s.x || j === s.y || i === s.x + s.w - 1 || j === s.y + s.h - 1;
@@ -19397,8 +19392,8 @@ const Compound = {
       const door = s.rot % 2 ? 'E' : (vis.door === 'E' ? 'E' : 'S');
       const arch = this.archOf(gv, s, def), style = {};
       if (s.style && s.style.noren) style.noren = s.style.noren; else if (gv.palette && gv.palette.primary) style.noren = gv.palette.primary;
-      const b = Buildings.create(vis.b, s.x, s.y, s.w, s.h, { name: def.name, door, arch, style, clan: gv.id, sid: s.id });
-      if (b) { if (def.vis.levels) b.lvl = s.tier; try { Buildings.furnish(b); } catch (e) {} rec.b = b; }
+      const b = Buildings.create(vis.b, s.x, s.y, s.w, s.h, { name: def.name, door, arch, style, clan: gv.id, sid: s.id, lvl: Math.max(1, s.tier | 0) });
+      if (b) { b.lvl = Math.max(1, s.tier | 0); try { Buildings.furnish(b); } catch (e) {} rec.b = b; }
     }
     if (vis.p) {
       const n = vis.n || 1, P = vis.p, solid = !['h_garden', 'clanbanner', 'sakura', 'bamboo', 'pine', 'lanternpost', 'stonelantern', 'scarecrow', 'fishrack', 'stakes', 'well'].includes(P) || P === 'well';
@@ -19555,7 +19550,7 @@ const BuildMode = {
     if (Input.hit('Mouse0')) {
       if (!this.ok) { UI.toast(this.why, 'shame'); return true; }
       const args = { kind: this.kind, x: this.x, y: this.y, rot: this.rot, terrainOk: true };
-      const done = r => { if (r.ok) { Snd.play('buy'); UI.toast(this.sid ? 'Moved.' : 'Building ' + this.def.name + '…', 'good'); if (!Input.held('ShiftLeft', 'ShiftRight') || this.sid) this.stop(); } };
+      const done = r => { if (r.ok) { Snd.play('buy'); UI.toast(this.sid ? 'Moved.' : this.def.name + ' stands.', 'good'); if (!Input.held('ShiftLeft', 'ShiftRight') || this.sid) this.stop(); } };
       if (this.sid) Net.req('move', Object.assign(args, { id: this.sid })).then(done); else Net.req('build', args).then(done);
       return true;
     }
@@ -19763,7 +19758,7 @@ const Net = {
     },
     gang(m) {
       const was = this.gang && this.gang.id; this.gang = m.gang;
-      if (this.gang && this.world.gangs.has(this.gang.id)) Object.assign(this.world.gangs.get(this.gang.id), { uniforms: this.gang.uniforms, banners: this.gang.banners, emblem: this.gang.emblem });
+      this.seeGang(m.gang);
       if (was && was !== this.gang.id) UI.toast('You are now of ' + this.gang.name + '.', 'good');
       G.applyStats(); if (G.player && G.profile) G.player.look = Clan.wearLook(G.profile.look);
       if (UI.panel === 'clan' && !ClanUI.typing()) UI.render();
@@ -19781,7 +19776,7 @@ const Net = {
     raidWarn(m) { UI.toast('Scouts warn: ' + m.raid.rivalName + ' are coming to raid the compound', 'shame'); },
     raidAlert(m) { UI.bigBanner('襲', m.raid.rivalName + ' attack the compound!'); Snd.play('gong', 1); },
     raidEnd(m) { UI.toast(m.won ? 'The compound held against ' + m.rival + '.' : m.rival + ' broke into the compound.', m.won ? 'good' : 'shame'); },
-    gangWorld(m) { this.putGang(m.g); },
+    gangWorld(m) { this.seeGang(m.g); },
     gangGone(m) { this.world.gangs.delete(m.id); Compound.remove(m.id); },
     territory(m) { if (m.owner) this.world.territory[m.k] = Object.assign(this.world.territory[m.k] || {}, { owner: m.owner, hold: 50, contest: null }); else delete this.world.territory[m.k]; },
     territoryAll(m) { this.world.territory = m.territory || {}; },
@@ -19853,6 +19848,13 @@ const Net = {
     if (G.profile) for (const c of w.camps || []) if (c.cleared) G.profile.camps[c.id] = true;
   },
   putGang(gv) { if (!gv) return; const old = this.world.gangs.get(gv.id); this.world.gangs.set(gv.id, gv); if (old && JSON.stringify(old.emblem) !== JSON.stringify(gv.emblem)) Emblem.cache.clear(); },
+  // the compound on the ground follows the world's clan the moment it arrives (not half a second later)
+  seeGang(g) {
+    if (!g) return;
+    this.putGang(g);
+    const gv = this.world.gangs.get(g.id);
+    if (gv && gv.hq) try { Compound.apply(gv); } catch (e) { console.warn('Compound', e); }
+  },
 
   // ---- other players
   upsert(p) {
@@ -20457,6 +20459,15 @@ const ClanUI = {
   bar(v, lo = -100, hi = 100) { const k = clamp((v - lo) / (hi - lo), 0, 1) * 100; return `<i class="rbar"><b style="width:${k}%"></b></i>`; },
   res(r, cap) { const R = Clan.cat('RES'); return `<div class="resrow">${Object.keys(R).map(k => `<span title="${esc(R[k].name)}"><b>${R[k].jp}</b> ${Math.floor(r[k] || 0)}${k !== 'mon' && cap ? '<small>/' + cap + '</small>' : ''}</span>`).join('')}</div>`; },
   req(op, args, then) { Net.lastArgs = Net.lastArgs || {}; return Net.req(op, args).then(r => { if (r.ok && then) then(r); if (UI.panel === 'clan' || UI.panel === 'clanStruct' || UI.panel === 'visitor' || UI.panel === 'clanNpc') UI.render(); return r; }); },
+  // the building on the ground takes the new look at once; the world is told in the same breath (debounced so a row of chips is one request)
+  paintStyle(sid, style) {
+    const g = Net.gang; if (!g) return;
+    const put = gv => { const s = (gv.structs || []).find(x => x.id === sid); if (s) s.style = style; };
+    put(g); const wv = Net.world.gangs.get(g.id); if (wv) put(wv);
+    Net.seeGang(wv || g);
+    clearTimeout(this._styleT);
+    this._styleT = setTimeout(() => this.req('restyle', { id: sid, style }), 80);
+  },
   // ---- the panel
   panel(o) {
     if (!G.mp || !Net.gang) return { title: 'Clan', seal: '家', html: '<p class="lede">Clans live in the shared Gang world.</p>' };
@@ -20578,7 +20589,14 @@ const ClanUI = {
   a_pSaved(i) { const s = (this.pal().saved || [])[+i]; if (s) { const p = this.pal(); ['primary', 'secondary', 'accent', 'accent2', 'cloth', 'banner'].forEach((k, j) => { if (s.colors[j]) p[k] = s.colors[j]; }); } },
   a_pKeep() { const p = this.pal(); p.saved = (p.saved || []).concat([{ name: 'Palette ' + ((p.saved || []).length + 1), colors: [p.primary, p.secondary, p.accent, p.accent2, p.cloth, p.banner] }]).slice(-12); },
   a_pComp() { const p = this.pal(), [r, g, b] = hexToRgb(p.primary); p.secondary = rgbToHex(255 - r * 0.6, 255 - g * 0.6, 255 - b * 0.6); p.accent = rgbToHex(g, b, r); p.accent2 = shade(p.primary, -0.5); },
-  a_pSave() { this.req('palette', { palette: this.pal() }, () => { this.pDraft = null; UI.toast('The clan’s colours are set.', 'good'); }); return false; },
+  a_pSave() {
+    const p = this.pal();
+    if (Net.gang) Net.gang.palette = Object.assign({}, Net.gang.palette, p);
+    const wv = Net.world.gangs.get(Net.gang.id); if (wv) wv.palette = Object.assign({}, wv.palette, p);
+    Net.seeGang(wv || Net.gang);
+    this.req('palette', { palette: p }, () => { this.pDraft = null; UI.toast('The clan’s colours are set.', 'good'); });
+    return false;
+  },
   // ---- uniforms
   uni() { if (!this.uDraft) this.uDraft = JSON.parse(JSON.stringify(Net.gang.uniforms)); return this.uDraft; },
   t_uniforms(g) {
@@ -20747,7 +20765,13 @@ const ClanUI = {
   a_sMove(id) { const s = Net.gang.structs.find(x => x.id === id); if (s) BuildMode.start(s.kind, id); return false; },
   a_sDel(id) { Net.lastArgs = Net.lastArgs || {}; this.req('demolish', { id }); return false; },
   a_sOpen(id) { UI.close(); UI.open('clanStruct', { gid: Net.gang.id, sid: id }); return false; },
-  a_sAll(k) { if (confirm('Give every building the ' + k + ' style?')) this.req('restyleAll', { style: { preset: k } }); return false; },
+  a_sAll(k) {
+    if (!confirm('Give every building the ' + k + ' style?')) return false;
+    const style = { preset: k }, vis = d => d && d.vis && d.vis.b, B = Clan.cat('BUILD');
+    const paint = gv => { if (!gv) return; for (const s of gv.structs || []) if (vis(B[s.kind])) s.style = Object.assign({}, style); };
+    paint(Net.gang); paint(Net.world.gangs.get(Net.gang.id)); Net.seeGang(Net.world.gangs.get(Net.gang.id) || Net.gang);
+    this.req('restyleAll', { style }); return false;
+  },
   // ---- settling: where the clan lives
   t_settle(g) {
     const T = Clan.cat('TRAITS_HQ'), P = G.player, sites = (Net.world.sites || []).slice().sort((a, b) => dist(a.x, a.y, P.x, P.y) - dist(b.x, b.y, P.x, P.y));
@@ -20872,18 +20896,19 @@ const ClanUI = {
 Panels.clan = o => ClanUI.panel(o);
 // a structure: what it is, what it gives, and (for the clan) improving, styling, moving or tearing it down
 Panels.clanStruct = o => {
-  const gv = Net.world.gangs.get(o.gid), s = gv && (gv.structs || []).find(x => x.id === o.sid); if (!s) return null;
+  const gv = (Net.gang && Net.gang.id === o.gid) ? Net.gang : Net.world.gangs.get(o.gid), s = gv && (gv.structs || []).find(x => x.id === o.sid); if (!s) return null;
   const d = Clan.cat('BUILD')[s.kind] || { name: s.kind, tiers: [], fx: [] }, mine = Net.gang && Net.gang.id === o.gid, st = s.style || {}, up = d.tiers[s.tier];
   const fx = t => Object.entries(t || {}).map(([k, v]) => k === 'prod' ? Object.entries(v).map(([r, n]) => '+' + n + ' ' + r + ' a day').join(', ') : k === 'unlock' ? 'unlocks ' + v : (v > 0 ? '+' : '') + v + ' ' + k).join(' · ');
   const C = (act, list, cur) => ClanUI.chips(act, list, cur);
   const style = mine && d.vis.b && Clan.can('build') ? `<div class="speaker">Style</div>${C('ps', Object.keys(ARCH_PRESETS), st.preset)}<div class="speaker">Roof</div>${C('rm', ['kawara', 'kawaraD', 'kawaraR', 'thatch', 'thatchO', 'bark', 'copper', 'board'], st.roof)}${C('rt', ['irimoya', 'gable', 'hip'], st.roofType)}<div class="speaker">Walls and windows</div>${C('lw', ['board', 'lattice', 'namako', 'bengara'], st.lower)}${C('wn', ['renji', 'shoji', 'mushiko', 'castle', 'none'], st.win)}${C('rg', ['oni', 'gold', 'thatch', 'chigi', 'plain'], st.ridge)}<div class="grid2">${ClanUI.color('pl', st.plaster || '#e6dcc4', 'Plaster')}${ClanUI.color('po', st.posts || '#3a2416', 'Posts')}${ClanUI.color('no', st.noren || (gv.palette || {}).primary, 'Door curtain')}</div><div class="chips"><button class="chip${st.veranda === false ? '' : ' on'}" data-act="ve">Veranda</button><button class="btn gold" data-act="keep">Keep this style</button></div>` : '';
   const ban = mine && s.kind === 'banner' ? `<div class="speaker">Which banner flies here</div>${C('bn', (gv.banners || []).map(b => b.id), s.banner)}` : '';
   const draft = ClanUI.sDraft && ClanUI.sDraft.sid === s.id ? ClanUI.sDraft.style : (ClanUI.sDraft = { sid: s.id, style: Object.assign({}, st) }).style;
+  const live = () => ClanUI.paintStyle(s.id, Object.assign({}, draft));
   return {
     title: d.name + (s.tier > 1 ? ' ' + 'ⅠⅡⅢ'[s.tier - 1] : ''), seal: '築',
     html: `<p class="lede">${esc(d.desc || '')}</p><div class="stat"><span>${mine ? 'Gives now' : 'Belongs to'}</span><span>${esc(mine ? fx(d.fx[s.tier - 1]) || '—' : gv.name)}</span></div>${up && mine ? `<div class="stat"><span>Next tier</span><span>${esc(fx(d.fx[s.tier]))} · ${esc(Clan.costText(up.cost))}</span></div>` : ''}
-      ${s.state === 'building' && s.doneAt > Net.now() ? `<p class="lede">Being built: ${Math.ceil((s.doneAt - Net.now()) / 1000)} seconds left.</p>` : ''}${s.damaged ? '<p class="lede bad">Damaged in a raid. Repair it to use it again.</p>' : ''}
-      ${mine ? `<div class="btns">${up && s.state === 'done' && Clan.can('build') ? '<button class="btn gold" data-act="up">Improve</button>' : ''}${s.damaged ? '<button class="btn" data-act="fix">Repair</button>' : ''}${Clan.can('build') ? '<button class="btn alt" data-act="mv">Move</button>' : ''}${Clan.can('demolish') ? '<button class="btn alt" data-act="del">Tear down</button>' : ''}${s.kind === 'storehouse' || s.kind === 'treasury' ? '<button class="btn alt" data-act="store">Clan stores</button>' : ''}</div>` : ''}${ban}${style}`,
+      ${s.damaged ? '<p class="lede bad">Damaged in a raid. Repair it to use it again.</p>' : ''}
+      ${mine ? `<div class="btns">${up && s.state !== 'building' && Clan.can('build') ? '<button class="btn gold" data-act="up">Improve</button>' : ''}${s.damaged ? '<button class="btn" data-act="fix">Repair</button>' : ''}${Clan.can('build') ? '<button class="btn alt" data-act="mv">Move</button>' : ''}${Clan.can('demolish') ? '<button class="btn alt" data-act="del">Tear down</button>' : ''}${s.kind === 'storehouse' || s.kind === 'treasury' ? '<button class="btn alt" data-act="store">Clan stores</button>' : ''}</div>` : ''}${ban}${style}`,
     on(act, arg) {
       const r = (op, a) => ClanUI.req(op, Object.assign({ id: s.id }, a));
       if (act === 'up') r('upgrade'); if (act === 'fix') r('repair'); if (act === 'del') { r('demolish'); UI.close(); return false; }
@@ -20891,10 +20916,10 @@ Panels.clanStruct = o => {
       if (act === 'store') { UI.close(); UI.open('clan', { tab: 'overview' }); return false; }
       if (act === 'bn') { r('restyle', { banner: arg }); return false; }
       const map = { ps: 'preset', rm: 'roof', rt: 'roofType', lw: 'lower', wn: 'win', rg: 'ridge' };
-      if (map[act]) { draft[map[act]] = draft[map[act]] === arg ? undefined : arg; }
-      if (act === 'pl') { draft.plaster = arg; return false; } if (act === 'po') { draft.posts = arg; return false; } if (act === 'no') { draft.noren = arg; return false; }
-      if (act === 've') draft.veranda = draft.veranda === false ? true : false;
-      if (act === 'keep') { r('restyle', { style: draft }); return false; }
+      if (map[act]) { draft[map[act]] = draft[map[act]] === arg ? undefined : arg; live(); }
+      if (act === 'pl') { draft.plaster = arg; live(); return false; } if (act === 'po') { draft.posts = arg; live(); return false; } if (act === 'no') { draft.noren = arg; live(); return false; }
+      if (act === 've') { draft.veranda = draft.veranda === false ? true : false; live(); }
+      if (act === 'keep') { live(); return false; }
     }
   };
 };
