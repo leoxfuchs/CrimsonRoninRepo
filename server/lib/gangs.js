@@ -18,7 +18,7 @@ function createGangs(ctx) {
   };
   G.blankPalette = (em) => {
     const p = { primary: em.field, secondary: em.field2, accent: '#c8a040', accent2: '#2c2a30', metal: '#8a8890', cloth: em.field, armor: '#24222a', trim: '#c8a040', banner: em.field, roof: '#3e4757', wall: '#e6dcc4', gate: '#5a3a24', garden: '#3d5a3a' };
-    p.ranks = ['#c8a040', '#b08a3a', '#7a1f1c', '#2a3b5e', '#3d5a3a', '#6e6a60', '#8a8478'];
+    p.ranks = ['#c8a040', '#7a1f1c', '#2a3b5e', '#3d5a3a', '#6e6a60', '#8a8478'];
     p.contexts = {}; for (const c of C.UNIFORM.contexts) p.contexts[c] = { primary: p.primary, secondary: p.secondary, accent: p.accent };
     p.contexts.stealth = { primary: '#16161c', secondary: '#2c2a30', accent: '#4a4a52' };
     p.contexts.war = { primary: p.primary, secondary: '#24222a', accent: '#c8372d' };
@@ -37,7 +37,7 @@ function createGangs(ctx) {
         preset('officer', 'Officer uniform', 'war', { armor: { tier: 1, color: pal.armor }, coat: { color: pal.primary }, hat: { kind: 4, color: null } }),
         preset('recruit', 'Recruit kit', 'everyday', { top: { color: '#d9ccb0', pattern: 0 }, crest: { on: true, color: pal.primary, place: 'back' } })
       ],
-      assign: { ranks: { 0: 'officer', 1: 'officer', 2: 'officer', 3: 'officer', 4: 'battle', 5: 'standard', 6: 'recruit' }, roles: { scout: 'scout', shinobi: 'scout' }, npcs: {} },
+      assign: { ranks: { 0: 'officer', 1: 'officer', 2: 'officer', 3: 'battle', 4: 'standard', 5: 'recruit' }, roles: { scout: 'scout', shinobi: 'scout' }, npcs: {} },
       players: 'free'
     };
   };
@@ -54,7 +54,8 @@ function createGangs(ctx) {
     if (!g.founder) g.founder = g.leader || g.members[0] || null;
     if (!g.leader) g.leader = g.members[0] || null;
     if (!g.ranks || typeof g.ranks !== 'object') g.ranks = {};
-    for (const id of g.members) if (g.ranks[id] === undefined) g.ranks[id] = id === g.leader ? C.RANK_LEADER : 5;
+    G.migrateRanks(g);
+    for (const id of g.members) if (g.ranks[id] === undefined) g.ranks[id] = id === g.leader ? C.RANK_LEADER : C.RANK_MEMBER;
     if (g.leader) g.ranks[g.leader] = C.RANK_LEADER;
     if (!Array.isArray(g.rankTitles) || g.rankTitles.length !== C.RANKS.length) g.rankTitles = C.RANKS.slice();
     if (!g.leaderTitle) g.leaderTitle = 'Oyabun';
@@ -101,7 +102,33 @@ function createGangs(ctx) {
   G.bump = (g) => { g.ver = (g.ver || 0) + 1; ctx.touch(); };
 
   // ---- ranks and permissions
-  G.rankOf = (g, pid) => (!g || !g.members.includes(pid)) ? 99 : (g.leader === pid ? C.RANK_LEADER : (g.ranks[pid] ?? 5));
+  // saved clans used to have Co-leader between Leader and Commander. Drop that seat: co-leaders and commanders both
+  // become Commander (rank 1), everyone below shifts up one. Runs once per clan.
+  G.migrateRanks = (g) => {
+    if (g.ranksVer === 2) return;
+    const titles = Array.isArray(g.rankTitles) ? g.rankTitles : [];
+    const pal = g.palette && Array.isArray(g.palette.ranks) ? g.palette.ranks : [];
+    const assign = g.uniforms && g.uniforms.assign && g.uniforms.assign.ranks;
+    const high = Object.values(g.ranks || {}).some(r => (r | 0) > 5);
+    const old = titles.length === 7 || pal.length === 7 || high || (assign && assign[6] !== undefined);
+    if (old) {
+      const down = n => { n = n | 0; return n <= 1 ? n : n - 1; };
+      for (const id of Object.keys(g.ranks || {})) g.ranks[id] = down(g.ranks[id]);
+      if (g.perms) for (const k of Object.keys(g.perms)) g.perms[k] = down(g.perms[k]);
+      if (titles.length === 7) titles.splice(1, 1);
+      if (pal.length === 7) pal.splice(1, 1);
+      if (assign) {
+        const N = {};
+        for (const k of Object.keys(assign)) {
+          const i = +k; if (i === 1) continue;
+          N[i < 2 ? i : i - 1] = assign[k];
+        }
+        g.uniforms.assign.ranks = N;
+      }
+    }
+    g.ranksVer = 2;
+  };
+  G.rankOf = (g, pid) => (!g || !g.members.includes(pid)) ? 99 : (g.leader === pid ? C.RANK_LEADER : (g.ranks[pid] ?? C.RANK_MEMBER));
   G.can = (g, pid, perm) => { const r = G.rankOf(g, pid); if (r === 99) return false; if (r === C.RANK_LEADER) return true; const need = g.perms[perm]; return need !== undefined && r <= need; };
   G.stage = (g) => { let s = C.STAGES[0]; for (const st of C.STAGES) if (g.renown >= st.renown) s = st; return s; };
   G.memberCap = (g) => G.stage(g).members;
@@ -313,11 +340,11 @@ function createGangs(ctx) {
   };
   // the next leader: highest rank, then whoever has been seen most recently, then whoever joined first
   G.succeed = (g, why) => {
-    const cand = g.members.filter(id => id !== g.leader).map(id => ({ id, r: g.ranks[id] ?? 5, seen: (ctx.player(id) || {}).lastSeen || 0 })).sort((a, b) => a.r - b.r || b.seen - a.seen);
+    const cand = g.members.filter(id => id !== g.leader).map(id => ({ id, r: g.ranks[id] ?? C.RANK_MEMBER, seen: (ctx.player(id) || {}).lastSeen || 0 })).sort((a, b) => a.r - b.r || b.seen - a.seen);
     const next = cand[0];
     if (!next) { g.leader = null; return null; }
     const old = g.leader; g.leader = next.id; g.ranks[next.id] = C.RANK_LEADER;
-    if (old && g.members.includes(old)) g.ranks[old] = 1;
+    if (old && g.members.includes(old)) g.ranks[old] = C.RANK_COMMANDER;
     G.log(g, (ctx.player(next.id) || {}).name + ' now leads the clan (' + why + ').');
     ctx.toGang(g, { t: 'clanLeader', leader: next.id, why });
     return next.id;
@@ -385,7 +412,7 @@ function createGangs(ctx) {
   G.setRank = (g, pid, target, rank) => {
     if (!G.can(g, pid, 'promote')) return 'Your rank may not promote or demote.';
     if (!g.members.includes(target) || target === g.leader) return 'Not someone you can promote or demote.';
-    rank = U.int(rank, 1, C.RANK_RECRUIT, 5);
+    rank = U.int(rank, 1, C.RANK_RECRUIT, C.RANK_MEMBER);
     const me = G.rankOf(g, pid);
     if (G.rankOf(g, target) <= me || rank <= me) return 'You can only move members below your own rank, to below your own rank.';
     g.ranks[target] = rank;
@@ -396,7 +423,7 @@ function createGangs(ctx) {
     if (g.leader !== pid) return 'Only the leader can hand over the clan.';
     const t = ctx.player(target); if (!t || !g.members.includes(target)) return 'They are not in the clan.';
     if (String(confirm || '').trim().toLowerCase() !== t.name.toLowerCase()) return 'Type their name exactly to confirm.';
-    g.leader = target; g.ranks[target] = C.RANK_LEADER; g.ranks[pid] = 1;
+    g.leader = target; g.ranks[target] = C.RANK_LEADER; g.ranks[pid] = C.RANK_COMMANDER;
     G.log(g, (ctx.player(pid) || {}).name + ' handed the clan to ' + t.name + '.');
     ctx.toGang(g, { t: 'clanLeader', leader: target, why: 'handed over' });
     return null;

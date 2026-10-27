@@ -124,19 +124,19 @@ test('invitations, ranks and what each rank may do', async () => {
     const inv = await b.wait(m => m.t === 'invite');
     r = await b.req('acceptInvite', { id: inv.inv.id }); assert.equal(r.ok, true, r.err);
     const ga = await a.wait(m => m.t === 'gang' && m.gang.members.length === 2);
-    assert.equal(ga.gang.ranks[b.id], 6, 'new members start as recruits');
+    assert.equal(ga.gang.ranks[b.id], 5, 'new members start as recruits');
     r = await a.req('placeHQ', { site: 'kusamura' }); assert.equal(r.ok, true, r.err);
     r = await b.req('build', { kind: 'yard', x: 114, y: 117, rot: 0 }); assert.equal(r.ok, false); assert.match(r.err, /rank/);
     r = await b.req('kick', { id: a.id }); assert.equal(r.ok, false);
-    r = await a.req('setRank', { id: b.id, rank: 4 }); assert.equal(r.ok, true, r.err);
+    r = await a.req('setRank', { id: b.id, rank: 3 }); assert.equal(r.ok, true, r.err);
     r = await a.req('contribute', { res: 'mon', n: 200 }); assert.equal(r.ok, true, r.err);
     r = await b.req('build', { kind: 'yard', x: 114, y: 117, rot: 0 }); assert.equal(r.ok, false); assert.match(r.err, /spend/, 'a veteran may build but not spend, by default');
-    r = await a.req('ranks', { perms: { spend: 4 } }); assert.equal(r.ok, true, r.err);
+    r = await a.req('ranks', { perms: { spend: 3 } }); assert.equal(r.ok, true, r.err);
     r = await b.req('build', { kind: 'yard', x: 114, y: 117, rot: 0 }); assert.equal(r.ok, true, r.err);
     r = await a.req('transfer', { id: b.id, confirm: 'wrong name' }); assert.equal(r.ok, false);
     r = await a.req('transfer', { id: b.id, confirm: 'Recruit' }); assert.equal(r.ok, true, r.err);
     const gb = await b.wait(m => m.t === 'gang' && m.gang.leader === b.id);
-    assert.equal(gb.gang.ranks[a.id], 1, 'the old leader becomes co-leader');
+    assert.equal(gb.gang.ranks[a.id], 1, 'the old leader becomes commander');
     await a.close(); await b.close();
   } finally { await S.stop(); }
 });

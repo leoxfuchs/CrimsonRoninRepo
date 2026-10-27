@@ -210,3 +210,27 @@ test('what a client sends is cleaned: emblems, uniforms and banners stay inside 
   W.req(a, 'identity', { name: 'Crimson Lanterns', tag: 'CRL' });
   r = W.req(b, 'identity', { name: 'crimson lanterns' }); assert.equal(r.ok, false); assert.match(r.err, /already/);
 });
+
+test('an old clan with a co-leader seat migrates: commanders keep that rank, the title is gone', () => {
+  const W = world(); const a = W.join('Boss'), b = W.join('Second'), c = W.join('Third');
+  W.req(a, 'invite', { to: 'Second' }); W.req(b, 'acceptInvite', { id: W.db.invites.find(i => i.to === b.id).id });
+  W.req(a, 'invite', { to: 'Third' }); W.req(c, 'acceptInvite', { id: W.db.invites.find(i => i.to === c.id).id });
+  const g = W.gang(a);
+  g.ranksVer = 1;
+  g.rankTitles = ['Leader', 'Co-leader', 'Commander', 'Officer', 'Veteran', 'Member', 'Recruit'];
+  g.ranks[b.id] = 1;
+  g.ranks[c.id] = 2;
+  g.perms = { invite: 3, storage: 5, diplomacy: 1, kick: 2 };
+  g.palette.ranks = ['#1', '#2', '#3', '#4', '#5', '#6', '#7'];
+  g.uniforms.assign.ranks = { 0: 'officer', 1: 'officer', 2: 'officer', 3: 'officer', 4: 'battle', 5: 'standard', 6: 'recruit' };
+  W.net.G.normalize(g);
+  assert.equal(g.ranksVer, 2);
+  assert.deepEqual(g.rankTitles, ['Leader', 'Commander', 'Officer', 'Veteran', 'Member', 'Recruit']);
+  assert.equal(g.ranks[b.id], 1, 'the co-leader becomes commander');
+  assert.equal(g.ranks[c.id], 1, 'the commander stays commander');
+  assert.equal(g.perms.storage, 4);
+  assert.equal(g.perms.kick, 1);
+  assert.equal(g.palette.ranks.length, 6);
+  assert.equal(g.uniforms.assign.ranks[5], 'recruit');
+  assert.equal(g.uniforms.assign.ranks[6], undefined);
+});

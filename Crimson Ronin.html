@@ -8477,9 +8477,8 @@ const Panels = {
     return { title: 'Journal', seal: '記', html: `<div class="tabs">${tabs}</div>${hint}${rows || '<p class="lede">Nothing here yet.</p>'}`, on(act, arg) {
       if (act === 'tab') UI.data.tab = arg;
       if (act === 'track') {
-        if (G.mp && typeof Net !== 'undefined' && Net.gang && Net.gang.leader !== Net.id) { UI.toast('Only the gang leader sets the tracker.', 'shame'); return false; }
-        p.track = arg; UI.toast('Tracking: ' + QDEFS[arg].title, 'good');
-        if (G.mp && typeof Net !== 'undefined') Net.sendTrack(arg);
+        p.track = arg; p.contract = null; UI.toast('Tracking: ' + QDEFS[arg].title, 'good');
+        if (G.mp && typeof Net !== 'undefined' && Clan.canTrack()) Net.sendTrack(arg);
       }
     } };
   },
@@ -16137,7 +16136,10 @@ const fmtTime = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padSt
 const Track = {
   get() {
     if (G.mp) {
-      const P = G.profile, id = P && P.track && Quests.st(P.track) && !Quests.isDone(P.track) ? P.track : null;
+      const P = G.profile, g = typeof Net !== 'undefined' && Net.gang;
+      const cid = P && P.contract, c = cid && g && (g.contracts || []).find(x => x.id === cid && x.state === 'active');
+      if (c && c.place) return { kind: 'activity', head: 'Contract · ' + c.name, text: c.place.name || c.name, hint: (c.got || 0) + '/' + (c.need || 1), tgt: [c.place.x, c.place.y] };
+      const id = P && P.track && Quests.st(P.track) && !Quests.isDone(P.track) ? P.track : null;
       if (!id) return null;
       const d = QDEFS[id]; if (!d || d.kind === 'main') return null;
       const st = Quests.cur(id), s = Quests.st(id); if (!st) return null;
@@ -19658,9 +19660,11 @@ const WORK_KINDS = ['work', 'haul', 'heave', 'cut', 'hammer', 'dig', 'hoe', 'pry
 const Clan = {
   cat(k) { return (Net.catalog && Net.catalog[k]) || {}; },
   g() { return Net.gang; },
-  rank(pid = Net.id) { const g = Net.gang; if (!g) return 99; return g.leader === pid ? 0 : (g.ranks && g.ranks[pid] !== undefined ? g.ranks[pid] : 5); },
+  rank(pid = Net.id) { const g = Net.gang; if (!g) return 99; return g.leader === pid ? 0 : (g.ranks && g.ranks[pid] !== undefined ? g.ranks[pid] : 4); },
   can(perm, pid = Net.id) { const g = Net.gang; if (!g) return false; const r = this.rank(pid); if (r === 0) return true; return g.perms && g.perms[perm] !== undefined && r <= g.perms[perm]; },
   rankName(pid) { const g = Net.gang, r = this.rank(pid); if (!g) return ''; return r === 0 ? (g.leaderTitle || 'Leader') : (g.rankTitles || [])[r] || ''; },
+  // the leader, or a commander standing in when the leader is not the one playing this game
+  canTrack(pid = Net.id) { return this.rank(pid) <= 1; },
   costText(cost) { const R = this.cat('RES'); return Object.entries(cost || {}).filter(([, v]) => v).map(([k, v]) => v + ' ' + (R[k] ? R[k].name.toLowerCase() : k)).join(' · '); },
   afford(cost) { const g = Net.gang; return !!g && Object.entries(cost || {}).every(([k, v]) => (g.res[k] || 0) >= v); },
   stage() { const g = Net.gang; return g && g.stageInfo ? g.stageInfo : (this.cat('STAGES') || [])[0] || { n: 0, name: '' }; },

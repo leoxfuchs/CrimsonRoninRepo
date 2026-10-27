@@ -11,8 +11,8 @@ const RES = {
 const RES_KEYS = Object.keys(RES);
 
 // ranks, highest first. The founder is an honour held for good by whoever raised the clan, not a rank of its own
-const RANKS = ['Leader', 'Co-leader', 'Commander', 'Officer', 'Veteran', 'Member', 'Recruit'];
-const RANK_LEADER = 0, RANK_RECRUIT = RANKS.length - 1;
+const RANKS = ['Leader', 'Commander', 'Officer', 'Veteran', 'Member', 'Recruit'];
+const RANK_LEADER = 0, RANK_COMMANDER = 1, RANK_RECRUIT = RANKS.length - 1, RANK_MEMBER = RANKS.length - 2;
 const PERMS = {
   invite: 'Invite players', approve: 'Approve applications', kick: 'Remove members', promote: 'Promote and demote',
   identity: 'Change name, motto and texts', emblem: 'Change emblem and banners', colors: 'Change clan colours', uniform: 'Change uniforms',
@@ -22,8 +22,8 @@ const PERMS = {
 };
 // the lowest rank (largest index) allowed to do each thing, until the leader changes it
 const DEFAULT_PERMS = {
-  invite: 3, approve: 3, kick: 2, promote: 1, identity: 1, emblem: 1, colors: 1, uniform: 2, build: 4, demolish: 2, spend: 3,
-  storage: 5, assign: 4, visitors: 4, recruit: 2, territory: 2, war: 2, diplomacy: 1
+  invite: 2, approve: 2, kick: 1, promote: 1, identity: 1, emblem: 1, colors: 1, uniform: 1, build: 3, demolish: 1, spend: 2,
+  storage: 4, assign: 3, visitors: 3, recruit: 1, territory: 1, war: 1, diplomacy: 1
 };
 // a leader who stays away this long (in real days) hands the clan to the highest-ranked member who still comes
 const SUCCESSION_DAYS = 14;
@@ -280,7 +280,7 @@ const TRAITS_HQ = {
 };
 
 module.exports = {
-  RES, RES_KEYS, RANKS, RANK_LEADER, RANK_RECRUIT, PERMS, DEFAULT_PERMS, SUCCESSION_DAYS, STAGES, REP_KEYS,
+  RES, RES_KEYS, RANKS, RANK_LEADER, RANK_COMMANDER, RANK_RECRUIT, RANK_MEMBER, PERMS, DEFAULT_PERMS, SUCCESSION_DAYS, STAGES, REP_KEYS,
   BUILD, BUILD_CATS, WALLS, GATES, EMBLEM, BANNER, UNIFORM, PALETTE_KEYS, ROLES, TRAITS, ASSIGN, ORDERS, FORMATIONS,
   VISITORS, GATE_CHOICES, CONTRACTS, TEMPERS, STANCES, TRAITS_HQ
 };
