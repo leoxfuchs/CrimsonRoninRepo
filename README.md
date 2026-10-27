@@ -161,7 +161,8 @@ Choose where the clan settles from about a hundred candidate sites. Each has tra
 
 - The island is divided into districts. Claim empty land next to what you hold. Rival land is contested, not taken: fight there, clear outposts and do work in the district until your influence is greater. Land pays timber, stone, iron, food and taxes while you keep a grip on it.
 - Outlaw gangs hold camps and land of their own. They grow, spread, raid compounds they hate (scouts may warn you first), and talk to clans they respect: truces, tribute, trade, alliances, war.
-- Contracts come to the gate: hunting outlaws and wanted men, duels, escorts, defending a place, deliveries and scouting. They are real work in the world, and completing one pays the clan and wins influence in that district.
+- **Raids** are fought in the world when a member is near home: the raiders force their way through walls weak enough to break (stronger walls hold them longer) and go round by the gate when they cannot, then fight anyone defending. Beat them off for renown and respect; if they reach the heart of the compound they break in, damage a building and carry off stores. Nobody home: the walls and the clan's guards decide it. Cooks, masons and other retainers who do not fight run from the fighting.
+- Contracts come to the gate: hunting outlaws and wanted men, duels, escorts, defending a place, deliveries and scouting. They are real work in the world, and completing one pays the clan and wins influence in that district. A contract's duel, like a recruit's trial at the gate, is fought in the game of the player who answered it: it is between them and the duelist alone.
 
 Two riders can share one horse (saddle and mount behind). Hired blades at inns swear to the clan. Fast travel takes you home to the compound, and you wake there after a fall.
 

@@ -162,6 +162,15 @@ test('contracts are real work: progress is counted, rewards and land follow', ()
   r = W.req(a, 'deliver', { id: d.id }); assert.equal(r.ok, false); assert.match(r.err, /there first/);
   W.db.players[a.id].x = d.place.x; W.db.players[a.id].y = d.place.y; g.res.food = 100;
   r = W.req(a, 'deliver', { id: d.id }); assert.equal(r.ok, true, r.err);
+  // a duel is fought in the game of whoever took it: only they, and only there, can say it is answered
+  const b = W.join('Second'); W.req(a, 'invite', { to: b.id }); const inv = W.db.invites.find(i => i.to === b.id); W.req(b, 'acceptInvite', { id: inv.id });
+  const du = W.net.L.contractFor(g, 'duel'); g.contracts.push(du); r = W.req(a, 'acceptContract', { id: du.id }); assert.equal(r.ok, true, r.err);
+  r = W.req(a, 'duelDone', { id: du.id }); assert.equal(r.ok, false); assert.match(r.err, /not at/);
+  W.db.players[b.id].x = du.place.x; W.db.players[b.id].y = du.place.y;
+  r = W.req(b, 'duelDone', { id: du.id }); assert.equal(r.ok, false); assert.match(r.err, /someone else/);
+  W.db.players[a.id].x = du.place.x + 3; W.db.players[a.id].y = du.place.y;
+  r = W.req(a, 'duelDone', { id: du.id }); assert.equal(r.ok, true, r.err); assert.equal(du.state, 'done');
+  r = W.req(a, 'duelDone', { id: du.id }); assert.equal(r.ok, false);
 });
 
 test('what a client sends is cleaned: emblems, uniforms and banners stay inside the editor’s limits', () => {

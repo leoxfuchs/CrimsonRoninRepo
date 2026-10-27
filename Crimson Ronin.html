@@ -6382,7 +6382,7 @@ function moveActor(a, vx, vy, dt) {
       if (lv >= 3) { a.kx *= -0.3; a.ky *= -0.3; return; }
       a._wallT = (a._wallT || 0) + dt;
       if (a._wallT < (lv >= 2 ? 10 : 2)) return;
-    } else a._wallT = 0;
+    } else a._wallT = Math.max(0, (a._wallT || 0) - dt * 0.4); // (a step to the side while hacking at it does not undo the work)
   }
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.1)), sx = dx / n, sy = dy / n;
   for (let i = 0; i < n; i++) {
@@ -6721,6 +6721,9 @@ function aiUpdate(a, dt) {
   }
   if (G.mp && a.clanNpc) return ClanAI.ai(a, dt);
   if (G.mp && a.escortFor) { ClanAI.escortAI(a, dt); return; }
+  if (G.mp && a.raidId) return ClanAI.raiderAI(a, dt);
+  // (raiders who outlived their raid make off, and are gone once well away)
+  if (G.mp && a.raidLeft) { fleeAI(a, Object.assign({ dead: false, state: 'idle' }, a.raidLeft), dt); if (dist(a.x, a.y, a.raidLeft.x, a.raidLeft.y) > 45) a.gone = true; return; }
   // someone the story is moving: walking a route, following, being chased; lookouts keep their posts and patrols
   if (a.farmLoop && a.state !== 'work' && !a.mPath) {
     const f = a.farmLoop.field, home = a.home, night = G.night;
@@ -7181,7 +7184,7 @@ const G = {
     this.updatePickups(dt);
     Systems.update(dt);
     if (this.mp && typeof Net !== 'undefined') {
-      Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt); Trial.tick();
+      Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt); Trial.tick(); ContractDuel.tick();
       // the ground round every other player is built on the host too, so its people there walk on real terrain
       if (Net.isHost && (this.obsT = (this.obsT || 0) - dt) <= 0) { this.obsT = 0.5; for (const [x, y] of Net.observers().slice(1)) World.stream(x, y, 2); }
       // anyone a game made for itself (a traveller, a stray) has no place in the shared world unless it is the host's
@@ -7781,7 +7784,7 @@ const Systems = {
     if (p.mounted) { G.interact = { kind: 'dismount', label: 'Dismount' }; UI.prompt(G.interact.label, G.assassin); return; }
     if (G.sleeping) { G.interact = { kind: 'wake', label: 'Wake' }; UI.prompt(G.interact.label); return; }
     for (const a of G.actors) {
-      if (a === p || a.dead || a.dummy) continue;
+      if (a === p || a.dead || a.dummy || a.trialAway) continue;
       const d = dist(p.x, p.y, a.x, a.y); if (d > 1.7 || d >= bd) continue;
       if (a.yielded && !a.yieldLock && a.faction === 'civ' && !a.talk) continue;
       if (a.downed) { bd = d; best = { kind: 'help', actor: a, label: 'Help ' + a.name + ' to their feet' }; continue; }
@@ -18588,7 +18591,7 @@ const Render = {
     }
     // anyone on a bridge stands on its deck, a few pixels up
     const BL = Bridges.list.length ? (x, y) => Bridges.lift(x, y) : () => 0;
-    for (const a of G.actors) { const sx = (a.x - a.y) * HTW - camX, sy = (a.x + a.y) * HTH - camY - BL(a.x, a.y); if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60 && !a.dead) D.push(a.mount ? { k: a.x + a.y + 0.01, h: a.mount, rider: a, sx, sy } : { k: a.x + a.y, a, sx, sy }); }
+    for (const a of G.actors) { const sx = (a.x - a.y) * HTW - camX, sy = (a.x + a.y) * HTH - camY - BL(a.x, a.y); if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60 && !a.dead && !a.trialAway) D.push(a.mount ? { k: a.x + a.y + 0.01, h: a.mount, rider: a, sx, sy } : { k: a.x + a.y, a, sx, sy }); }
     Wildlife.push(D, camX, camY, BL); Miso.push(D, camX, camY, BL); Bamboo.push(D, camX, camY);
     Bridges.push(D, camX, camY);
     for (const h of GangRide.loose) { const sx = (h.x - h.y) * HTW - camX, sy = (h.x + h.y) * HTH - camY - BL(h.x, h.y); if (sx > -40 && sx < VW + 40 && sy > -10 && sy < VH + 60) D.push({ k: h.x + h.y, h, loose: true, sx, sy }); }
@@ -18714,7 +18717,7 @@ const Render = {
     }
     octx.globalAlpha = 1;
     if (G.state === 'play') for (const a of G.actors) {
-      if (a.dead || a === G.player) continue;
+      if (a.dead || a === G.player || a.trialAway) continue;
       const tagged = a.blade || a.bountyId || (a.roadDuel && a.talk) || a.remote || a.faction === 'gang';
       if (!tagged) continue;
       const d = dist(a.x, a.y, G.player.x, G.player.y); if (d > (a.remote || a.faction === 'gang' ? 28 : 9)) continue;
@@ -18740,7 +18743,7 @@ Render.markers = function (toS, S, dt) {
   octx.textAlign = 'center'; octx.textBaseline = 'middle';
   const label = (txt, x, y, col, size, font = 'DotGothic16') => { octx.font = `${Math.round(size * DPR)}px "${font}", monospace`; octx.fillStyle = '#000'; octx.fillText(txt, x + DPR, y + DPR); octx.fillStyle = col; octx.fillText(txt, x, y); };
   for (const a of G.actors) {
-    if (a.dead || a === P) continue;
+    if (a.dead || a === P || a.trialAway) continue;
     const d = dist(a.x, a.y, P.x, P.y); if (d > 18) continue;
     const mark = Missions.markFor(a) || Quests.markFor(a);
     if (mark) { const [x, y] = toS(a.x, a.y, 44 + Math.sin(t * 4) * 2); label(mark, x, y, mark === '!' ? '#ffd24a' : '#ffffff', 22, 'Shippori Mincho B1'); continue; }
@@ -20197,9 +20200,11 @@ const ClanAI = {
         const lead = n.assign && (n.assign.job === 'follow' || n.assign.job === 'escort') && !n.injuredUntil ? this.leaderOf(n.assign.follow) : null;
         const want = lead ? [lead.x, lead.y] : (this.home(gv, a || {}, n) || { at: [gv.hq.x, gv.hq.y] }).at;
         if (!a) {
-          if (!seen(want[0], want[1], 110)) continue;
+          // someone just taken on at the gate walks in from where they stood waiting (the same person, not a second one)
+          let from = null; for (const [vid, va] of this.visitors) if (va.name === n.name && !va.dead && !va.gone) { from = [va.x, va.y]; this.visitors.delete(vid); va.gone = true; va.persistent = false; G.actors = G.actors.filter(b => b !== va); }
+          if (!from && !seen(want[0], want[1], 110)) continue;
           // a follower arrives from out of sight behind the one they follow; at home they are simply about their work
-          let p = want; if (lead) { const ang = lead.face + PI + rnd(-0.6, 0.6); p = [lead.x + Math.cos(ang) * 18, lead.y + Math.sin(ang) * 18]; }
+          let p = from || want; if (lead && !from) { const ang = lead.face + PI + rnd(-0.6, 0.6); p = [lead.x + Math.cos(ang) * 18, lead.y + Math.sin(ang) * 18]; }
           a = this.spawn(g, gv, n, p[0], p[1]);
         } else if (!seen(a.x, a.y, 150) && !seen(want[0], want[1], 150)) { this.despawn(a); continue; }
         // a uniform, a promotion, a new blade: the clan's word changes what they wear and carry
@@ -20246,6 +20251,9 @@ const ClanAI = {
       }
       if (tgt) { ai.mode = 'fight'; ai.target = tgt; if (a.sitting || a.sleeping) { a.sitting = a.sleeping = false; a.state = 'idle'; } return fightAI(a, tgt, dt); }
     }
+    // (a cook or a mason does not stand there to be cut down: they run from the fight)
+    if (!fighter && (ai.scan2 = (ai.scan2 || 0) - dt) <= 0) { ai.scan2 = 0.4; ai.threat = null; for (const b of G.actors) if (!b.dead && !b.yielded && b !== a && (b.raidId || (b.hostileToP() && b.ai && b.ai.mode === 'fight')) && dist(b.x, b.y, a.x, a.y) < 7) { ai.threat = b; break; } }
+    if (!fighter && ai.threat && !ai.threat.dead) { a.sitting = a.sleeping = false; return fleeAI(a, ai.threat, dt); }
     ai.mode = 'idle'; ai.target = null; if (a.state === 'block') a.block(false);
     let goal, act = 'idle', face = null, kind = null;
     if (ord && (ord.kind === 'hold' || ord.kind === 'guardHere' || ord.kind === 'scout' || ord.kind === 'defendGate' || ord.kind === 'patrol') && ord.at) { goal = ord.at; act = ord.kind === 'scout' ? 'idle' : 'guard'; }
@@ -20311,6 +20319,25 @@ const ClanAI = {
     this.raids.set(m.gang, raid);
   },
   raidKill(a) { for (const r of this.raids.values()) if (r.id === a.raidId) r.kills++; },
+  // a raider: anyone defending the compound within reach is fought; otherwise on to the compound's heart, forcing
+  // through walls that can be forced (they slow outsiders) and round by the gate when they cannot
+  raiderAI(a, dt) {
+    const ai = a.ai; let r = null; for (const x of this.raids.values()) if (x.id === a.raidId) r = x;
+    if (!r) { a.raidId = null; return wanderAI(a, dt); }
+    let t = ai.target && !ai.target.dead && !ai.target.yielded && dist(ai.target.x, ai.target.y, a.x, a.y) < 18 ? ai.target : null;
+    if (!t && (ai.scan = (ai.scan || 0) - dt) <= 0) {
+      ai.scan = 0.4; let bd = 16;
+      for (const b of G.actors) { if (b.dead || b === a || b.raidId || b.yielded || !(b.isP || b.clanNpc) || (b.clanNpc && b.clanGang !== r.gang)) continue; const d = dist(a.x, a.y, b.x, b.y); if (d < bd) { bd = d; t = b; } }
+    }
+    if (t) { ai.mode = 'fight'; ai.target = t; a.aware = 1; return fightAI(a, t, dt); }
+    ai.mode = 'idle'; ai.target = null;
+    const gv = this.gv(r.gang), b = gv && gv.bounds, W = gv && gv.wall && (Net.catalog.WALLS || [])[gv.wall.stage];
+    const inside = b && a.x > b.x0 && a.x < b.x1 && a.y > b.y0 && a.y < b.y1, sealed = W && W.hold >= 30;
+    if (b && sealed && !inside && !a.atGate) { const g = [b.gate[0], b.gate[1] + 2.5]; if (dist(a.x, a.y, g[0], g[1]) < 2.5) a.atGate = true; else return Nav.step(a, g[0], g[1], dt, 0.95, { slack: 2 }); }
+    // (the heart of the compound may be a fire or a well: they make for open ground beside it)
+    const heart = r.heart || (r.heart = Missions.footing([r.hq.x, r.hq.y])), hq = Missions.footing([heart[0] + (a.id % 5 - 2) * 0.8, heart[1] + (a.id % 3 - 1) * 0.8]);
+    if (dist(a.x, a.y, hq[0], hq[1]) > 1.2) Nav.step(a, hq[0], hq[1], dt, 0.95, { slack: 2 }); else a.move(0, 0, dt);
+  },
   raidTick() {
     for (const [gid, r] of this.raids) {
       r.t += 0.5;
@@ -20319,7 +20346,7 @@ const ClanAI = {
       if (!alive.length) { Net.send({ t: 'raidEnd', gang: gid, id: r.id, outcome: 'repelled', kills: r.kills }); this.raids.delete(gid); continue; }
       if (r.breach > 30 || r.t > 300) {
         Net.send({ t: 'raidEnd', gang: gid, id: r.id, outcome: r.breach > 30 ? 'breached' : 'repelled', kills: r.kills });
-        for (const a of alive) { a.aggressive = false; a.post = null; a.ai.mode = 'flee'; a.ai.from = { x: r.hq.x, y: r.hq.y, dead: false, state: 'idle' }; a.persistent = false; }
+        for (const a of alive) { a.aggressive = false; a.post = null; a.raidId = null; a.raidLeft = { x: r.hq.x, y: r.hq.y }; a.ai.mode = 'flee'; a.ai.target = null; a.ai.from = { x: r.hq.x, y: r.hq.y, dead: false, state: 'idle' }; a.persistent = false; }
         this.raids.delete(gid);
       }
     }
@@ -20341,11 +20368,6 @@ const ClanAI = {
           a.contract = c.id; a.cgang = k.gang; a.rival = c.rival; G.actors.push(a); k.foes.push(a);
         }
       }
-      if (c.kind === 'duel' && !k.spawned && near) {
-        k.spawned = true; const q = World.randomWalkable(P.x, P.y, 2, 6, 40) || [P.x, P.y];
-        const a = makeNPC('ronin', q[0], q[1], { faction: 'duelist', roadDuel: true, canYield: true, aggressive: false, persistent: true, react: rnd(0.5, 0.7), label: 'Duelist', talk: { kind: 'roadduel', label: 'Accept the challenge' } });
-        a.name = randName(); a.contract = c.id; a.cgang = k.gang; a.ai.mode = 'approach'; G.actors.push(a); k.foes.push(a);
-      }
       if (c.kind === 'escort' && !k.spawned) {
         const by = this.leaderOf(c.by); if (by) { k.spawned = true; const q = World.randomWalkable(by.x, by.y, 1.5, 3, 30) || [by.x + 1, by.y]; const a = makeNPC('merchant', q[0], q[1], { persistent: true, name: 'Merchant ' + pick(NAMES_F), label: 'Escort to ' + P.name }); a.escortFor = c.by; a.contract = c.id; a.cgang = k.gang; a.essential = false; a.coward = true; G.actors.push(a); k.foes.push(a); }
       }
@@ -20354,10 +20376,9 @@ const ClanAI = {
         if (!m || m.dead) { Net.send({ t: 'contractFail', gang: k.gang, id, why: 'the merchant was killed' }); this.contractOff(k.gang, id); continue; }
         if (dist(m.x, m.y, P.x, P.y) < 10) { Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); this.contractOff(k.gang, id); continue; }
       }
-      if (c.kind === 'duel' && k.spawned) { const d = k.foes[0]; if (d && (d.yielded || d.dead)) { Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); this.contractOff(k.gang, id); continue; } }
       if (c.kind === 'defend' && near) {
         const alive = k.foes.filter(a => !a.dead && !a.yielded && !a.gone);
-        if (!alive.length && k.waves > (c.got || 0)) Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 });
+        if (!alive.length && k.waves > (k.held || 0)) { k.held = k.waves; Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); }
         if (!alive.length && k.waves < c.need && (k.waveT -= 0.5) <= 0) {
           k.waveT = 8; k.waves++;
           for (let i = 0; i < 2 + k.waves; i++) { const ang = rnd(TAU), q = World.randomWalkable(P.x + Math.cos(ang) * 20, P.y + Math.sin(ang) * 20, 0, 4, 30); if (!q) continue; const a = makeNPC('bandit', q[0], q[1], { persistent: true, aggressive: true, label: 'Raider', canYield: false }); a.post = [P.x, P.y]; a.cgang = k.gang; G.actors.push(a); k.foes.push(a); }
@@ -20381,6 +20402,25 @@ const ClanAI = {
     else if (m.kind === 'spare') { const v = Net.byId(d.id); if (v && v.yielded && !v.dead) { v.yielded = false; v.yieldLock = false; v.state = 'idle'; v.provoked = false; v.aggressive = false; v.faction = v.faction === 'civ' ? 'civ' : 'ronin'; v.ai.mode = 'flee'; v.ai.from = (Net.remotes.get(m.from) || {}).actor || G.player; v.persistent = false; if (v.contract && v.cgang) Net.send({ t: 'contractHit', gang: v.cgang, id: v.contract, n: 1, by: m.from }); if (v.campId) setTimeout(() => Systems.campCheck(v.campId), 300); } }
   }
 };
+// ---- a duel a contract asks for: between the one who took it and the duelist alone, so it is fought in their own game
+// (like a recruit's trial), and the outcome is told to the world server
+const ContractDuel = {
+  foe: null, cid: null,
+  tick() {
+    const g = Net.gang, P = G.player; if (!g || !P || P.dead) return;
+    if (this.foe) {
+      const a = this.foe, live = (g.contracts || []).some(c => c.id === this.cid && c.state === 'active');
+      if (a.yielded || a.dead) { const id = this.cid; this.foe = null; this.cid = null; a.persistent = false; setTimeout(() => { a.gone = true; }, 6000); Net.req('duelDone', { id }).then(r => { if (r.ok) UI.toast('The challenge is answered.', 'good'); }); }
+      else if (!live || a.gone) { a.gone = true; a.persistent = false; this.foe = null; this.cid = null; }
+      return;
+    }
+    const c = (g.contracts || []).find(x => x.kind === 'duel' && x.state === 'active' && x.by === Net.id && x.place && dist(x.place.x, x.place.y, P.x, P.y) < 40);
+    if (!c) return;
+    const q = World.randomWalkable(c.place.x, c.place.y, 2, 6, 40) || [c.place.x, c.place.y];
+    const a = makeNPC('ronin', q[0], q[1], { faction: 'duelist', roadDuel: true, canYield: true, aggressive: false, persistent: true, react: rnd(0.5, 0.7), label: 'Duelist · ' + c.name, talk: { kind: 'roadduel', label: 'Accept the challenge' } });
+    a.name = randName(); a.mpLocal = true; a.ai.mode = 'approach'; G.actors.push(a); this.foe = a; this.cid = c.id;
+  }
+};
 // ---- a recruit's trial at the gate: a formal duel with them, fought here (it is between them and this player alone)
 const Trial = {
   foe: null, vid: null,
@@ -20389,12 +20429,15 @@ const Trial = {
     const rec = v.recruit || {}, ang = P.face, q = World.randomWalkable(P.x + Math.cos(ang) * 3, P.y + Math.sin(ang) * 3, 0, 1.5, 20) || [P.x + 2, P.y];
     const a = new Actor({ x: q[0], y: q[1], faction: 'duelist', name: v.name, look: Object.assign(Sprites.randomLook(), v.look || {}), wpn: rec.wpn || 'katana', armor: rec.armor || 0, hp: rec.maxHp || 90, maxHp: rec.maxHp || 90, skill: rec.skill || 0.4, speed: 3.1, canYield: true, persistent: true });
     a.mpLocal = true; a.trialVid = v.id; a.st = a.maxSt = 60 + a.skill * 60; a.react = 0.75 - (rec.skill || 0.4) * 0.3;
+    // (whoever stood waiting at the gate is the one fighting: they are not also seen standing there)
+    for (const b of G.actors) if (b !== a && b.talk && b.talk.vid === v.id) b.trialAway = true;
     G.actors.push(a); this.foe = a; this.vid = v.id;
     UI.close(); Systems.startDuel(a);
   },
   end(won) {
     if (!this.foe) return;
     const a = this.foe, vid = this.vid; this.foe = null; this.vid = null;
+    for (const b of G.actors) if (b.talk && b.talk.vid === vid) { b.trialAway = false; if (b !== a) { b.x = a.x; b.y = a.y; } }
     Net.req('trial', { id: vid, won }).then(r => { if (r.ok) UI.toast(won ? 'You won the trial. They will ask for less.' : 'They won. A fighter worth having.', 'good'); });
     a.persistent = false; a.gone = true; G.actors = G.actors.filter(b => b !== a); G.duel = null; UI.letterbox(false);
     const P = G.player; if (P && P.hp < P.maxHp * 0.3) P.hp = P.maxHp * 0.3;
@@ -20667,7 +20710,11 @@ const ClanUI = {
   },
   a_vDo(arg) {
     const [id, choice] = arg.split(':'), v = (Net.gang.visitors || []).find(x => x.id === id);
-    this.req('visitor', { id, choice }, () => { if (choice === 'test' && v) Trial.start(v); });
+    this.req('visitor', { id, choice }, () => {
+      if (choice === 'test' && v) Trial.start(v);
+      // a decision that sends them in or away closes their card (asking, haggling and testing keep it open)
+      else if (!['ask', 'negotiate'].includes(choice) && UI.panel === 'visitor') UI.close();
+    });
     return false;
   },
   // ---- build

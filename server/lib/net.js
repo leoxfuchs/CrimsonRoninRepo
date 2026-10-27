@@ -230,6 +230,15 @@ function createNet(opt) {
       case 'abandonContract': err = L.abandon(g, p.id, m.id); break;
       case 'deliver': err = L.deliver(g, p.id, m.id); break;
       case 'arrive': err = arrive(g, p, m.id); break;
+      case 'duelDone': {
+        // a contract's duel is fought in the game of whoever took it: they must be the one, and be there
+        const c = g.contracts.find(x => x.id === m.id && x.state === 'active');
+        if (!c || c.kind !== 'duel') err = 'No such duel under way.';
+        else if (c.by !== p.id) err = 'That challenge was answered by someone else.';
+        else if (U.dist(p.x, p.y, c.place.x, c.place.y) > 45) err = 'You are not at ' + c.place.name + '.';
+        else L.progress(g, c.id, 1, p.id);
+        break;
+      }
       case 'claim': err = R.claim(g, p.id, m.k); break;
       case 'contest': err = R.contest(g, p.id, m.k); break;
       case 'abandonLand': err = R.abandon(g, p.id, m.k); break;
