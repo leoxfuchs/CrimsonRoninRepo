@@ -67,6 +67,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 #tkOpts{display:flex;flex-wrap:wrap;gap:6px 34px;margin-top:8px;padding-left:1.15em;}
 .tkOpt{font-size:20px;color:#fff;cursor:pointer;position:relative;padding-left:28px;}
 #panel[data-kind="map"] .panel-inner{width:min(1180px,96vw);max-width:none;}
+#panel[data-kind="clan"] .panel-inner,#panel[data-kind="clanStruct"] .panel-inner{width:min(860px,96vw);}
 .tkOpt{border:2px solid transparent;padding:2px 12px 2px 26px;}
 .tkOpt i{position:absolute;left:8px;top:1px;color:#ffe066;font-style:normal;visibility:hidden;}
 .tkOpt.on{color:#000;background:#ffe066;border-color:#ffe066;} .tkOpt.on i{visibility:visible;color:#000;}
@@ -142,13 +143,13 @@ em.kw{font-style:normal;color:#ffd24a;}
 @keyframes toast{0%{opacity:0;transform:translateY(6px)}8%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}
 
 /* ---------- Panels ---------- */
-#panel{position:absolute;inset:0;z-index:16;display:grid;place-items:center;background:#0008;padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));}
-.panel-inner{width:min(640px,100%);max-height:calc(100% - 20px);display:grid;grid-template-rows:auto 1fr;background:linear-gradient(var(--lacquer2),var(--lacquer));border:1px solid #000;box-shadow:0 0 0 2px #3c272c,0 0 0 3px #000,0 20px 60px #000c;}
-.panel-inner header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #000;background:#0003;}
+#panel{position:absolute;inset:0;z-index:16;display:grid;place-items:center;background:#0008;padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));overflow:hidden;touch-action:auto;}
+.panel-inner{width:min(640px,100%);max-height:calc(100dvh - 32px);min-height:0;display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(var(--lacquer2),var(--lacquer));border:1px solid #000;box-shadow:0 0 0 2px #3c272c,0 0 0 3px #000,0 20px 60px #000c;}
+.panel-inner header{flex:none;display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #000;background:#0003;}
 .panel-inner h2{margin:0;flex:1;font-family:var(--f-display);font-weight:800;font-size:22px;letter-spacing:.06em;text-wrap:balance;}
 .seal{display:inline-grid;place-items:center;width:30px;height:30px;background:var(--vermilion);color:var(--paper);font-family:var(--f-display);font-weight:800;font-size:16px;border-radius:3px;transform:rotate(-4deg);box-shadow:inset 0 0 0 2px #0003;}
 #panelClose{background:none;border:1px solid #ffffff22;width:30px;height:30px;cursor:pointer;font-size:14px;}
-#panelBody{overflow-y:auto;padding:14px 16px 18px;display:grid;gap:12px;align-content:start;}
+#panelBody{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:14px 16px 18px;display:grid;gap:12px;align-content:start;}
 .lede{color:var(--paper-dim);line-height:1.6;margin:0;max-width:62ch;}
 .lede em{color:var(--paper);font-style:normal;}
 .row{display:flex;gap:10px;align-items:center;padding:9px 10px;background:#00000038;border:1px solid #00000080;}
@@ -307,12 +308,12 @@ body.talking #mObj,body.talking #mSubs{display:none;}
 .bad{color:#ff8a7a;}
 .trait{display:inline-block;border:1px solid #0008;background:#0004;padding:1px 5px;margin:1px 2px 1px 0;font-size:11px;}
 .ptab{display:grid;gap:2px;overflow-x:auto;}
-.ptab .ph,.ptab .pr{display:grid;grid-template-columns:minmax(150px,1.6fr) repeat(7,minmax(46px,1fr));gap:2px;align-items:center;font-size:12px;}
+.ptab .ph,.ptab .pr{display:grid;grid-template-columns:minmax(150px,1.6fr) repeat(6,minmax(46px,1fr));gap:2px;align-items:center;font-size:12px;}
 .ptab .ph b{font-size:10px;color:var(--gold);text-align:center;font-weight:400;}
 .ptab .pc{background:#0004;border:1px solid #0008;color:var(--paper-dim);cursor:pointer;padding:3px 0;}
 .ptab .pc.on{color:var(--gold);}
 .ptab .pc[disabled]{cursor:default;}
-#wheel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:14;background:#0b080be6;border:1px solid var(--gold);padding:12px;display:grid;gap:8px;min-width:min(420px,92vw);}
+#wheel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:14;background:#0b080be6;border:1px solid var(--gold);padding:12px;display:grid;gap:8px;min-width:min(420px,92vw);max-height:min(80vh,640px);overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;}
 #wheel .wh{font-size:12px;color:var(--paper-dim);}
 #wheel .wh b{color:var(--gold);font-family:var(--f-display);font-size:15px;}
 #wheel .wh button{background:none;border:1px solid #0008;color:var(--paper);font-size:11px;cursor:pointer;padding:2px 6px;}
@@ -545,8 +546,13 @@ const Input = {
   held(...codes) { return codes.some(c => this.keys[c]); },
   init(canvas) {
     addEventListener('keydown', e => {
-      if (e.target && e.target.tagName === 'INPUT') return;
-      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      const tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const menu = typeof UI !== 'undefined' && UI.panel && UI.panel !== 'dialog';
+      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        if (menu && (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'Space' || e.code === 'PageUp' || e.code === 'PageDown')) return;
+        e.preventDefault();
+      }
       if (!e.repeat) this.down(e.code);
     });
     addEventListener('keyup', e => this.up(e.code));
@@ -7077,8 +7083,7 @@ const G = {
     if (profile.mp) {
       this.mp = true; st.n = 99; st.best = 99;
       if (G.fog) G.fog.fill(1);
-      for (const pl of PLACES) profile.discovered[pl.id] = true;
-      for (const t of World.towers) if (t.towerId) profile.towers[t.towerId] = 1;
+      Systems.prepMpTravel(profile);
     }
     if (skipTutorial && st.n === 1) { st.n = 6; profile.horse = { coat: 4 }; }
     const nextDef = this.mp ? null : Missions.def(st.n), fresh = !profile.pos;
@@ -7128,7 +7133,7 @@ const G = {
       if (a.remote) a.updateVisual(dt); else { aiUpdate(a, dt); a.update(dt); }
     }
     this.actors = this.actors.filter(a => !(a.gone && !a.persistent));
-    Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt);
+    Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt); if (typeof RenMeet !== 'undefined') RenMeet.tick(dt);
   },
   spawnGangMember(m, x, y) {
     const a = new Actor({ x, y, faction: 'gang', name: m.name, look: m.look, wpn: m.wpn, armor: m.armor || 0, hp: m.maxHp, maxHp: m.maxHp * (this.hasPerk('warlord') ? 1.3 : 1), skill: m.skill || 0.5, speed: 3.25, gid: m.id, level: m.level || 1, persistent: true, atkSpeed: m.atkSpeed || 1 });
@@ -7184,7 +7189,7 @@ const G = {
     this.updatePickups(dt);
     Systems.update(dt);
     if (this.mp && typeof Net !== 'undefined') {
-      Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt); Trial.tick(); ContractDuel.tick();
+      Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt); Trial.tick(); ContractDuel.tick(); RenMeet.tick(dt);
       // the ground round every other player is built on the host too, so its people there walk on real terrain
       if (Net.isHost && (this.obsT = (this.obsT || 0) - dt) <= 0) { this.obsT = 0.5; for (const [x, y] of Net.observers().slice(1)) World.stream(x, y, 2); }
       // anyone a game made for itself (a traveller, a stray) has no place in the shared world unless it is the host's
@@ -7210,7 +7215,7 @@ const G = {
     if (pid !== this.curPlace) {
       this.curPlace = pid;
       if (pl) {
-        if (!this.profile.discovered[pid]) { this.profile.discovered[pid] = true; UI.banner(pl); this.addXP(10); if (pl.safe && !this.mp) UI.toast('Discovered ' + pl.name + ' · you can fast travel here (M)', 'good'); }
+        if (!this.profile.discovered[pid]) { this.profile.discovered[pid] = true; UI.banner(pl); this.addXP(10); if (pl.safe || pl.kind === 'home') UI.toast('Discovered ' + pl.name + ' · you can fast travel here (M)', 'good'); }
         Quests.emit('enter', pid);
       }
     }
@@ -7587,8 +7592,8 @@ const Systems = {
     else if (d.phase === 'standoff') {
       p.faceTo(foe.x, foe.y); foe.faceTo(p.x, p.y);
       if (!d.faked && d.t > d.wait * 0.55 && Math.random() < 0.5) { d.faked = true; Snd.play('bird', 1); for (let i = 0; i < 12; i++) FX.addPart({ t: Math.random() < 0.5 ? 'petal' : 'leaf', x: lerp(p.x, foe.x, 0.5) + rnd(-2, 2), y: lerp(p.y, foe.y, 0.5) + rnd(-2, 2), z: rnd(20, 50), fall: rnd(5, 10), ph: rnd(TAU), life: 5, col: pick(['#f4b6c6', '#df6a2d']) }); }
-      if (d.t >= d.wait) { d.phase = 'signal'; d.t = 0; Snd.play('flash', 1); UI.duelText('斬', true); }
-    } else if (d.phase === 'signal') { if (d.t > d.react) { UI.duelText('Too slow', false); this.duelStrike(foe, p, 1); } }
+      if (d.t >= d.wait) { d.phase = 'signal'; d.t = 0; Snd.play('flash', 1); UI.duelText('斬', true); if (d.renKill) { this.duelStrike(foe, p, 8); return; } }
+    } else if (d.phase === 'signal') { if (d.renKill || d.t > d.react) { UI.duelText(d.renKill ? '斬' : 'Too slow', false); this.duelStrike(foe, p, d.renKill ? 8 : 1); } }
     else if (d.phase === 'fight') {
       foe.dueling = true;
       if (dist(p.x, p.y, foe.x, foe.y) > 14) { UI.toast('You fled the duel', 'shame'); G.addHonor(-10, 'fled a duel'); foe.dueling = false; foe.ai.mode = 'idle'; foe.post = World.spots[foe.blade ? foe.blade.spot : ''] || null; this.endDuel(); }
@@ -7596,6 +7601,11 @@ const Systems = {
   },
   duelInput() {
     const d = G.duel; if (!Input.hit('Mouse0')) return;
+    if (d.renKill) {
+      if (d.phase === 'bow' || d.phase === 'standoff') { UI.duelText('Too eager', false); this.duelStrike(d.foe, G.player, 8); }
+      else if (d.phase === 'signal') { this.duelStrike(d.foe, G.player, 8); }
+      return;
+    }
     if (d.phase === 'bow' || d.phase === 'standoff') { UI.duelText('Too eager', false); G.addHonor(-2, 'drew before the signal'); this.duelStrike(d.foe, G.player, 0.8); }
     else if (d.phase === 'signal') { this.duelStrike(G.player, d.foe, 1); UI.duelText(Math.round(d.t * 1000) + ' ms', false); }
   },
@@ -7618,7 +7628,8 @@ const Systems = {
     if (!blockedCircle(nx, ny, att.r)) { att.x = nx; att.y = ny; }
     for (let i = 0; i < 10; i++) FX.addPart({ t: 'dust', x: lerp(ox, att.x, i / 10), y: lerp(oy, att.y, i / 10), z: 6, vx: 0, vy: 0, vz: 4, life: 0.5, max: 0.5, col: 'rgba(240,235,255,' });
     att.face = ang + PI; att.state = 'atk'; att.atk = { heavy: true, phase: 'rec', t: 0, hit: true, wind: 0 }; def.face = ang + PI;
-    const dmg = def === G.player ? 36 * mult * (1 - ARMORS[def.armor].red) : def.maxHp * 0.55 * (att.dmgMult || 1);
+    const kill = d && d.renKill && def === G.player;
+    const dmg = kill ? def.hp + 80 : def === G.player ? 36 * mult * (1 - ARMORS[def.armor].red) : def.maxHp * 0.55 * (att.dmgMult || 1);
     def.hp -= dmg; def.bleed += 3; def.flash = 0.15; def.stagger(0.6); att.bloody = 1;
     FX.blood(def.x, def.y, 16, ang + PI, 50, 3.5, 0.9, 100); FX.mist(def.x, def.y, 16, ang, 18); FX.splat(def.x, def.y, 1);
     Snd.play('heavy', 1); Snd.play('hit', 1); Snd.play('gore', 0.6);
@@ -7838,6 +7849,7 @@ const Systems = {
     else if (k === 'free') Story.freeHana(a);
     else if (k === 'mini') Mini.talk(a);
     else if (k === 'soun') Story.meetSoun(a);
+    else if (k === 'renKisaragi') RenMeet.talk(a);
     else { const h = G.profile.honor; const line = NOBLE_LINES[a.role] ? pick(NOBLE_LINES[a.role]) : h < -50 ? pick(['Please… take what you want.', 'Stay back, demon!', 'I have children…']) : h > 60 ? pick(['An honor, ' + G.profile.name + '-sama.', 'The people speak of you.', 'May the kami guide your blade.']) : pick(RUMORS); UI.open('dialog', { speaker: a.name || (a.role ? a.role[0].toUpperCase() + a.role.slice(1) : 'Villager'), actor: a, lines: [line], buttons: [{ label: 'Farewell', alt: true }] }); }
   },
   doInteract() {
@@ -7958,7 +7970,9 @@ const Systems = {
     // on a mission, death is a failed mission: try again from the checkpoint
     const drowned = killer && killer.drown;
     if (Missions.cur) { if (G.player.mounted) G.player.mounted = false; G.duel = null; UI.letterbox(false); Missions.fail(drowned ? 'Ren drowned.' : 'Ren was cut down by ' + (killer ? (killer.name || killer.label || killer.role || 'an enemy') : 'his wounds') + '.'); return; }
-    const lost = Math.floor(p.gold * 0.1); p.gold -= lost;
+    const scripted = !!(G.duel && G.duel.renKill);
+    const lost = scripted ? 0 : Math.floor(p.gold * 0.1); if (lost) p.gold -= lost;
+    if (scripted && typeof RenMeet !== 'undefined') { RenMeet.phase = 'return'; RenMeet.flag('return'); }
     if (G.player.mounted) G.player.mounted = false;
     G.state = 'dead'; G.duel = null; UI.letterbox(false);
     const where = this.nearestSafe(); G.respawnAt = where;
@@ -7979,14 +7993,38 @@ const Systems = {
     G.wanted = 0; G.state = 'play'; Camera.snap = true; UI.fade(); World.streamAll(pl.x, pl.y);
     this.save();
   },
-  travelSpots() {
-    const p = G.profile, out = [];
-    if (G.mp) {
-      const g = Net.gang;
-      if (g && g.hq) out.push({ id: 'mpCamp', name: g.name + ' · home', jp: '陣', x: g.hq.x, y: g.hq.y + 4, camp: true });
-      return out;
+  // the shared island is already drawn, but you only ride the roads you have stood on
+  prepMpTravel(profile) {
+    const d = profile.discovered || (profile.discovered = {});
+    const safe = PLACES.filter(p => (p.safe || p.kind === 'home') && p.kind !== 'region');
+    const have = safe.filter(p => d[p.id]).length;
+    const towers = World.towers || [];
+    const allTowers = towers.length > 0 && towers.every(t => t.towerId && profile.towers && profile.towers[t.towerId]);
+    if (profile.travelVer === 1) return;
+    if (safe.length && have >= safe.length) {
+      const keep = {};
+      const sp = store('crimson_ronin_v2');
+      if (sp && sp.discovered) {
+        const fromSp = safe.filter(p => sp.discovered[p.id]);
+        if (fromSp.length && fromSp.length < safe.length) for (const p of fromSp) keep[p.id] = true;
+      }
+      profile.discovered = keep;
     }
-    for (const pl of PLACES) if ((pl.safe || pl.kind === 'home') && p.discovered[pl.id]) out.push({ id: pl.id, name: pl.name, jp: pl.jp, x: pl.id === 'hideout' ? World.spots.hideout[0] : pl.x, y: pl.id === 'hideout' ? World.spots.hideout[1] : pl.y });
+    if (allTowers) profile.towers = {};
+    profile.travelVer = 1;
+  },
+  travelSpots() {
+    const p = G.profile, out = [], seen = {};
+    if (G.mp && typeof Net !== 'undefined' && Net.gang && Net.gang.hq) {
+      const g = Net.gang;
+      out.push({ id: 'mpCamp', name: g.name + ' · home', jp: '陣', x: g.hq.x, y: g.hq.y + 4, camp: true });
+      seen.mpCamp = true;
+    }
+    for (const pl of PLACES) {
+      if (!(pl.safe || pl.kind === 'home') || !p.discovered[pl.id] || seen[pl.id]) continue;
+      seen[pl.id] = true;
+      out.push({ id: pl.id, name: pl.name, jp: pl.jp, x: pl.id === 'hideout' ? World.spots.hideout[0] : pl.x, y: pl.id === 'hideout' ? World.spots.hideout[1] : pl.y });
+    }
     for (const t of World.towers) if (p.towers[t.towerId]) out.push({ id: 'tw_' + t.towerId, name: t.tname && t.tname.startsWith('Watchtower') ? t.tname : 'Watchtower · ' + (t.tname || t.towerId), jp: '望', x: t.cx + 1, y: t.cy + 1 });
     return out;
   },
@@ -7996,7 +8034,7 @@ const Systems = {
     const q = World.randomWalkable(sp.x, sp.y, 0, 3, 80) || [sp.x, sp.y];
     const p = G.player; p.x = q[0]; p.y = q[1];
     if (G.horse) {
-      const hitch = (G.mp && World.spots.mpStable) ? World.spots.mpStable : null;
+      const hitch = (G.mp && sp.id === 'mpCamp' && World.spots.mpStable) ? World.spots.mpStable : null;
       const r = hitch || World.randomWalkable(q[0], q[1], 1.2, 2.5) || q;
       if (p.mounted && !hitch) { G.horse.x = q[0]; G.horse.y = q[1]; } else { G.horse.x = r[0]; G.horse.y = r[1]; p.mounted = hitch ? false : p.mounted; }
       G.horse.spd = 0;
@@ -8342,6 +8380,7 @@ const UI = {
     if (name === 'map' && this.panel !== 'map') { if (this.mapView) this.mapView.follow = true; this.mapTiles.clear(); }
     if (name === 'dialog') { this.panel = name; this.data = data; $('prompt').hidden = true; if (typeof Card !== 'undefined') Card.revealForTalk(); Talk.open(data); return; }
     this.panel = name; this.data = data; $('panel').hidden = false; $('panel').dataset.kind = name; $('prompt').hidden = true;
+    this._scrollReset = true;
     this.render();
     setTimeout(() => {
       const body = $('panelBody'); if (!body) return;
@@ -8360,9 +8399,12 @@ const UI = {
   render() {
     const fn = Panels[this.panel]; if (!fn) return this.close();
     const r = fn(this.data); if (!r) return this.close();
-    $('panelSeal').textContent = r.seal || '印'; $('panelTitle').textContent = r.title; $('panelBody').innerHTML = r.html;
-    $('panelBody').querySelectorAll('button[data-act]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); Snd.play('ui'); const res = r.on && r.on(b.dataset.act, b.dataset.arg, b); if (res !== false && this.panel) this.render(); }));
-    $('panelBody').querySelectorAll('input[data-act]').forEach(b => b.addEventListener('input', e => { e.stopPropagation(); const res = r.on && r.on(b.dataset.act, b.value, b); if (res !== false && this.panel) this.render(); }));
+    const body = $('panelBody'), y = this._scrollReset ? 0 : (body ? body.scrollTop : 0);
+    this._scrollReset = false;
+    $('panelSeal').textContent = r.seal || '印'; $('panelTitle').textContent = r.title; body.innerHTML = r.html;
+    body.querySelectorAll('button[data-act]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); Snd.play('ui'); const res = r.on && r.on(b.dataset.act, b.dataset.arg, b); if (res !== false && this.panel) this.render(); }));
+    body.querySelectorAll('input[data-act]').forEach(b => b.addEventListener('input', e => { e.stopPropagation(); const res = r.on && r.on(b.dataset.act, b.value, b); if (res !== false && this.panel) this.render(); }));
+    body.scrollTop = y;
     const nameBox = $('dogName');
     if (nameBox) nameBox.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;
@@ -8619,7 +8661,7 @@ const Panels = {
       if (miss && !UI._mapRaf) UI._mapRaf = requestAnimationFrame(() => { UI._mapRaf = 0; if (!$('bigMap') || UI.panel !== 'map') return; const t0 = performance.now(); UI.paintMapTile(miss); let m2; while (performance.now() - t0 < 12 && (m2 = UI.mapDetail({ drawImage() {} }, V, V.z * CW / (MAP / 4), CW, CH))) UI.paintMapTile(m2); draw(); });
       g.textAlign = 'center';
       for (const pl of PLACES) {
-        if (!G.profile.discovered[pl.id] || pl.id === 'keep' || pl.id === 'yard' || pl.kind === 'region' && V.z < 2) continue;
+        if ((!G.mp && !G.profile.discovered[pl.id]) || pl.id === 'keep' || pl.id === 'yard' || pl.kind === 'region' && V.z < 2) continue;
         if (pl.outer && pl.kind !== 'town' && V.z < 2) continue;
         const [sx, sy] = toS(pl.x, pl.y); if (sx < -60 || sy < -20 || sx > CW + 60 || sy > CH + 20) continue;
         const big = pl.kind === 'town'; g.font = `${big ? 14 : 12}px "Shippori Mincho B1", serif`;
@@ -8638,7 +8680,7 @@ const Panels = {
       cv.onwheel = e => { e.preventDefault(); V.z = clamp(V.z * (e.deltaY < 0 ? 2 : 0.5), 1, 64); draw(); };
     }, 0);
     const legend = '<span style="color:#ffcf4a">◆ objective</span> · <span style="color:#ffd24a">! quest</span> · <span style="color:#ffd24a">■ Blade</span> · <span style="color:#d8342a">✚ camp</span> · <span style="color:#ffd24a">▮ watchtower</span> · <span style="color:#b8762a">▬ chest</span> · <span style="color:#c8955a">▬ horse</span>';
-    const travelNote = G.mp ? 'Gang camp is the only fast-travel point. The island is already known to you.' : 'Climb watchtowers to reveal the map. Fast travel to any town you have visited or tower you have climbed:';
+    const travelNote = G.mp ? 'The island is known to you. Ride to a town (or climb a tower) once, then fast travel back from here. The clan’s home is always open.' : 'Climb watchtowers to reveal the map. Fast travel to any town you have visited or tower you have climbed:';
     return { title: 'Kurenai-jima', seal: '図', html: `<div class="btns" style="margin:0 0 6px"><button class="btn alt" data-act="zin">Zoom in</button><button class="btn alt" data-act="zout">Zoom out</button><button class="btn alt" data-act="me">Find me</button><span class="lede" style="font-size:11px;align-self:center">Drag to pan, wheel to zoom</span></div><canvas id="bigMap" width="${CW}" height="${CH}" style="width:100%;image-rendering:pixelated;background:#0b080b;border:1px solid #000;touch-action:none;cursor:grab"></canvas><p class="lede" style="font-size:11px">${legend}</p><p class="lede">${travelNote}</p><div class="btns">${travel || '<span class="lede">Nowhere yet. Explore!</span>'}</div>`, on(act, arg) { if (act === 'go') { UI.close(); Systems.fastTravel(spots[+arg]); return false; } if (act === 'zin') V.z = Math.min(64, V.z * 2); if (act === 'zout') V.z = Math.max(1, V.z / 2); if (act === 'me') V.follow = true; } };
   },
   char(opt = {}) {
@@ -9099,6 +9141,11 @@ const QDEFS = {
     steps: [
       { text: 'Deliver the sake to Okami Sen at the Golden Carp, Hanamachi', where: A('castleInn'), ev: 'talk', npc: 'castleInn', say: ['Tokubei\'s sake, still sealed! A miracle on that road.', 'Tell the old fox he is paid.'] },
     ]
+  },
+  kisaragi: {
+    kind: 'side', title: 'The Nameless Blade', avail: () => !!(G.mp && Net && Net.gang && Net.gang.ren && Net.gang.ren.state === 'seek'),
+    reward: { honor: 4 },
+    steps: [{ text: 'Find the ronin in the ruins of Kiyohara', hint: 'A grey horse. The Kisaragi house. He speaks only to those of high honour.', where: () => (typeof RenMeet !== 'undefined' && RenMeet.at()) || [649, 426] }]
   },
   // ---- activities (open-ended, tracked in the journal)
   blades: { kind: 'activity', title: 'The Ten Blades', reward: { mon: 600, honor: 10, xp: 200 }, steps: [{ text: 'Defeat the Ten Blades of Ashigawa, in any order', hint: 'Talk to a Blade to challenge them. Gold numbers on the map.', where: () => { const p = G.player; let b = null, bd = 1e9; for (const a of G.actors) if (a.blade && !a.dead) { const d = dist(a.x, a.y, p.x, p.y); if (d < bd) { bd = d; b = a; } } return b; }, ev: 'bladeDown', n: 10, count: () => Object.keys(G.profile.blades).length }] },
@@ -16137,6 +16184,9 @@ const Track = {
   get() {
     if (G.mp) {
       const P = G.profile, g = typeof Net !== 'undefined' && Net.gang;
+      if (g && g.ren && (g.ren.state === 'seek' || g.ren.state === 'met') && (!P.flags || P.flags.renMeet !== 'done')) {
+        return { kind: 'side', head: 'Quest · The Nameless Blade', text: 'Find the ronin in the ruins of Kiyohara', hint: 'He speaks only to those of high honour (50+).', tgt: (typeof RenMeet !== 'undefined' && RenMeet.at()) || [g.ren.x, g.ren.y] };
+      }
       const cid = P && P.contract, c = cid && g && (g.contracts || []).find(x => x.id === cid && x.state === 'active');
       if (c && c.place) return { kind: 'activity', head: 'Contract · ' + c.name, text: c.place.name || c.name, hint: (c.got || 0) + '/' + (c.need || 1), tgt: [c.place.x, c.place.y] };
       const id = P && P.track && Quests.st(P.track) && !Quests.isDone(P.track) ? P.track : null;
@@ -19731,7 +19781,7 @@ const Net = {
       if (m.you && prof) {
         const y = m.you;
         Object.assign(prof, { gold: y.gold, bank: y.bank, honor: y.honor || 0, xp: y.xp || 0, level: y.level || 1, perks: y.perks || prof.perks, weapons: y.weapons || ['katana'], wpn: y.wpn || 'katana', horse: y.horse, name: y.name || prof.name, mp: true });
-        for (const k of ['stash', 'armors', 'armor', 'bandages', 'sake', 'quests', 'track', 'towers', 'chests', 'camps', 'blades', 'kills', 'bonusHp', 'pendingPerks', 'bounties', 'bountyDay', 'flags']) if (y[k] !== undefined) prof[k] = y[k];
+        for (const k of ['stash', 'armors', 'armor', 'bandages', 'sake', 'quests', 'track', 'towers', 'chests', 'camps', 'blades', 'kills', 'bonusHp', 'pendingPerks', 'bounties', 'bountyDay', 'flags', 'discovered', 'travelVer']) if (y[k] !== undefined) prof[k] = y[k];
         if (y.look) prof.look = y.look;
         prof.pos = [y.x, y.y]; prof.tod = this.todNow(); prof.day = (m.clock && m.clock.day) || prof.day || 1;
         prof.flags = prof.flags || {}; prof.camps = prof.camps || {};
@@ -19856,6 +19906,7 @@ const Net = {
   seeGang(g) {
     if (!g) return;
     this.putGang(g);
+    if (g.ren && (g.ren.state === 'seek' || g.ren.state === 'met') && typeof RenMeet !== 'undefined') RenMeet.onSeek();
     const gv = this.world.gangs.get(g.id);
     if (gv && gv.hq) try { Compound.apply(gv); } catch (e) { console.warn('Compound', e); }
   },
@@ -19963,9 +20014,9 @@ const Net = {
   },
   npcFull(a) {
     const t = a.talk ? { kind: a.talk.kind, label: a.talk.label, shop: a.talk.shop, game: a.talk.game, site: a.talk.site, vid: a.talk.vid, gang: a.talk.gang } : null;
-    return { id: a.syncId, name: a.name, label: a.label, look: a.look, wpn: a.wpn, armor: a.armor, maxHp: a.maxHp, faction: a.faction, role: a.role, type: a.type, rosterKey: a.rosterKey, campId: a.campId, tag: a.tag, talk: t, essential: !!a.essential, clanGang: a.clanGang, nid: a.nid, realm: a.realm, bountyId: a.bountyId, rival: a.rival, speed: a.speed, r: a.r, mount: a.mount ? { coat: a.mount.coat || 0 } : null, blade: a.blade ? { id: a.blade.id, rank: a.blade.rank } : null, gun: !!a.gun, canYield: !!a.canYield, contract: a.contract, raidId: a.raidId, raidGang: a.raidGang, cgang: a.cgang, escortFor: a.escortFor, persistent: !!a.persistent };
+    return { id: a.syncId, name: a.name, label: a.label, look: a.look, wpn: a.wpn, armor: a.armor, maxHp: a.maxHp, faction: a.faction, role: a.role, type: a.type, rosterKey: a.rosterKey, campId: a.campId, tag: a.tag, talk: t, essential: !!a.essential, clanGang: a.clanGang, nid: a.nid, realm: a.realm, bountyId: a.bountyId, rival: a.rival, speed: a.speed, r: a.r, mount: a.mount ? { coat: a.mount.coat || 0 } : null, blade: a.blade ? { id: a.blade.id, rank: a.blade.rank } : null, gun: !!a.gun, canYield: !!a.canYield, contract: a.contract, raidId: a.raidId, raidGang: a.raidGang, cgang: a.cgang, escortFor: a.escortFor, persistent: !!a.persistent, renMeet: !!a.renMeet };
   },
-  npcSig(a) { return [a.name, a.label, a.wpn, a.faction, a.armor, a.talk ? a.talk.kind + a.talk.vid : '', a.mount ? 1 : 0, a.look ? (a.look.top + ',' + a.look.cTop + ',' + a.look.hat + ',' + a.look.coat + ',' + a.look.mon) : ''].join('|'); },
+  npcSig(a) { return [a.name, a.label, a.wpn, a.faction, a.armor, a.talk ? a.talk.kind + (a.talk.label || '') + (a.talk.vid || '') : '', a.mount ? 1 : 0, a.look ? (a.look.top + ',' + a.look.cTop + ',' + a.look.hat + ',' + a.look.coat + ',' + a.look.mon) : '', a.renMeet ? 1 : 0].join('|'); },
   hostSync(dt) {
     if ((this.npcT -= dt) > 0) return; this.npcT = 0.1;
     const obs = this.observers(), list = [], full = [], gone = [], seen = new Set();
@@ -19993,10 +20044,11 @@ const Net = {
     if (!f || !f.id) return;
     let a = this.proxies.get(f.id);
     if (!a) { a = new Actor({ x: 0, y: 0, remote: true }); a.syncId = f.id; a.npcProxy = true; a.remote = true; a.fresh = true; this.proxies.set(f.id, a); G.actors.push(a); }
-    Object.assign(a, { name: f.name || '', label: f.label, look: f.look || a.look, wpn: f.wpn || 'fists', armor: f.armor | 0, maxHp: f.maxHp || 60, faction: f.faction || 'civ', role: f.role || '', type: f.type, rosterKey: f.rosterKey, campId: f.campId, tag: f.tag, talk: f.talk, essential: !!f.essential, clanGang: f.clanGang, nid: f.nid, realm: f.realm, bountyId: f.bountyId, rival: f.rival, speed: f.speed || 3, r: f.r || 0.27, canYield: !!f.canYield, contract: f.contract, raidId: f.raidId, raidGang: f.raidGang, cgang: f.cgang, escortFor: f.escortFor, persistent: true, gun: f.gun ? { proxy: true } : null });
+    Object.assign(a, { name: f.name || '', label: f.label, look: f.look || a.look, wpn: f.wpn || 'fists', armor: f.armor | 0, maxHp: f.maxHp || 60, faction: f.faction || 'civ', role: f.role || '', type: f.type, rosterKey: f.rosterKey, campId: f.campId, tag: f.tag, talk: f.talk, essential: !!f.essential, clanGang: f.clanGang, nid: f.nid, realm: f.realm, bountyId: f.bountyId, rival: f.rival, speed: f.speed || 3, r: f.r || 0.27, canYield: !!f.canYield, contract: f.contract, raidId: f.raidId, raidGang: f.raidGang, cgang: f.cgang, escortFor: f.escortFor, persistent: true, gun: f.gun ? { proxy: true } : null, renMeet: !!f.renMeet });
     a.blade = f.blade || null;
     a.mount = f.mount ? Object.assign(a.mount || Horse.make(a.x, a.y, f.mount.coat), { coat: f.mount.coat }) : null;
     if (a.clanGang) a.clanNpc = true;
+    if (a.renMeet && typeof RenMeet !== 'undefined') RenMeet.a = a;
     if (f.rosterKey) Systems.byKey[f.rosterKey] = a;
   },
   proxyPose(a, q, snap) {
@@ -20082,7 +20134,7 @@ const Net = {
         sleeping: sleep, armed: !sleep && !!(p.wpn && p.wpn !== 'fists'), atk: sleep ? null : atk, draw: sleep ? null : draw, walk: p.walk, moving: !sleep && !!p.moving, crouch: !!p.crouch, look: pr.look,
         mounted: !!p.mounted, seat: p.mpSeat || 0, mountOf: (p.mpMount && p.mpMount.ownerId) || (p.mounted ? this.id : null),
         horse: h ? { x: h.x, y: h.y, face: h.face, spd: h.spd, coat: h.coat, name: h.name, spdMul: h.spdMul, seats: h.seats } : null,
-        dog: Miso.pack(), uniform: (Clan.myPreset() || {}).id || null
+        dog: Miso.pack(), uniform: (Clan.myPreset() || {}).id || null, honor: pr.honor
       });
     }
     if ((this.pingT = (this.pingT || 0) - dt) <= 0) { this.pingT = 20; this.send({ t: 'ping', at: Date.now() }); }
@@ -20132,6 +20184,8 @@ const Net = {
       const home = g && g.hq ? [g.hq.x, g.hq.y + 4] : null;
       if (!G.profile.pos && home) { G.player.x = home[0]; G.player.y = home[1]; }
       G.player.look = Clan.wearLook(G.profile.look);
+      const here = World.placeAt(G.player.x, G.player.y); if (here) G.profile.discovered[here.id] = true;
+      if (g && g.hq) { const hq = World.placeAt(g.hq.x, g.hq.y); if (hq) G.profile.discovered[hq.id] = true; }
     }
     for (const [, r] of this.remotes) if (r.actor && G.actors && !G.actors.includes(r.actor)) G.actors.push(r.actor);
     for (const a of this.proxies.values()) if (!G.actors.includes(a)) G.actors.push(a);
@@ -20151,6 +20205,36 @@ const ClanAI = {
   gv(gid) { return Net.world.gangs.get(gid); },
   leaderOf(pid) { if (!pid) return null; if (pid === Net.id) return G.player; const r = Net.remotes.get(pid); return r && r.actor; },
   memberNear(gid, x, y, R) { const g = this.clans.get(gid); if (!g) return false; for (const id of g.members || []) { const a = this.leaderOf(id); if (a && !a.dead && dist(a.x, a.y, x, y) < R) return a; } return false; },
+  bldg(gv, s) {
+    if (!s) return null;
+    const st = Compound.state.get(gv.id), rec = st && st.built.get(s.id);
+    if (rec && rec.b) return rec.b;
+    const hit = Buildings.list.find(bl => bl.opt && bl.opt.sid === s.id && (!bl.opt.clan || bl.opt.clan === gv.id));
+    return hit || Buildings.at(s.x + s.w * 0.5, s.y + s.h * 0.5);
+  },
+  // a futon (or a clear floor inside a sleeping house) this retainer owns for the night
+  bedFor(gv, n) {
+    const S = (gv.structs || []).filter(s => ['shelter', 'quarters', 'rooms', 'officers', 'residence', 'guesthouse', 'barracks'].includes(s.kind) && s.state === 'done' && !s.damaged);
+    const beds = [], take = (b, x, y) => { if (x == null || blockedCircle(x, y, 0.26)) return; if (beds.some(q => dist(q.at[0], q.at[1], x, y) < 0.7)) return; beds.push({ b, at: [x, y] }); };
+    for (const s of S) {
+      const b = this.bldg(gv, s); if (!b) continue;
+      const futons = (b.items || []).filter(o => o.t === 'futon' || o.t === 'bedroll');
+      for (const o of futons) take(b, o.x + o.w / 2, o.y + o.h / 2);
+      const def = ((Net.catalog && Net.catalog.BUILD) || {})[s.kind], fx = def && def.fx && def.fx[Math.min(def.fx.length, s.tier || 1) - 1];
+      const cap = Math.max(futons.length || 1, (fx && fx.beds) || 2);
+      const cols = Math.max(1, Math.floor((b.U - 1.4) / 1.5));
+      for (let k = 0; beds.filter(q => q.b === b).length < cap && k < cap + 10; k++) {
+        const p = Buildings.pt(b, Math.min(1.1 + (k % cols) * 1.5, b.U - 1.1), Math.min(1.8 + Math.floor(k / cols) * 1.6, b.V - 1.2));
+        take(b, p[0], p[1]);
+      }
+      if (!beds.some(q => q.b === b) && b.doorPt) take(b, b.doorPt.inner[0], b.doorPt.inner[1]);
+    }
+    const npcs = ((this.clans.get(gv.id) || {}).npcs || []).filter(x => x.alive !== false);
+    const i = Math.max(0, npcs.findIndex(x => x.id === n.id));
+    if (beds.length) return beds[i % beds.length];
+    for (const s of S) { const b = this.bldg(gv, s); if (b && b.doorPt) return { b, at: b.doorPt.inner.slice() }; }
+    return null;
+  },
   // where an NPC wants to be right now, by job, hour and orders
   home(gv, a, n) {
     const b = gv.bounds; if (!b) return null;
@@ -20160,10 +20244,10 @@ const ClanAI = {
     const face = s => [s.x + (s.rot % 2 ? s.w + 0.8 : s.w / 2), s.y + (s.rot % 2 ? s.h / 2 : s.h + 0.8)];
     const tod = G.tod, night = tod < 0.22 || tod > 0.86, evening = tod > 0.74 && !night, job = n.assign ? n.assign.job : 'rest';
     const hearth = kinds(['hearth'])[0], fire = hearth ? [hearth.x + hearth.w / 2, hearth.y + hearth.h / 2] : [gv.hq.x, gv.hq.y];
-    if (n.injuredUntil) { const q = kinds(['medic', 'quarters', 'shelter', 'barracks'])[0]; return { at: q ? face(q) : fire, act: 'lie' }; }
+    if (n.injuredUntil) { const bed = this.bedFor(gv, n); if (bed) return { at: bed.at, act: 'lie' }; const q = kinds(['medic', 'quarters', 'shelter'])[0]; return { at: q ? face(q) : fire, act: 'lie' }; }
     if (job === 'guard' || job === 'hold') return { at: n.assign.post || [b.gate[0] + (idx % 2 ? 2 : -2), b.gate[1] - 2.5], act: 'guard', face: Math.atan2(1, 1) };
     if (job === 'patrol') { const R = n.assign.route && n.assign.route.length > 1 ? n.assign.route : [[b.x0 + 2, b.y0 + 2], [b.x1 - 2, b.y0 + 2], [b.x1 - 2, b.y1 - 2], [b.x0 + 2, b.y1 - 2]]; const k = Math.floor(G.time / 18 + idx) % R.length; return { at: R[k], act: 'walk' }; }
-    if (night) { const q = kinds(['quarters', 'shelter', 'barracks', 'rooms', 'officers'])[idx % Math.max(1, kinds(['quarters', 'shelter', 'barracks', 'rooms', 'officers']).length)]; return { at: q ? face(q) : [fire[0] + Math.cos(idx) * 2.5, fire[1] + Math.sin(idx) * 2.5], act: 'sleep' }; }
+    if (night) { const bed = this.bedFor(gv, n); if (bed) return { at: bed.at, act: 'sleep' }; return { at: fire, act: 'sleep' }; }
     if (evening) return { at: [fire[0] + Math.cos(idx * 0.9) * 2.6, fire[1] + Math.sin(idx * 0.9) * 2.6], act: 'sit', face: Math.atan2(fire[1] - (fire[1] + Math.sin(idx * 0.9) * 2.6), fire[0] - (fire[0] + Math.cos(idx * 0.9) * 2.6)) };
     if (job === 'train') { const s = at(n.assign.at) || kinds(['dojo', 'yard', 'range', 'arena', 'granddojo'])[idx % Math.max(1, kinds(['dojo', 'yard', 'range', 'arena', 'granddojo']).length)]; return { at: s ? [s.x + (idx % 3) + 1, s.y + s.h + 1] : [fire[0] + 4, fire[1] + 3], act: 'train' }; }
     if (job === 'work') {
@@ -20283,9 +20367,17 @@ const ClanAI = {
     if (!goal) { a.move(0, 0, dt); return; }
     const d = dist(a.x, a.y, goal[0], goal[1]);
     if (act !== 'sit' && act !== 'sleep') { a.sitting = false; a.sleeping = false; }
-    if (d > (act === 'follow' ? 0.8 : 0.5)) {
+    if (d > (act === 'follow' ? 0.8 : act === 'sleep' || act === 'lie' ? 0.7 : 0.5)) {
       if (a.state === 'work') { a.state = 'idle'; a.work = null; }
       const run = act === 'follow' ? (d > 4 ? 1.3 : 0.85) : act === 'walk' ? 0.45 : d > 8 ? 1.1 : 0.6;
+      const house = Buildings.at(goal[0], goal[1]), here = Buildings.at(a.x, a.y);
+      if (house && house !== here) {
+        const door = house.doorPt && house.doorPt.outer;
+        if (door && dist(a.x, a.y, door[0], door[1]) > 1.5) Nav.step(a, door[0], door[1], dt, run, { slack: 2 });
+        else steerTo(a, goal[0], goal[1], dt, run);
+        return;
+      }
+      if (house) { steerTo(a, goal[0], goal[1], dt, run); return; }
       if (d > 2) Nav.step(a, goal[0], goal[1], dt, run, { slack: 2 }); else steerTo(a, goal[0], goal[1], dt, run);
       return;
     }
@@ -20406,6 +20498,172 @@ const ClanAI = {
     else if (m.kind === 'hana') Story.spawnHana(true);
     else if (m.kind === 'raiders') Story.spawnRaiders(true);
     else if (m.kind === 'spare') { const v = Net.byId(d.id); if (v && v.yielded && !v.dead) { v.yielded = false; v.yieldLock = false; v.state = 'idle'; v.provoked = false; v.aggressive = false; v.faction = v.faction === 'civ' ? 'civ' : 'ronin'; v.ai.mode = 'flee'; v.ai.from = (Net.remotes.get(m.from) || {}).actor || G.player; v.persistent = false; if (v.contract && v.cgang) Net.send({ t: 'contractHit', gang: v.cgang, id: v.contract, n: 1, by: m.from }); if (v.campId) setTimeout(() => Systems.campCheck(v.campId), 300); } }
+    else if (m.kind === 'renRise' && typeof RenMeet !== 'undefined') RenMeet.hostRise();
+    else if (m.kind === 'renLeave' && typeof RenMeet !== 'undefined') RenMeet.hostLeave();
+  }
+};
+// ---- MP only: a traveller at the gate sends the clan to Kiyohara to meet Ren Kisaragi, once
+const RenMeet = {
+  a: null, horse: null, phase: 'idle', walkIn: false, goneT: 0,
+  HONOR: 50,
+  at() {
+    if (typeof StoryMap !== 'undefined' && StoryMap.sites && StoryMap.sites.kiyo && StoryMap.at) {
+      const p = StoryMap.at('kiyo.home') || StoryMap.at('kiyo.memorial') || StoryMap.at('kiyo.square');
+      if (p) return p;
+    }
+    const g = typeof Net !== 'undefined' && Net.gang; return (g && g.ren && g.ren.x != null) ? [g.ren.x, g.ren.y] : [649, 426];
+  },
+  live() { const g = typeof Net !== 'undefined' && Net.gang; return !!(G.mp && g && g.ren && (g.ren.state === 'seek' || g.ren.state === 'met')); },
+  done() { const g = typeof Net !== 'undefined' && Net.gang; return !!(g && g.ren && g.ren.state === 'done') || !!(G.profile && G.profile.flags && G.profile.flags.renMeet === 'done'); },
+  honor() { return (G.profile && G.profile.honor) || 0; },
+  after() {
+    const f = (G.profile && G.profile.flags) || {};
+    if (f.whatAfter) return f.whatAfter;
+    try { const sp = store('crimson_ronin_v2'); if (sp && sp.flags && sp.flags.whatAfter) return sp.flags.whatAfter; } catch (e) {}
+    return null;
+  },
+  flag(v) { if (!G.profile) return; G.profile.flags = G.profile.flags || {}; G.profile.flags.renMeet = v; },
+  onSeek() {
+    if (!G.profile || this.done()) return;
+    if (Quests.isDone('kisaragi')) return;
+    if (!Quests.st('kisaragi')) Quests.start('kisaragi');
+    G.profile.track = 'kisaragi';
+    if (this.phase === 'idle') this.phase = (G.profile.flags && G.profile.flags.renMeet) || 'seek';
+    if (typeof StoryMap !== 'undefined' && StoryMap.ensure) StoryMap.ensure('kiyo');
+  },
+  look() { return lk({ skin: 1, hair: 1, hairCol: 0, hat: 0, top: 2, pattern: 0, bottom: 7, sash: 6, face: 0, scar: 2 }); },
+  spawn() {
+    if (this.a && !this.a.gone) return this.a;
+    const p = this.at(), q = World.randomWalkable(p[0], p[1], 0, 1.6, 20, true) || p;
+    const a = makeNPC('ronin', q[0], q[1], { name: 'Ren Kisaragi', label: 'Ren Kisaragi', faction: 'civ', essential: true, persistent: true, wpn: 'katana', armor: 1, hp: 280, maxHp: 280, skill: 0.95, speed: 3.2, look: this.look(), post: q.slice(), postFace: PI * 0.25, talk: { kind: 'renKisaragi', label: 'Speak with the ronin' } });
+    a.renMeet = true; a.canYield = false; a.poise = 1;
+    G.actors.push(a); this.a = a;
+    return a;
+  },
+  despawn() {
+    const a = this.a; this.a = null; this.walkIn = false;
+    if (a) { a.gone = true; a.persistent = false; a.talk = null; }
+  },
+  tick(dt) {
+    if (!G.mp) return;
+    const g = Net.gang;
+    if (g && g.ren && (g.ren.state === 'seek' || g.ren.state === 'met') && !this.done()) this.onSeek();
+    if (this.done()) { if (this.a) this.despawn(); return; }
+    if (!this.live()) return;
+    if (this._giftT > 0) { this._giftT -= dt; if (this._giftT <= 0 && this.phase === 'strike') { this.phase = 'gift'; this.flag('gift'); this.giftTalk(); } }
+    if (Net.isHost) {
+      if (!this.a || this.a.gone) this.spawn();
+      const a = this.a;
+      if (a && a.lying) { a.move(0, 0, dt); a.post = [a.x, a.y]; }
+      else if (a && !a.dead && this.walkIn) {
+        const goal = this.at();
+        a.post = goal.slice();
+        if (dist(a.x, a.y, goal[0], goal[1]) > 0.7) Nav.step(a, goal[0], goal[1], dt, 0.7, { slack: 2 });
+        else { this.walkIn = false; a.move(0, 0, dt); a.post = goal.slice(); if (this.phase === 'returnWalk') { this.phase = 'gift'; this.flag('gift'); if (a) a.talk = { kind: 'renKisaragi', label: 'Speak with Ren Kisaragi' }; } }
+      } else if (a && !a.dead && this.phase === 'leave') {
+        const out = a._renOut || (a._renOut = this.off(a.x, a.y, a.face));
+        a.post = out;
+        if (dist(a.x, a.y, out[0], out[1]) > 1.4) Nav.step(a, out[0], out[1], dt, 0.85, { slack: 3 });
+        else this.finish();
+      }
+    } else {
+      this.a = G.actors.find(x => x.renMeet && !x.gone) || this.a;
+    }
+    const a = this.a, p = G.player;
+    if (a && p && !p.dead && G.state === 'play' && (this.phase === 'return' || this.phase === 'dead') && dist(a.x, a.y, p.x, p.y) < 5 && !UI.isOpen() && !G.duel) this.talk(a);
+  },
+  talk(a) {
+    this.a = a;
+    const ph = this.phase || (G.profile && G.profile.flags && G.profile.flags.renMeet) || 'seek';
+    const afterDuel = ph === 'return' || ph === 'dead' || ph === 'returnTalk' || ph === 'wait' || ph === 'gift' || ph === 'last' || ph === 'strike' || ph === 'returnWalk';
+    if (!afterDuel && this.honor() < this.HONOR) {
+      UI.open('dialog', { speaker: a.name, actor: a, lines: ['He looks at you and says nothing.'], buttons: [{ label: 'Leave', alt: true }] });
+      return;
+    }
+    if (ph === 'seek' || ph === 'greet' || ph === 'duel') {
+      UI.open('dialog', { speaker: a.name, actor: a, sub: '如月 蓮', lines: ['You came for the blade.', 'Very well. Draw when 斬 appears. Not before.'], buttons: [{ label: 'Challenge him for the blade', fn: () => this.startDuel(a) }, { label: 'Not yet', alt: true }] });
+      return;
+    }
+    if (ph === 'return' || ph === 'dead') {
+      this.phase = 'returnTalk'; this.flag('returnTalk');
+      UI.open('dialog', { speaker: a.name, actor: a, lines: ['How have you done this? You seem to be one of the few who can come back to life, like me.', 'Watch. Strike me down, and I will walk back...'], buttons: [{ label: '…', fn: () => { this.phase = 'wait'; this.flag('wait'); a.talk = { kind: 'renKisaragi', label: 'Strike him down' }; } }] });
+      return;
+    }
+    if (ph === 'wait') { this.strike(); return; }
+    if (ph === 'gift' || ph === 'returnWalk') { this.giftTalk(); return; }
+    if (ph === 'last') { this.lastTalk(); return; }
+  },
+  startDuel(a) {
+    this.phase = 'duel'; this.flag('duel');
+    a.react = 0.05; a.renMeet = true;
+    Systems.startDuel(a);
+    if (G.duel) { G.duel.renKill = true; G.duel.wait = rnd(1.4, 2.6); G.duel.react = 0.02; }
+  },
+  strike() {
+    const a = this.a || G.actors.find(x => x.renMeet && !x.gone); if (!a) return;
+    this.phase = 'strike'; this.flag('strike'); this.striker = true; this._giftT = 5.8;
+    a.talk = null;
+    const P = G.player; if (P) { P.faceTo(a.x, a.y); P.startAttack(true, true); }
+    a.lying = true; a.state = 'idle'; a.hp = 1; a.post = [a.x, a.y]; Snd.play('heavy', 1); FX.blood(a.x, a.y, 16, P ? Math.atan2(a.y - P.y, a.x - P.x) : 0, 40, 3, 0.8, 80);
+    if (Net.isHost) this._rise(); else Net.send({ t: 'spawnReq', kind: 'renRise' });
+  },
+  hostRise() {
+    this.a = this.a || G.actors.find(x => x.renMeet && !x.gone);
+    const a = this.a; if (!a) return;
+    a.lying = true; a.state = 'idle'; a.hp = 1; a.post = [a.x, a.y]; a.talk = null;
+    this._rise();
+  },
+  hostLeave() {
+    this.a = this.a || G.actors.find(x => x.renMeet && !x.gone);
+    this.phase = 'leave'; this.flag('leave');
+    const a = this.a; if (!a) return;
+    a.talk = null;
+    const out = this.off(a.x, a.y, a.face);
+    a._renOut = out; a.post = out;
+  },
+  off(x, y, ang) {
+    const q = World.randomWalkable(x + Math.cos(ang) * 22, y + Math.sin(ang) * 22, 0, 6, 24);
+    return q || [x + Math.cos(ang) * 20, y + Math.sin(ang) * 20];
+  },
+  _rise() {
+    const a = this.a; if (!a) return;
+    setTimeout(() => {
+      if (!this.a || this.a !== a) return;
+      a.lying = false; a.dead = false; a.hp = a.maxHp; a.state = 'idle';
+      const q = this.off(a.x, a.y, a.face + Math.PI);
+      a.x = q[0]; a.y = q[1]; a.nav = null;
+      a.post = this.at(); this.walkIn = true; this.phase = 'returnWalk'; this.flag('returnWalk');
+    }, 1600);
+  },
+  giftTalk() {
+    const a = this.a;
+    UI.open('dialog', { speaker: a ? a.name : 'Ren Kisaragi', actor: a, lines: ['He bows.', 'Ten thousand mon. For coming back.'], buttons: [{ label: 'Take the mon', fn: () => { if (!this._paid) { this._paid = true; G.addGold(10000, a ? a.x : G.player.x, a ? a.y : G.player.y); UI.toast('10,000 mon.', 'good'); } this.phase = 'last'; this.flag('last'); if (a) a.talk = { kind: 'renKisaragi', label: 'Speak with Ren Kisaragi' }; } }] });
+  },
+  lastTalk() {
+    const a = this.a, after = this.after();
+    const his = after === 'quiet' ? 'Quiet. A roof that does not burn. A horse that is only a horse. The White Sun has to fall before any of that is possible… but that is what I want, after.'
+      : after === 'unknown' ? 'I still do not know. Only that the banners have to come down first.'
+      : after === 'none' ? 'I had no answer then. I have none now. Except this: they do not get to keep the country.'
+      : 'The war must be stopped and it is me who shall do so...';
+    UI.open('dialog', { speaker: (G.profile && G.profile.name) || 'You', actor: G.player, lines: ['For you I shall reserve words... How do you feel of the imperials taking over?'], buttons: [{ label: '…', fn: () => {
+      UI.open('dialog', { speaker: a ? a.name : 'Ren Kisaragi', actor: a, lines: [his], buttons: [{ label: '…', fn: () => this.leave() }] });
+    } }] });
+  },
+  leave() {
+    this.phase = 'leave'; this.flag('leave');
+    const a = this.a;
+    if (a) {
+      a.talk = null;
+      const out = this.off(a.x, a.y, a.face);
+      a._renOut = out; a.post = out;
+    }
+    if (Net.isHost) this.hostLeave(); else Net.send({ t: 'spawnReq', kind: 'renLeave' });
+    UI.toast('He walks on.', 'good');
+    if (Quests.st('kisaragi') && !Quests.isDone('kisaragi')) Quests.complete('kisaragi');
+  },
+  finish() {
+    this.flag('done'); this.despawn(); this.phase = 'gone';
+    Net.req('renDone');
   }
 };
 // ---- a duel a contract asks for: between the one who took it and the duelist alone, so it is fought in their own game
@@ -20484,7 +20742,7 @@ const ClanUI = {
   },
   on(act, arg, el) {
     const g = Net.gang;
-    if (act === 'tab') { this.tab = arg; return; }
+    if (act === 'tab') { this.tab = arg; UI._scrollReset = true; return; }
     const h = this['a_' + act]; if (h) return h.call(this, arg, el, g);
   },
   // ---- overview
@@ -20721,8 +20979,9 @@ const ClanUI = {
       : v.kind === 'intel' ? [['pay', 'Pay ' + (v.offer ? v.offer.mon : 0) + ' mon for the news'], ['rejectPolite', 'Not interested']]
       : v.kind === 'shelter' ? [['shelter', 'Give them a roof (2 food)'], ['rejectPolite', 'Turn away politely'], ['rejectFirm', 'Send them off']]
       : v.kind === 'diplomacy' ? [['accept', 'Agree (' + (v.offer ? v.offer.kind : '') + ' with ' + (v.offer ? v.offer.rival : '') + ')'], ['rejectPolite', 'Decline'], ['rejectFirm', 'Send the envoy back insulted']]
+      : v.kind === 'rumor' ? [['accept', 'We will find him'], ['ask', 'Ask more'], ['rejectPolite', 'Not our concern']]
       : [['contract', 'Write down their request' + (v.contract ? ': ' + v.contract.name : '')], ['accept', 'Agree to help'], ['ask', 'Ask more'], ['rejectPolite', 'We cannot help'], ['later', 'Come back later']];
-    const detail = rec ? `<span class="ds">${esc(R[rec.role] ? R[rec.role].name : rec.role)} · ${rec.wpn} · skill ${v.asked || v.trialDone ? Math.round(rec.skill * 100) : '?'} · health ${rec.maxHp}${v.asked ? ' · ' + rec.traits.map(t => esc((T[t] || t).split(' · ')[0])).join(', ') + ' · ' + esc(v.risk || '') : ''}</span>` : v.contract && v.asked ? `<span class="ds">${esc(v.contract.name)} · reward ${v.contract.reward.mon} mon · difficulty ${'◆'.repeat(v.contract.diff)}</span>` : '';
+    const detail = rec ? `<span class="ds">${esc(R[rec.role] ? R[rec.role].name : rec.role)} · ${rec.wpn} · skill ${v.asked || v.trialDone ? Math.round(rec.skill * 100) : '?'} · health ${rec.maxHp}${v.asked ? ' · ' + rec.traits.map(t => esc((T[t] || t).split(' · ')[0])).join(', ') + ' · ' + esc(v.risk || '') : ''}</span>` : v.kind === 'rumor' && v.asked ? `<span class="ds">Find him in the ruins of Kiyohara. Take his blade, and you take his secrets. He speaks only to the honourable.</span>` : v.contract && v.asked ? `<span class="ds">${esc(v.contract.name)} · reward ${v.contract.reward.mon} mon · difficulty ${'◆'.repeat(v.contract.diff)}</span>` : '';
     return `<div class="row vis"><canvas class="npcface" width="40" height="40" data-look="${esc(JSON.stringify(v.look || {}))}"></canvas><div class="grow"><span class="nm">${esc(v.name)} <small>${esc(v.title)}</small></span><span class="ds">“${esc(v.line)}”</span>${detail}</div></div>
       ${Clan.can('visitors') ? `<div class="chips">${choices.filter(([c]) => !(c === 'test' && v.trialDone)).map(([c, l]) => `<button class="chip" data-act="vDo" data-arg="${v.id}:${c}">${esc(l)}</button>`).join('')}</div>` : ''}`;
   },

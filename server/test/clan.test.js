@@ -116,6 +116,26 @@ test('clan NPCs: training, wages, food, and leaving when neglected', () => {
   assert.ok(g.log.some(l => /left the clan/.test(l.msg)));
 });
 
+test('the Kisaragi rumor needs an honourable member online, and meeting him is once', () => {
+  const W = world(); const a = W.join('Honour');
+  W.req(a, 'placeHQ', { site: 'kusamura' });
+  const g = W.gang(a);
+  a.p.honor = 10;
+  assert.equal(W.net.L.visit(g, 'kisaragi'), null, 'low honour does not bring him');
+  a.p.honor = 50;
+  const v = W.net.L.visit(g, 'kisaragi');
+  assert.ok(v); assert.equal(v.kind, 'rumor');
+  let r = W.req(a, 'visitor', { id: v.id, choice: 'accept' });
+  assert.equal(r.ok, true, r.err);
+  assert.equal(W.db.world.ren.state, 'seek');
+  assert.equal(W.net.L.visit(g, 'kisaragi'), null, 'the rumor does not come twice');
+  r = W.req(a, 'renDone');
+  assert.equal(r.ok, true, r.err);
+  assert.equal(W.db.world.ren.state, 'done');
+  a.p.honor = 80;
+  assert.equal(W.net.L.visit(g, 'kisaragi'), null, 'once he is gone he stays gone');
+});
+
 test('a leader long gone hands the clan on; a short absence never does', () => {
   const W = world(); const a = W.join('Old leader'), b = W.join('Steady');
   W.req(a, 'invite', { to: 'Steady' }); const inv = W.db.invites.find(i => i.to === b.id); W.req(b, 'acceptInvite', { id: inv.id });

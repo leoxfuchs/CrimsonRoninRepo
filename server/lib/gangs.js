@@ -195,7 +195,8 @@ function createGangs(ctx) {
       palette: g.palette, uniforms: g.uniforms, res: g.res, storeCap: G.storeCap(g), npcs: g.npcs, visitors: g.visitors, contracts: g.contracts,
       rep: g.rep, renown: g.renown, stageInfo: G.stage(g), rel: g.rel, claims: g.claims, raids: g.raids.filter(r => !r.done).map(r => ({ id: r.id, rival: r.rival, at: r.at, size: r.size, seen: r.seen })),
       log: g.log.slice(-40), fx: f, buildings: f.legacy, dog: g.dog, memberNames: Object.fromEntries(g.members.map(id => [id, (ctx.player(id) || {}).name || id])),
-      lastSeen: Object.fromEntries(g.members.map(id => [id, (ctx.player(id) || {}).lastSeen || 0])), policyOrders: g.policyOrders
+      lastSeen: Object.fromEntries(g.members.map(id => [id, (ctx.player(id) || {}).lastSeen || 0])), policyOrders: g.policyOrders,
+      ren: (db.world && db.world.ren && (db.world.ren.state === 'done' || db.world.ren.gang === g.id)) ? { state: db.world.ren.state, x: db.world.ren.x, y: db.world.ren.y } : null
     });
   };
 

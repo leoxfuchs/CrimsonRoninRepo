@@ -225,6 +225,12 @@ function createNet(opt) {
         G.bump(g); break;
       }
       case 'visitor': err = L.decide(g, p.id, m.id, m.choice, m); break;
+      case 'renDone': {
+        if (!g || !db.world.ren || db.world.ren.gang !== g.id) { err = 'He is not yours to dismiss.'; break; }
+        if (db.world.ren.state === 'done') break;
+        L.finishRen(g);
+        break;
+      }
       case 'trial': err = L.trial(g, p.id, m.id, !!m.won); break;
       case 'acceptContract': err = L.accept(g, p.id, m.id); break;
       case 'abandonContract': err = L.abandon(g, p.id, m.id); break;
@@ -301,6 +307,7 @@ function createNet(opt) {
         if (m.horse && typeof m.horse === 'object') p.horse = Object.assign(p.horse || {}, { x: U.num(m.horse.x, -99999, 99999, 0), y: U.num(m.horse.y, -99999, 99999, 0), face: U.num(m.horse.face, -100, 100, 0), spd: U.num(m.horse.spd, 0, 20, 0), coat: U.int(m.horse.coat, 0, 9, 0), name: U.cleanText(m.horse.name, 16, 'Horse'), seats: Array.isArray(m.horse.seats) ? m.horse.seats.slice(0, 2) : [null, null] });
         if (m.dog !== undefined) p.dog = m.dog && typeof m.dog === 'object' ? m.dog : null;
         p.uniform = typeof m.uniform === 'string' ? m.uniform.slice(0, 24) : null;
+        if (m.honor !== undefined) p.honor = U.int(m.honor, -100, 100, p.honor || 0);
         if (U.now() - (p.lastSeen || 0) > 30000) { p.lastSeen = U.now(); touch(); }
         broadcast(Object.assign({ t: 'state', id: p.id }, publicPlayer(p, true)), ws);
         break;
@@ -308,7 +315,7 @@ function createNet(opt) {
       case 'save': {
         if (!m.profile || typeof m.profile !== 'object') return;
         // the player's own adventure (purse, gear, quests) is theirs to keep; the clan's things are never taken from here
-        const keep = ['gold', 'bank', 'honor', 'xp', 'level', 'perks', 'weapons', 'stash', 'wpn', 'lastBlade', 'armors', 'armor', 'bandages', 'sake', 'quests', 'track', 'chests', 'camps', 'towers', 'blades', 'kills', 'bonusHp', 'look', 'pendingPerks', 'discovered', 'bounties', 'bountyDay', 'flags'];
+        const keep = ['gold', 'bank', 'honor', 'xp', 'level', 'perks', 'weapons', 'stash', 'wpn', 'lastBlade', 'armors', 'armor', 'bandages', 'sake', 'quests', 'track', 'chests', 'camps', 'towers', 'blades', 'kills', 'bonusHp', 'look', 'pendingPerks', 'discovered', 'travelVer', 'bounties', 'bountyDay', 'flags'];
         for (const k of keep) if (m.profile[k] !== undefined) p[k] = m.profile[k];
         if (Array.isArray(m.profile.pos)) { p.x = U.num(m.profile.pos[0], -99999, 99999, p.x); p.y = U.num(m.profile.pos[1], -99999, 99999, p.y); }
         if (m.profile.horse && typeof m.profile.horse === 'object') p.horse = Object.assign(p.horse || {}, { coat: U.int(m.profile.horse.coat, 0, 9, 0), name: U.cleanText(m.profile.horse.name, 16, 'Horse'), spdMul: U.num(m.profile.horse.spdMul, 0.3, 1.4, 0.55), pack: Array.isArray(m.profile.horse.pack) ? m.profile.horse.pack.slice(0, 8) : [] });

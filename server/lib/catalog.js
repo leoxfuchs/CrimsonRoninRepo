@@ -232,7 +232,8 @@ const VISITORS = {
   envoy: { name: 'An envoy from a rival', kind: 'diplomacy', stage: 1, weight: 2 },
   informant: { name: 'An informant who saw something', kind: 'intel', stage: 2, weight: 2 },
   petitioner: { name: 'Someone seeking justice', kind: 'contract', stage: 2, weight: 2, needs: 'honor' },
-  noble: { name: 'A noble’s retainer with a rare offer', kind: 'contract', stage: 4, weight: 1, rare: true }
+  noble: { name: 'A noble’s retainer with a rare offer', kind: 'contract', stage: 4, weight: 1, rare: true },
+  kisaragi: { name: 'A traveller who has seen a legend', kind: 'rumor', stage: 0, weight: 12 }
 };
 // the choices you can give someone at the gate
 const GATE_CHOICES = ['accept', 'rejectPolite', 'rejectFirm', 'pay', 'demonstrate', 'test', 'later', 'shelter', 'contract', 'negotiate', 'ask', 'specialist', 'delegate'];

@@ -25,7 +25,8 @@ const STORY = {
   envoy: ['My chief sends greetings, and a proposal.', 'There need not be blood between our clans. Not yet.'],
   informant: ['I saw armed men gathering by the border stones.', 'A rival camp is weaker than it looks. Interested?'],
   petitioner: ['A magistrate took my land. No one else will listen.', 'My daughter was taken. The officials say nothing can be done.'],
-  noble: ['My lord requires discreet and capable people.', 'A matter of some delicacy, and considerable reward.']
+  noble: ['My lord requires discreet and capable people.', 'A matter of some delicacy, and considerable reward.'],
+  kisaragi: ['A ronin on a grey horse, standing in the ruins of Kiyohara. People say he is Ren Kisaragi.', 'You should speak to him. Take his blade, and you take his secrets.']
 };
 
 function createLife(ctx, G) {
@@ -164,6 +165,7 @@ function createLife(ctx, G) {
       if (v.needs === 'prosperity') w *= 1 + Math.max(0, rep.wealth) / 20 + G.fx(g).trade / 30;
       if (v.kind === 'recruit' && !L.room(g)) w *= 0.25;
       if (v.kind === 'diplomacy' && !Object.keys(db.world.rivals || {}).length) w = 0;
+      if (k === 'kisaragi' && !L.renReady(g)) w = 0;
       if (v.rare) w *= 0.4;
       if (w > 0) pool.push([k, w]);
     }
@@ -171,7 +173,26 @@ function createLife(ctx, G) {
     for (const [k, w] of pool) { if ((r -= w) <= 0) return k; }
     return pool.length ? pool[0][0] : 'traveller';
   };
+  L.renReady = (g) => {
+    const r = db.world.ren;
+    if (r && (r.state === 'done' || r.state === 'seek' || r.state === 'met')) return false;
+    if (!g || !g.hq) return false;
+    if (g.visitors.some(v => v.tpl === 'kisaragi' && v.state === 'waiting')) return false;
+    return g.members.some(id => ctx.online(id) && ((ctx.player(id) || {}).honor || 0) >= 50);
+  };
+  L.beginRen = (g) => {
+    db.world.ren = { state: 'seek', gang: g.id, x: 649, y: 426 };
+    g.world = g.world || {}; g.world.ren = db.world.ren;
+    G.log(g, 'Word of a ronin in the ruins of Kiyohara. They say he is Ren Kisaragi.');
+    G.bump(g); ctx.touch();
+  };
+  L.finishRen = (g) => {
+    db.world.ren = { state: 'done', gang: g && g.id };
+    if (g) { g.world = g.world || {}; g.world.ren = db.world.ren; G.log(g, 'Ren Kisaragi walked on. No one in this world will see him again.'); G.bump(g); }
+    ctx.touch();
+  };
   L.visit = (g, tplKey, R = R0) => {
+    if (tplKey === 'kisaragi' && !L.renReady(g)) return null;
     const tpl = C.VISITORS[tplKey]; if (!tpl) return null;
     const v = { id: 'v' + (++db.seq.visitor), tpl: tplKey, kind: tpl.kind, title: tpl.name, name: L.name(R), look: null, state: 'waiting', day: ctx.clock().day, expires: ctx.clock().day + 1 + (tpl.rare ? 1 : 0), asked: false, line: (STORY[tplKey] || ['…'])[Math.floor(R() * (STORY[tplKey] || ['…']).length)] };
     if (tpl.kind === 'recruit') {
@@ -242,6 +263,13 @@ function createLife(ctx, G) {
     if (v.kind === 'intel' && (choice === 'pay' || choice === 'accept')) { if (!G.pay(g, { mon: v.offer.mon })) return 'Not enough mon for that.'; G.log(g, 'Intelligence: ' + v.offer.intel); G.addRep(g, { influence: 0.5 }); return close(v.name + ' was paid for news.'); }
     if (v.kind === 'diplomacy' && choice === 'accept') { const err = ctx.diplomacy(g, pid, v.rival, v.offer.kind, true); if (err) return err; return close('Accepted the envoy’s proposal: ' + v.offer.kind + ' with ' + v.offer.rival + '.'); }
     if (v.kind === 'help' && choice === 'accept') { const c = v.offer.contract; if (c) g.contracts.push(Object.assign(c, { state: 'offered', from: v.name })); G.addRep(g, { honor: 1 }); return close('Agreed to help ' + v.name + '.'); }
+    if (v.kind === 'rumor' && (choice === 'accept' || choice === 'contract')) {
+      if (db.world.ren && db.world.ren.state === 'done') return 'That man is already gone from this world.';
+      if (db.world.ren && db.world.ren.state !== 'done' && db.world.ren.gang !== g.id) return 'Someone else already rides to meet him.';
+      if (!g.members.some(id => ctx.online(id) && ((ctx.player(id) || {}).honor || 0) >= 50)) return 'He will not be found unless someone of honour is here (50 honour or more).';
+      L.beginRen(g);
+      return close(name + ' heard the traveller out. Ren Kisaragi waits in the ruins of Kiyohara.');
+    }
     return 'That answer does not fit this visitor.';
   };
   // the duel at the gate: the deciding player fought them, and the client reports who won
@@ -258,6 +286,7 @@ function createLife(ctx, G) {
     for (const v of g.visitors) if (v.state === 'waiting' && v.expires <= ctx.clock().day) { v.state = 'gone'; G.log(g, v.name + ' grew tired of waiting and left.'); if (v.kind === 'contract') G.addRep(g, { reliability: -0.3 }); }
     g.visitors = g.visitors.filter(v => v.state !== 'gone');
     if (g.visitors.filter(v => v.state === 'waiting').length >= 4) return;
+    if (L.renReady(g) && R() < 0.28) { L.visit(g, 'kisaragi', R); return; }
     if (R() < L.appeal(g) / 4) L.visit(g, L.pickVisitor(g, R), R);
   };
 
