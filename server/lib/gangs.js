@@ -144,7 +144,10 @@ function createGangs(ctx) {
       const def = C.BUILD[s.kind]; if (!def) continue;
       const t = def.fx[Math.min(def.fx.length, s.tier) - 1] || {};
       for (const [k, v] of Object.entries(t)) {
-        if (k === 'prod') { for (const [r, n] of Object.entries(v)) f.prod[r] = (f.prod[r] || 0) + n; }
+        if (k === 'prod') {
+          const mul = (def.boost && s.boost) ? 2 : 1;
+          for (const [r, n] of Object.entries(v)) f.prod[r] = (f.prod[r] || 0) + n * mul;
+        }
         else if (k === 'unlock') f.unlock[v] = true;
         else if (typeof v === 'number') f[k] = (f[k] || 0) + v;
       }
@@ -179,7 +182,7 @@ function createGangs(ctx) {
     banners: g.banners, hq: g.hq, wall: g.wall, stage: G.stage(g).n, leader: g.leader, members: g.members.length,
     // the ground the compound stands on (every client builds the same walls) and what its people wear
     bounds: g.hq && ctx.bounds ? ctx.bounds(g) : null, uniforms: g.uniforms,
-    structs: g.structs.map(s => ({ id: s.id, kind: s.kind, x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot, tier: s.tier, style: s.style || null, state: s.state, doneAt: s.doneAt || 0, startAt: s.startAt || 0, banner: s.banner || null, damaged: !!s.damaged })),
+    structs: g.structs.map(s => ({ id: s.id, kind: s.kind, x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot, tier: s.tier, style: s.style || null, state: s.state, doneAt: s.doneAt || 0, startAt: s.startAt || 0, banner: s.banner || null, damaged: !!s.damaged, boost: !!s.boost })),
     ver: g.ver
   });
   G.publicCard = (g) => ({

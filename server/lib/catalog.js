@@ -87,8 +87,8 @@ add('storehouse', { name: 'Storehouse', cat: 'crafting', w: 5, h: 4, vis: { b: '
 add('forge', { name: 'Blacksmith', cat: 'crafting', w: 6, h: 5, vis: { b: 'h_forge', door: 'E' }, legacy: 'forge', tiers: [T(120, { timber: 20, stone: 20 }), T(320, { timber: 30, stone: 40, iron: 10 }), T(800, { timber: 50, stone: 60, iron: 30 })], fx: [{ dmg: 8 }, { dmg: 16 }, { dmg: 24 }], desc: 'Sharper edges for everyone in the clan.' });
 add('armorer', { name: 'Armorer', cat: 'crafting', w: 8, h: 6, vis: { b: 'smith' }, stage: 2, tiers: [T(400, { timber: 40, stone: 40, iron: 30 }), T(900, { timber: 60, stone: 60, iron: 60 })], fx: [{ npcArmor: 1 }, { npcArmor: 2 }], desc: 'Clan NPCs go out in lacquered armour.' });
 add('carpenter', { name: 'Carpenter', cat: 'crafting', w: 6, h: 4, vis: { b: 'hut', p: 'lumber' }, tiers: [T(90, { timber: 20 }), T(220, { timber: 40, iron: 4 })], fx: [{ prod: { timber: 5 }, buildSpeed: 0.15 }, { prod: { timber: 9 }, buildSpeed: 0.3 }], desc: 'Planks, beams and quicker building.' });
-add('quarry', { name: 'Stone yard', cat: 'crafting', w: 6, h: 5, vis: { p: 'rubble', n: 3, t: 'stone' }, max: 2, near: 'rock', tiers: [T(120, { timber: 20 }), T(280, { timber: 30, iron: 6 })], fx: [{ prod: { stone: 5 } }, { prod: { stone: 9 } }], desc: 'Cut stone from the hills. Better on rocky ground.' });
-add('lumberyard', { name: 'Lumber yard', cat: 'crafting', w: 6, h: 5, vis: { p: 'lumber', n: 3, t: 'path' }, max: 2, near: 'trees', tiers: [T(80, { stone: 6 }), T(200, { stone: 12, iron: 4 })], fx: [{ prod: { timber: 6 } }, { prod: { timber: 10 } }], desc: 'Felled cedar stacked to season. Better in the woods.' });
+add('quarry', { name: 'Stone yard', cat: 'crafting', w: 6, h: 5, vis: { p: 'rubble', n: 3, t: 'stone' }, max: 2, boost: 'rock', tiers: [T(120, { timber: 20 }), T(280, { timber: 30, iron: 6 })], fx: [{ prod: { stone: 5 } }, { prod: { stone: 9 } }], desc: 'Cut stone anywhere. Twice the yield on rocky ground.' });
+add('lumberyard', { name: 'Lumber yard', cat: 'crafting', w: 6, h: 5, vis: { p: 'lumber', n: 3, t: 'path' }, max: 2, boost: 'trees', tiers: [T(80, { stone: 6 }), T(200, { stone: 12, iron: 4 })], fx: [{ prod: { timber: 6 } }, { prod: { timber: 10 } }], desc: 'Felled cedar stacked to season. Twice the yield in the woods.' });
 add('smelter', { name: 'Smelter', cat: 'crafting', w: 4, h: 4, vis: { p: 'furnace' }, stage: 2, near: 'rock', tiers: [T(300, { stone: 60, timber: 30 })], fx: [{ prod: { iron: 3 } }], desc: 'Iron sand into iron. Hot, loud, worth it.' });
 add('tailor', { name: 'Tailor and dye works', cat: 'crafting', w: 6, h: 8, vis: { b: 'machiya', arch: { plaster: '#2e2a2a' } }, stage: 1, tiers: [T(180, { timber: 30, cloth: 10 }), T(420, { timber: 40, cloth: 30 })], fx: [{ prod: { cloth: 3 }, unlock: 'uniforms' }, { prod: { cloth: 6 }, unlock: 'patterns' }], desc: 'Dyed cloth for uniforms and banners.' });
 add('workshop', { name: 'General workshop', cat: 'crafting', w: 6, h: 4, vis: { b: 'hut', p: 'anvil' }, tiers: [T(100, { timber: 20 }), T(240, { timber: 30, iron: 6 })], fx: [{ repair: 1, buildSpeed: 0.1 }, { repair: 2, buildSpeed: 0.2 }], desc: 'Tools, repairs, odd jobs.' });
@@ -100,7 +100,7 @@ add('watchtower', { name: 'Watchtower', cat: 'military', w: 2, h: 2, vis: { p: '
 add('guardpost', { name: 'Guard post', cat: 'military', w: 2, h: 2, vis: { p: 'lanternpost', n: 1 }, max: 6, tiers: [T(70, { timber: 15 }, 15)], fx: [{ def: 2, post: 1 }], desc: 'A lamp and a stool where a guard keeps watch.' });
 add('gatehouse', { name: 'Gatehouse', cat: 'military', w: 4, h: 3, vis: { p: 'gatehouse' }, stage: 1, max: 2, tiers: [T(300, { timber: 50, stone: 40 }), T(700, { timber: 70, stone: 90, iron: 20 })], fx: [{ def: 6, appeal: 4 }, { def: 10, appeal: 6 }], desc: 'A proper gate. Visitors wait here; raiders break on it.' });
 add('medic', { name: 'Field hospital', cat: 'military', w: 5, h: 4, vis: { p: 'tent', n: 2, t: 'gravel' }, stage: 1, tiers: [T(160, { cloth: 20, herbs: 10 })], fx: [{ heal: 1, npcHeal: 2 }], desc: 'Wounded members recover twice as fast.' });
-add('stables', { name: 'Stables', cat: 'military', w: 14, h: 5, vis: { b: 'h_barracks', p: 'fence' }, legacy: 'stables', tiers: [T(200, { timber: 40 }), T(600, { timber: 80, stone: 20 }), T(1500, { timber: 120, stone: 60, iron: 20 })], fx: [{ horse: 0 }, { horse: 12 }, { horse: 28 }], desc: 'Horses fed and shod. Faster rides for everyone.' });
+add('stables', { name: 'Stables', cat: 'military', w: 14, h: 5, vis: { b: 'h_barracks', p: 'fence' }, legacy: 'stables', tiers: [T(200, { timber: 40 }), T(600, { timber: 80, stone: 20 }), T(1500, { timber: 120, stone: 60, iron: 20 })], fx: [{ horse: 0 }, { horse: 12 }, { horse: 28 }], desc: 'Horses fed, shod and sold. Better mounts as it grows, and faster rides for everyone.' });
 add('siegestore', { name: 'Siege store', cat: 'military', w: 6, h: 5, vis: { p: 'cannon' }, stage: 4, tiers: [T(900, { timber: 100, iron: 60 })], fx: [{ might: 3, def: 4 }], desc: 'Rams, ladders and one old cannon.' });
 // intelligence
 add('scoutlodge', { name: 'Scout lodge', cat: 'intel', w: 6, h: 4, vis: { b: 'hut' }, stage: 1, tiers: [T(160, { timber: 30 }), T(360, { timber: 40, cloth: 10 })], fx: [{ intel: 3 }, { intel: 5 }], desc: 'Scouts come back with news of rivals and raids.' });
@@ -138,6 +138,13 @@ add('pagoda', { name: 'Pagoda', cat: 'legendary', w: 4, h: 4, vis: { p: 'pagoda'
 add('keep', { name: 'Keep', cat: 'legendary', w: 8, h: 8, vis: { p: 'castle' }, stage: 5, tiers: [T(4500, { timber: 300, stone: 400, iron: 80 })], fx: [{ def: 20, might: 4, fear: 3, appeal: 16 }], desc: 'A castle keep on stone walls. A legend’s house.' });
 
 const BUILD_CATS = { living: 'Living', social: 'Social', training: 'Training', food: 'Food and farming', crafting: 'Crafting and production', military: 'Military and command', intel: 'Intelligence', economy: 'Economy', culture: 'Culture and decoration', legendary: 'Legendary' };
+
+// personal mounts sold at a finished stables. need = the stalls’ tier (I nag, II road, III fine). clan ride speed is still the stables fx.
+const HORSES = {
+  nag: { id: 'nag', name: 'Nag', cost: 180, coat: 1, spdMul: 0.78, need: 1, desc: 'Better than Scrag. Still a farm animal.' },
+  road: { id: 'road', name: 'Road horse', cost: 420, coat: 2, spdMul: 1.0, need: 2, desc: 'A proper riding horse. Keeps pace all day.' },
+  fine: { id: 'fine', name: 'Fine mount', cost: 900, coat: 4, spdMul: 1.18, need: 3, desc: 'Bred for the road and the charge.' }
+};
 
 // the wall round the compound, stage by stage: what it looks like and how long it holds
 const WALLS = [
@@ -282,6 +289,6 @@ const TRAITS_HQ = {
 
 module.exports = {
   RES, RES_KEYS, RANKS, RANK_LEADER, RANK_COMMANDER, RANK_RECRUIT, RANK_MEMBER, PERMS, DEFAULT_PERMS, SUCCESSION_DAYS, STAGES, REP_KEYS,
-  BUILD, BUILD_CATS, WALLS, GATES, EMBLEM, BANNER, UNIFORM, PALETTE_KEYS, ROLES, TRAITS, ASSIGN, ORDERS, FORMATIONS,
+  BUILD, BUILD_CATS, HORSES, WALLS, GATES, EMBLEM, BANNER, UNIFORM, PALETTE_KEYS, ROLES, TRAITS, ASSIGN, ORDERS, FORMATIONS,
   VISITORS, GATE_CHOICES, CONTRACTS, TEMPERS, STANCES, TRAITS_HQ
 };

@@ -802,7 +802,7 @@ const Snd = {
   footKind(x, y) {
     const bld = (typeof Buildings !== 'undefined') && (Buildings.inside || (Buildings.at && Buildings.at(x, y)));
     if (bld && bld.zone) {
-      const u = bld.side === 'S' ? x - bld.x : y - bld.y, v = bld.side === 'S' ? bld.y + bld.h - y : bld.x + bld.w - x;
+      const [u, v] = Buildings.uv(bld, x, y);
       const z = bld.zone(u, v);
       if (z === 'tatami') return 'tatami';
       if (z === 'straw') return 'straw';
@@ -6892,7 +6892,7 @@ function fleeAI(a, from, dt) {
 function navGoal(a, tx, ty) {
   const ba = Buildings.at(a.x, a.y), bt = Buildings.at(tx, ty);
   if (ba === bt) return [tx, ty];
-  const b = ba || bt, d = b.doorPt, lat = b.side === 'S' ? Math.abs(a.x - d.x) : Math.abs(a.y - d.y), v = b.side === 'S' ? b.y + b.h - a.y : b.x + b.w - a.x;
+  const b = ba || bt, d = b.doorPt, lat = Buildings.ns(b) ? Math.abs(a.x - d.x) : Math.abs(a.y - d.y), v = Buildings.uv(b, a.x, a.y)[1];
   const inCorr = lat < b.dw / 2 + 0.15 && Math.abs(v) < 1.3;
   if (ba) return inCorr ? d.outer : d.inner;
   return inCorr ? d.inner : d.outer;
@@ -7911,7 +7911,8 @@ const Systems = {
       case 'clothes': Creator.open(true); Creator.mpFree = true; break;
       case 'clanStruct': UI.open('clanStruct', { gid: it.gid, sid: it.sid }); break;
       case 'clanGate': if (Net.gang && Net.gang.id === it.gid) UI.open('clan', { tab: 'gate' }); else { const gv = Net.world.gangs.get(it.gid); UI.toast((gv ? gv.name : 'Another clan') + '’s gate · their visitors are theirs to answer'); } break;
-      case 'horseBuy': if (typeof Net !== 'undefined') Net.buyHorse(it.tier); break;
+      case 'horseBuy': if (typeof Net !== 'undefined') Net.buyHorse(it.id || it.tier); break;
+      case 'horseShop': UI.open('clanStruct', { gid: it.gid, sid: it.sid }); break;
       case 'buyDog': UI.open('buyDog'); break;
       case 'dog': Miso.pet(); break;
       case 'map': UI.open('map'); break;
@@ -9998,8 +9999,8 @@ const Buildings = {
       if (G.mp && Net && Net.gang && Net.gang.buildings) b.lvl = Net.gang.buildings[b.hk] || 0;
       else if (G.profile && G.profile.hideout) b.lvl = b.hk === 'hall' ? hallLevel() : (G.profile.hideout[b.hk] || 0);
     }
-    const U = b.side === 'S' ? w : h, dw = Math.min(st.doorW || 2, U - 1);
-    b.U = U; b.V = b.side === 'S' ? h : w; b.dw = dw; b.du = opt.at !== undefined ? opt.at : Math.round((U - dw) / 2);
+    const ns = this.ns(b), U = ns ? w : h, dw = Math.min(st.doorW || 2, U - 1);
+    b.U = U; b.V = ns ? h : w; b.dw = dw; b.du = opt.at !== undefined ? opt.at : Math.round((U - dw) / 2);
     this.list.push(b);
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) {
       World.sweepWild(i, j); World.setClear(i, j);
@@ -10007,9 +10008,11 @@ const Buildings = {
       World.bmap.set(World.key(i, j), b.id + 1); World.setSolid(i, j, 1);
       const tt = World.tileAt(i, j); if (opt.clan) (b.under || (b.under = new Map())).set(World.key(i, j), tt); if (TINFO[tt] && !TINFO[tt].water) World.set(i, j, TILE.FLOOR);
     }
-    // door geometry
+    // door geometry — S/E face the camera, N/W sit on the far walls
     if (b.side === 'S') { const cx = x + b.du + dw / 2; b.doorPt = { x: cx, y: y + h, inner: [cx, y + h - 0.9], outer: [cx, y + h + 0.8] }; }
-    else { const cy = y + b.du + dw / 2; b.doorPt = { x: x + w, y: cy, inner: [x + w - 0.9, cy], outer: [x + w + 0.8, cy] }; }
+    else if (b.side === 'N') { const cx = x + b.du + dw / 2; b.doorPt = { x: cx, y: y, inner: [cx, y + 0.9], outer: [cx, y - 0.8] }; }
+    else if (b.side === 'E') { const cy = y + b.du + dw / 2; b.doorPt = { x: x + w, y: cy, inner: [x + w - 0.9, cy], outer: [x + w + 0.8, cy] }; }
+    else { const cy = y + b.du + dw / 2; b.doorPt = { x: x, y: cy, inner: [x + 0.9, cy], outer: [x - 0.8, cy] }; }
     this.walls(b);
     this.furnish(b);
     return b;
@@ -10049,14 +10052,31 @@ const Buildings = {
   doorGap(b) {
     const { x, y, w, h } = b, T = 0.25;
     if (b.side === 'S') World.subRect(x + b.du, y + h - T, x + b.du + b.dw, y + h, 0);
-    else World.subRect(x + w - T, y + b.du, x + w, y + b.du + b.dw, 0);
+    else if (b.side === 'N') World.subRect(x + b.du, y, x + b.du + b.dw, y + T, 0);
+    else if (b.side === 'E') World.subRect(x + w - T, y + b.du, x + w, y + b.du + b.dw, 0);
+    else World.subRect(x, y + b.du, x + T, y + b.du + b.dw, 0);
+  },
+  ns(b) { return b.side === 'S' || b.side === 'N'; },
+  // local (u along the door face, v inward from the door)
+  uv(b, x, y) {
+    if (b.side === 'N') return [x - b.x, y - b.y];
+    if (b.side === 'E') return [y - b.y, b.x + b.w - x];
+    if (b.side === 'W') return [y - b.y, x - b.x];
+    return [x - b.x, b.y + b.h - y];
   },
   // local (u along the door face, v depth from the door) -> world rect
   rect(b, u, v, uw, vh) {
     if (b.side === 'S') return [b.x + u, b.y + b.h - v - vh, uw, vh];
-    return [b.x + b.w - v - vh, b.y + u, vh, uw];
+    if (b.side === 'N') return [b.x + u, b.y + v, uw, vh];
+    if (b.side === 'E') return [b.x + b.w - v - vh, b.y + u, vh, uw];
+    return [b.x + v, b.y + u, vh, uw];
   },
-  pt(b, u, v) { return b.side === 'S' ? [b.x + u, b.y + b.h - v] : [b.x + b.w - v, b.y + u]; },
+  pt(b, u, v) {
+    if (b.side === 'S') return [b.x + u, b.y + b.h - v];
+    if (b.side === 'N') return [b.x + u, b.y + v];
+    if (b.side === 'E') return [b.x + b.w - v, b.y + u];
+    return [b.x + v, b.y + u];
+  },
   place(b, t, u, v, uw, vh, extra = {}) {
     const [x, y, w, h] = this.rect(b, u, v, uw, vh);
     const o = World.addObj(t, x, y, w, h, Object.assign({ indoor: b, solid: true, side: b.side }, extra));
@@ -10548,7 +10568,12 @@ function bcanvas(b, up) {
   const pad = b.st.pad || 0.6, W = Math.ceil((b.w + b.h + pad * 2) * 16 + 48), H = Math.ceil((b.w + b.h + pad * 2) * 8 + up + 48);
   const [c, g] = makeCanvas(W, H); return { c, g, ox: W / 2, oy: H - (b.w + b.h) * 4 - pad * 8 - 16 };
 }
-function doorFace(b) { return b.side === 'S' ? { face: 'L', t0: b.du / b.w, t1: (b.du + b.dw) / b.w } : { face: 'R', t0: (b.h - b.du - b.dw) / b.h, t1: (b.h - b.du) / b.h }; }
+function doorFace(b) {
+  if (b.side === 'S') return { face: 'L', t0: b.du / b.w, t1: (b.du + b.dw) / b.w };
+  if (b.side === 'E') return { face: 'R', t0: (b.h - b.du - b.dw) / b.h, t1: (b.h - b.du) / b.h };
+  if (b.side === 'N') return { face: null, back: 'N', t0: b.du / b.w, t1: (b.du + b.dw) / b.w };
+  return { face: null, back: 'W', t0: b.du / b.h, t1: (b.du + b.dw) / b.h };
+}
 // timber-framed walls on the two faces the camera sees, with real doorways and windows
 function bwalls(g, x, y, w, h, z0, z1, st, doors, o = {}) {
   const P = isoPts(x, y, w, h, 0), pl = o.plaster || st.plaster, wood = st.wood, base = o.base || st.base;
@@ -10664,29 +10689,30 @@ const BPaint = {
     { const P = isoPts(x + 14, y + 3, w + roof.pad * 2, h + roof.pad * 2, 0); g.fillStyle = 'rgba(10,8,16,0.2)'; g.beginPath(); g.moveTo(P.top[0], P.top[1]); g.lineTo(P.right[0], P.right[1]); g.lineTo(P.bottom[0], P.bottom[1]); g.lineTo(P.left[0], P.left[1]); g.fill(); shadowEllipse(g, x + 6, y + 3, (w + h) * 8, (w + h) * 3.6, 0.16); }
     // a veranda along the door side: the wall stands back behind it
     let wx = x, wy = y, ww = w, wh = h;
-    if (A.veranda) { const dv = A.veranda; if (d.face === 'L') { wh = h - dv; wx = x + 8 * dv; wy = y - 4 * dv; } else { ww = w - dv; wx = x - 8 * dv; wy = y - 4 * dv; } aVeranda(g, x, y, w, h, d.face, dv, A.z0, A.posts === '#c8372d' ? '#8a5a3a' : '#7a5a3a'); }
+    const front = d.face;
+    if (A.veranda && front) { const dv = A.veranda; if (d.face === 'L') { wh = h - dv; wx = x + 8 * dv; wy = y - 4 * dv; } else { ww = w - dv; wx = x - 8 * dv; wy = y - 4 * dv; } aVeranda(g, x, y, w, h, d.face, dv, A.z0, A.posts === '#c8372d' ? '#8a5a3a' : '#7a5a3a'); }
     const wopt = { plaster: A.plaster || st.plaster, wood: A.wood || st.wood, posts: A.posts || st.posts, base: A.base, lower: A.lower, lowH: A.lowH, win: A.win, winEvery: A.winEvery, beam: A.beam ?? Math.round((A.z1 - A.z0) * 0.62), boardCol: A.boardCol, seed: b.id, shadow: two ? 5 : 12 };
     const zTop = two ? two.zm : A.z1;
     aWalls(g, wx, wy, ww, wh, A.z0, zTop, st, doors, Object.assign({}, wopt, two ? { beam: 0, doorH: Math.min(28, zTop - A.z0 - 3) } : {}));
     if (A.brackets) this.brackets(g, wx, wy, ww, wh, zTop, A.posts || '#a8321e');
-    if (A.inuyarai) this.inuyarai(g, wx, wy, ww, wh, d);
+    if (A.inuyarai && front) this.inuyarai(g, wx, wy, ww, wh, d);
     if (two) {
       aWalls(g, wx, wy, ww, wh, two.zm, A.z1, st, [], Object.assign({}, wopt, { base: 'none', lower: null, beam: 0, win: two.upper.win, winEvery: two.upper.winEvery ?? 1, plaster: two.upper.plaster || wopt.plaster, shadow: 10 }));
-      if (two.upper.railing) aRail(g, wx, wy, ww, wh, d.face, 0.22, two.zm + 2, 9, '#4a3020');
-      aPent(g, wx, wy, ww, wh, d.face, two.zm - 3, 0.6, 7, roof.mat, b.snow);
-      if (A.kanban) this.kanban(g, wx, wy, ww, wh, d, two.zm + 4);
+      if (two.upper.railing && front) aRail(g, wx, wy, ww, wh, d.face, 0.22, two.zm + 2, 9, '#4a3020');
+      if (front) aPent(g, wx, wy, ww, wh, d.face, two.zm - 3, 0.6, 7, roof.mat, b.snow);
+      if (A.kanban && front) this.kanban(g, wx, wy, ww, wh, d, two.zm + 4);
     }
-    if (A.veranda && A.railing) aRail(g, x, y, w, h, d.face, -0.08, A.z0, 5, A.railing);
-    if (A.steps) aSteps(g, x, y, w, h, d, A.z0, A.base === 'stone' ? '#8a867c' : '#6a4a30');
+    if (A.veranda && A.railing && front) aRail(g, x, y, w, h, d.face, -0.08, A.z0, 5, A.railing);
+    if (A.steps && front) aSteps(g, x, y, w, h, d, A.z0, A.base === 'stone' ? '#8a867c' : '#6a4a30');
     // the roof, ridge along the street for town houses
-    const F = AF(x, y, w, h, A.axis === 'door' ? (d.face === 'L' ? 'x' : 'y') : A.axis);
+    const F = AF(x, y, w, h, A.axis === 'door' ? (d.face === 'L' ? 'x' : d.face === 'R' ? 'y' : 'x') : A.axis);
     const rr = aRoof(g, F, Object.assign({ z: A.z1 }, roof));
     if (A.nagare) this.nagare(g, F, rr, roof, A);
     if (A.vent) this.vent(g, x, y - rr.Z(1), F, rr, roof, b.snow);
-    if (A.porch) this.porch(g, x, y, w, h, d, b.snow);
-    if (A.udatsu && two) this.udatsu(g, wx, wy, ww, wh, d, two.zm, A.z1);
-    if (A.plaque || st.sign) this.sign(g, x, y, w, h, d, A, st, wx, wy, ww, wh, zTop);
-    if (st.lamps) this.lamps(g, wx, wy, ww, wh, d);
+    if (A.porch && front) this.porch(g, x, y, w, h, d, b.snow);
+    if (A.udatsu && two && front) this.udatsu(g, wx, wy, ww, wh, d, two.zm, A.z1);
+    if ((A.plaque || st.sign) && front) this.sign(g, x, y, w, h, d, A, st, wx, wy, ww, wh, zTop);
+    if (st.lamps && front) this.lamps(g, wx, wy, ww, wh, d);
     if (A.banners) this.banners(g, wx, wy, ww, wh, d);
     if (st.chimney && !A.vent) { const q = F.P(rr.A * 0.4, 0, rr.Z(0.8)); g.fillStyle = '#4a4040'; g.fillRect(Math.round(q[0]) - 3, Math.round(q[1]) - 12, 7, 14); g.fillStyle = '#2a2424'; g.fillRect(Math.round(q[0]) - 4, Math.round(q[1]) - 14, 9, 3); }
     return K;
@@ -10775,8 +10801,11 @@ const BPaint = {
     if (alongX) { poly(g, [P.top, P.right, r2, r1], shade(c1, -0.3)); poly(g, [P.left, P.bottom, r2, r1], c1); poly(g, [P.bottom, P.right, r2], c2); }
     else { poly(g, [P.top, P.left, r2, r1], shade(c1, -0.3)); poly(g, [P.bottom, P.right, r1, r2], shade(c1, -0.1)); poly(g, [P.left, P.bottom, r2], c2); }
     if (pirate) { g.globalAlpha = 0.5; g.strokeStyle = '#7a2420'; g.lineWidth = 2; for (let i = 1; i < 5; i++) { const t = i / 5; g.beginPath(); g.moveTo(lerp(P.left[0], P.bottom[0], t), lerp(P.left[1], P.bottom[1], t)); g.lineTo(lerp(r1[0], r2[0], t), lerp(r1[1], r2[1], t)); g.stroke(); } g.globalAlpha = 1; g.lineWidth = 1; }
-    const d = doorFace(b), A = d.face === 'L' ? P.left : P.bottom, Bq = d.face === 'L' ? P.bottom : P.right, m = [lerp(A[0], Bq[0], (d.t0 + d.t1) / 2), lerp(A[1], Bq[1], (d.t0 + d.t1) / 2)], hw = (d.t1 - d.t0) * dist(A[0], A[1], Bq[0], Bq[1]) / 2;
-    poly(g, [[m[0] - hw, m[1] + (d.face === 'L' ? -hw / 2 : hw / 2)], [m[0] + hw, m[1] + (d.face === 'L' ? hw / 2 : -hw / 2)], [m[0], m[1] - H * 0.75]], '#120c0a');
+    const d = doorFace(b);
+    if (d.face) {
+      const A = d.face === 'L' ? P.left : P.bottom, Bq = d.face === 'L' ? P.bottom : P.right, m = [lerp(A[0], Bq[0], (d.t0 + d.t1) / 2), lerp(A[1], Bq[1], (d.t0 + d.t1) / 2)], hw = (d.t1 - d.t0) * dist(A[0], A[1], Bq[0], Bq[1]) / 2;
+      poly(g, [[m[0] - hw, m[1] + (d.face === 'L' ? -hw / 2 : hw / 2)], [m[0] + hw, m[1] + (d.face === 'L' ? hw / 2 : -hw / 2)], [m[0], m[1] - H * 0.75]], '#120c0a');
+    }
     g.fillStyle = '#3a2416'; g.fillRect(Math.round(r1[0]), Math.round(r1[1]) - 4, 1, 5); g.fillRect(Math.round(r2[0]), Math.round(r2[1]) - 4, 1, 5);
     return K;
   },
@@ -10834,6 +10863,7 @@ const BPaint = {
   },
   // the great gate through the stone base: heavy iron-banded doors under a tiled lintel roof
   keepGate(g, x, y, bw, bh, HB, bat, d) {
+    if (!d || !d.face) return;
     const ext = z => bat * Math.pow(1 - z / HB, 2);
     const fp = (t, z) => { const e = ext(z), P = isoPts(x, y, bw + e * 2, bh + e * 2, z), a = d.face === 'L' ? P.left : P.bottom, b2 = d.face === 'L' ? P.bottom : P.right; return [lerp(a[0], b2[0], t), lerp(a[1], b2[1], t)]; };
     const t0 = clamp(d.t0, 0.05, 0.95), t1 = clamp(d.t1, 0.05, 0.95), gh = 24;
@@ -10855,7 +10885,7 @@ const BPaint = {
     for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
       const sx = i + 0.5 - W / 2, sy = j + 0.5 - H / 2, wx = cx + (sy / 8 + sx / 16) / 2, wy = cy + (sy / 8 - sx / 16) / 2;
       if (wx < b.x || wy < b.y || wx >= b.x + b.w || wy >= b.y + b.h) continue;
-      const u = b.side === 'S' ? wx - b.x : wy - b.y, v = b.side === 'S' ? b.y + b.h - wy : b.x + b.w - wx;
+      const [u, v] = Buildings.uv(b, wx, wy);
       let col = floorColor(zone(u, v), u, v, i, j);
       if (wx - b.x < 0.45 || wy - b.y < 0.45) col = col.map(q => q * 0.72);
       const k = (j * W + i) * 4; d[k] = col[0]; d[k + 1] = col[1]; d[k + 2] = col[2]; d[k + 3] = 255;
@@ -10880,6 +10910,15 @@ const BPaint = {
       for (let i = 0; i <= Math.round(n); i++) { const p = along(A, Bq, i / Math.round(n), 0); g.fillStyle = wood; g.fillRect(Math.round(p[0]), Math.round(p[1] - Hh), 1, Hh); }
       for (const dec of (b.decor || []).filter(dc => dc.wall === nm)) paintDecor(g, A, Bq, dec, Hh, along, quad);
       if (st.ruin || (st.levels && L === 0 && !(b.opt && (b.opt.clan || b.opt.sid)))) { g.globalCompositeOperation = 'destination-out'; const R = RNG(b.id * 7 + nm.length); for (let k = 0; k < 4; k++) { const t = R(), p = along(A, Bq, t, Hh); g.beginPath(); g.ellipse(p[0], p[1], 6 + R() * 8, 4 + R() * 6, 0, 0, TAU); g.fill(); } g.globalCompositeOperation = 'source-over'; }
+      if (b.side === nm && b.dw) {
+        const t0 = b.du / n, t1 = (b.du + b.dw) / n, gh = Math.min(26, Hh - 4);
+        g.globalCompositeOperation = 'destination-out';
+        quad(along(A, Bq, t0, 0), along(A, Bq, t1, 0), 0, gh, '#000');
+        g.globalCompositeOperation = 'source-over';
+        quad(along(A, Bq, t0 - 0.012, 0), along(A, Bq, t0 + 0.016, 0), 0, gh, wood);
+        quad(along(A, Bq, t1 - 0.016, 0), along(A, Bq, t1 + 0.012, 0), 0, gh, wood);
+        quad(along(A, Bq, t0, 0), along(A, Bq, t1, 0), gh - 2, gh, wood);
+      }
     }
     // the cut top of the walls
     g.strokeStyle = shade(pl, 0.2); g.beginPath(); g.moveTo(P.left[0], P.left[1] - Hh); g.lineTo(P.top[0], P.top[1] - Hh); g.lineTo(P.right[0], P.right[1] - Hh); g.stroke();
@@ -11149,7 +11188,7 @@ Object.assign(Props.draw, {
   cushion(g, x, y, o) { const P = isoPts(x, y, o.w, o.h, 1); poly(g, [P.top, P.right, P.bottom, P.left], '#5a3a6a'); g.fillStyle = '#7a5a8a'; g.fillRect(x - 1, y - 2, 2, 1); },
   tansu(g, x, y, o) {
     FB(g, x, y, o, 0, 16, '#8a5a32', '#7a4a28', '#6a3e22');
-    const P = isoPts(x, y, o.w, o.h, 0), face = o.side === 'S' ? 'L' : 'R';
+    const P = isoPts(x, y, o.w, o.h, 0), face = o.side === 'S' || o.side === 'N' ? 'L' : 'R';
     for (let k = 1; k < 4; k++) faceQuad(g, P, face, 0.05, 0.95, k * 4, k * 4 + 0.6, '#3a2010');
     for (let k = 0; k < 3; k++) for (const t of [0.3, 0.7]) faceQuad(g, P, face, t - 0.03, t + 0.03, k * 4 + 2, k * 4 + 3, '#c8a050');
   },
@@ -13356,9 +13395,13 @@ function siteBuilder(S, R) {
 }
 // a standing place inside a building, a step or two in from the door (never on the furniture)
 function insidePt(b) {
-  const d = b.doorPt, S_ = b.side === 'S';
-  for (let k = 1.6; k < (S_ ? b.h : b.w) - 0.8; k += 0.4) for (const off of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) {
-    const x = S_ ? d.x + off : b.x + b.w - k, y = S_ ? b.y + b.h - k : d.y + off;
+  const d = b.doorPt, ns = Buildings.ns(b), depth = ns ? b.h : b.w;
+  for (let k = 1.6; k < depth - 0.8; k += 0.4) for (const off of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) {
+    let x, y;
+    if (b.side === 'S') { x = d.x + off; y = b.y + b.h - k; }
+    else if (b.side === 'N') { x = d.x + off; y = b.y + k; }
+    else if (b.side === 'E') { x = b.x + b.w - k; y = d.y + off; }
+    else { x = b.x + k; y = d.y + off; }
     if (Buildings.within(b, x, y, 0.45) && !blockedCircle(x, y, 0.27)) return [x, y];
   }
   return d.inner.slice();
@@ -19484,6 +19527,18 @@ const ARCH_PRESETS = {
 const Compound = {
   state: new Map(), wallTiles: new Map(), t: 0,
   catalog() { return (Net.catalog && Net.catalog.BUILD) || {}; },
+  // R cycles rot 0–3: south, east, north, west. vis.door === 'E' starts on east.
+  doorOf(s, vis) {
+    const v = vis || ((this.catalog()[s.kind] || {}).vis) || {};
+    return ['S', 'E', 'N', 'W'][(((v.door === 'E') ? 1 : 0) + (s.rot | 0)) % 4];
+  },
+  faceOf(s, vis) {
+    const side = this.doorOf(s, vis);
+    if (side === 'S') return [s.x + s.w / 2, s.y + s.h + 0.8];
+    if (side === 'E') return [s.x + s.w + 0.8, s.y + s.h / 2];
+    if (side === 'N') return [s.x + s.w / 2, s.y - 0.8];
+    return [s.x - 0.8, s.y + s.h / 2];
+  },
   // the compounds near anyone in the world get built (the host builds where any player is; others where they are).
   // a version change applies this frame so a restyle or an upgrade is on the ground as soon as the world answers
   tick(dt) {
@@ -19580,7 +19635,7 @@ const Compound = {
       else this.tile(rec, i, j, T[vis.t] || TILE.GRAVEL);
     }
     if (vis.b) {
-      const door = s.rot % 2 ? 'E' : (vis.door === 'E' ? 'E' : 'S');
+      const door = this.doorOf(s, vis);
       const arch = this.archOf(gv, s, def), style = {};
       if (s.style && s.style.noren) style.noren = s.style.noren; else if (gv.palette && gv.palette.primary) style.noren = gv.palette.primary;
       const b = Buildings.create(vis.b, s.x, s.y, s.w, s.h, { name: def.name, door, arch, style, clan: gv.id, sid: s.id, lvl: Math.max(1, s.tier | 0) });
@@ -19629,7 +19684,16 @@ const Compound = {
       if (s.tier >= 2) { this.obj(rec, 'stonelantern', Math.round(cx - 3.3), Math.round(cy - 2.6), 1, 1, { solid: false, light: { r: 34, c: '255,170,90' } }); this.obj(rec, 'stonelantern', Math.round(cx + 2.7), Math.round(cy - 2.3), 1, 1, { solid: false, light: { r: 34, c: '255,170,90' } }); }
       if (s.tier >= 3) this.obj(rec, 'tent', Math.round(cx + 2.5), Math.round(cy - 0.4), 1, 1, { solid: false });
     }
-    if (s.kind === 'shelter' || s.kind === 'quarters') this.obj(rec, 'bedroll', s.x + (s.rot % 2 ? s.w + 1 : 1), s.y + (s.rot % 2 ? 1 : s.h + 1), 1, 1, { solid: false, interact: { kind: 'sleep', label: 'Sleep (heals)' } });
+    if (s.kind === 'shelter' || s.kind === 'quarters') {
+      const door = this.doorOf(s), bx = door === 'E' ? s.x + s.w + 1 : door === 'W' ? s.x - 1 : s.x + 1, by = door === 'S' ? s.y + s.h + 1 : door === 'N' ? s.y - 1 : s.y + 1;
+      this.obj(rec, 'bedroll', bx, by, 1, 1, { solid: false, interact: { kind: 'sleep', label: 'Sleep (heals)' } });
+    }
+    if (s.kind === 'stables' && s.state === 'done' && !s.damaged) {
+      const door = this.doorOf(s);
+      const hx = door === 'E' ? s.x + s.w : door === 'W' ? s.x - 1 : s.x + Math.floor(s.w / 2);
+      const hy = door === 'S' ? s.y + s.h : door === 'N' ? s.y - 1 : s.y + Math.floor(s.h / 2);
+      this.obj(rec, 'stall', hx, hy, 1, 1, { solid: false, interact: { kind: 'horseShop', gid: gv.id, sid: s.id, label: 'Horses for sale' } });
+    }
     if (s.damaged) { const R = RNG(s.x + s.y); for (let k = 0; k < 3; k++) this.obj(rec, 'rubble', s.x + Math.floor(R() * s.w), s.y + s.h, 1, 1, { solid: false }); }
     return rec;
   },
@@ -19687,9 +19751,10 @@ const Compound = {
       const mine = Net.gang && Net.gang.id === gv.id, def = this.catalog();
       for (const rec of st.built.values()) {
         const r = rec.r, nx = clamp(x, r[0], r[2]), ny = clamp(y, r[1], r[3]), d = dist(x, y, nx, ny);
-        if (d >= bd || (d < 0.01 && rec.b)) continue;
+        if (d >= bd || (d < 0.01 && rec.b && rec.s.kind !== 'stables')) continue;
         const D = def[rec.s.kind] || { name: rec.s.kind };
-        bd = d; best = { d, it: { kind: 'clanStruct', gid: gv.id, sid: rec.s.id, label: (mine ? '' : gv.name + ' · ') + D.name + (rec.s.tier > 1 ? ' ' + 'ⅠⅡⅢ'[rec.s.tier - 1] : '') + (rec.s.state === 'building' && rec.s.doneAt > Net.now() ? ' · building ' + Math.max(1, Math.ceil((rec.s.doneAt - Net.now()) / 1000)) + 's' : rec.s.damaged ? ' · damaged' : mine ? ' · manage' : '') } };
+        const sell = rec.s.kind === 'stables' && rec.s.state === 'done' && !rec.s.damaged;
+        bd = d; best = { d, it: { kind: 'clanStruct', gid: gv.id, sid: rec.s.id, label: (mine ? '' : gv.name + ' · ') + D.name + (rec.s.tier > 1 ? ' ' + 'ⅠⅡⅢ'[rec.s.tier - 1] : '') + (rec.s.state === 'building' && rec.s.doneAt > Net.now() ? ' · building ' + Math.max(1, Math.ceil((rec.s.doneAt - Net.now()) / 1000)) + 's' : rec.s.damaged ? ' · damaged' : sell ? ' · horses for sale' : mine ? ' · manage' : '') } };
       }
       const [gx, gy] = b.gate, dg = dist(x, y, gx, gy + 0.5);
       if (dg < bd + 0.4) { bd = dg; best = { d: dg, it: { kind: 'clanGate', gid: gv.id, label: mine ? 'The gate · ' + (Net.gang.visitors || []).filter(v => v.state === 'waiting').length + ' waiting' : gv.name + ' · the gate' } }; }
@@ -19733,7 +19798,6 @@ const BuildMode = {
     const [gx, gy] = b.gate; if (x < gx + 2 && x + w > gx - 2 && y + h > gy - 5) return 'Keep the gate’s way clear';
     const gap = d.vis.b ? 1 : 0;
     for (const s of gv.structs || []) { if (s.id === this.sid) continue; const sd = Compound.catalog()[s.kind] || { vis: {} }, sg = Math.max(gap, sd.vis.b ? 1 : 0); if (x < s.x + s.w + sg && x + w + sg > s.x && y < s.y + s.h + sg && y + h + sg > s.y) return 'On top of ' + (sd.name || s.kind); }
-    let water = 0, rock = 0, trees = 0;
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) {
       if (!World.in(i, j)) return 'Off the map';
       const t = World.tileAt(i, j);
@@ -19743,12 +19807,38 @@ const BuildMode = {
       if (t === TILE.BRIDGE) return 'A bridge';
     }
     if (d.near) {
-      for (let j = y - 8; j < y + h + 8; j++) for (let i = x - 8; i < x + w + 8; i++) { if (!World.in(i, j)) continue; const t = World.tileAt(i, j); if (TINFO[t].water) water++; if (World.solidAt(i, j) === 2 && !TINFO[t].water || t === TILE.ROCK) rock++; for (const o of World.at(i, j)) if (TREES.has(o.t)) trees++; }
-      if (d.near === 'water' && water < 3) return 'Needs water close by';
-      if (d.near === 'rock' && rock < 4) return 'Needs rocky ground close by';
-      if (d.near === 'trees' && trees < 4) return 'Needs woods close by';
+      const n = this.nearCounts(x, y, w, h);
+      if (d.near === 'water' && n.water < 3) return 'Needs water close by';
+      if (d.near === 'rock' && n.rock < 4) return 'Needs rocky ground close by';
+      if (d.near === 'trees' && n.trees < 4) return 'Needs woods close by';
     }
     return null;
+  },
+  nearCounts(x, y, w, h) {
+    let water = 0, rock = 0, trees = 0, forest = 0;
+    for (let j = y - 8; j < y + h + 8; j++) for (let i = x - 8; i < x + w + 8; i++) {
+      if (!World.in(i, j)) continue;
+      const t = World.tileAt(i, j);
+      if (TINFO[t].water) water++;
+      if ((World.solidAt(i, j) === 2 && !TINFO[t].water) || t === TILE.ROCK) rock++;
+      for (const o of World.at(i, j)) if (TREES.has(o.t)) trees++;
+      if (typeof World.biomeAt === 'function') {
+        const b = World.biomeAt(i, j);
+        if (b === B.FOREST || b === B.BAMBOO || b === B.MAPLE) forest++;
+      }
+    }
+    return { water, rock, trees, forest };
+  },
+  // stone yards and lumber mills work anywhere; rocky or wooded ground (or a forest / mountain settlement) doubles them
+  richHere(x, y) {
+    const d = this.def; if (!d || !d.boost) return false;
+    const t = (Net.gang && Net.gang.hq && Net.gang.hq.traits) || [];
+    if (d.boost === 'trees' && (t.includes('forest') || t.includes('bamboo'))) return true;
+    if (d.boost === 'rock' && t.includes('mountain')) return true;
+    const [w, h] = this.size(), n = this.nearCounts(x, y, w, h);
+    if (d.boost === 'rock') return n.rock >= 4;
+    if (d.boost === 'trees') return n.trees >= 4 || n.forest >= 12;
+    return false;
   },
   update(dt) {
     if (!this.on) return false;
@@ -19760,7 +19850,7 @@ const BuildMode = {
     if (Input.hit('Escape', 'Mouse2')) { this.stop(); UI.toast('Stopped building'); return true; }
     if (Input.hit('Mouse0')) {
       if (!this.ok) { UI.toast(this.why, 'shame'); return true; }
-      const args = { kind: this.kind, x: this.x, y: this.y, rot: this.rot, terrainOk: true };
+      const args = { kind: this.kind, x: this.x, y: this.y, rot: this.rot, terrainOk: true, boost: this.richHere(this.x, this.y) };
       const done = r => { if (r.ok) { Snd.play('buy'); UI.toast(this.sid ? 'Moved.' : this.def.name + ' stands.', 'good'); if (!Input.held('ShiftLeft', 'ShiftRight') || this.sid) this.stop(); } };
       if (this.sid) Net.req('move', Object.assign(args, { id: this.sid })).then(done); else Net.req('build', args).then(done);
       return true;
@@ -19776,7 +19866,11 @@ const BuildMode = {
     for (let j = this.y; j < this.y + h; j++) for (let i = this.x; i < this.x + w; i++) { const [a, c] = [P(i, j), P(i + 1, j + 1)], [r] = [P(i + 1, j)], [l] = [P(i, j + 1)]; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(r[0], r[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(l[0], l[1]); ctx.closePath(); ctx.fill(); }
     ctx.globalAlpha = 1;
     // a door mark on the side the building will open to
-    if (this.def.vis.b) { const e = this.rot % 2 || this.def.vis.door === 'E'; const [dx, dy] = e ? P(this.x + w, this.y + h / 2) : P(this.x + w / 2, this.y + h); ctx.fillStyle = '#ffe08a'; ctx.fillRect(dx - 1, dy - 1, 3, 3); }
+    if (this.def.vis.b) {
+      const side = Compound.doorOf({ rot: this.rot }, this.def.vis);
+      const [dx, dy] = side === 'S' ? P(this.x + w / 2, this.y + h) : side === 'E' ? P(this.x + w, this.y + h / 2) : side === 'N' ? P(this.x + w / 2, this.y) : P(this.x, this.y + h / 2);
+      ctx.fillStyle = '#ffe08a'; ctx.fillRect(dx - 1, dy - 1, 3, 3);
+    }
   },
   // its name, cost and (when it cannot stand there) the reason, on the overlay above the footprint
   label(camX, camY) {
@@ -19784,7 +19878,7 @@ const BuildMode = {
     const [w, h] = this.size(), P = (x, y) => [Math.round((x - y) * HTW - camX), Math.round((x + y) * HTH - camY)];
     const [tx, ty] = P(this.x + w / 2, this.y + h / 2), cost = this.sid ? '' : Clan.costText(this.def.tiers[0].cost);
     octx.save(); octx.setTransform(1, 0, 0, 1, 0, 0); const S = SCALE * DPR; octx.font = `${12 * DPR}px "DotGothic16", monospace`; octx.textAlign = 'center';
-    const lab = this.def.name + (cost ? ' · ' + cost : '') + (this.ok ? '' : ' · ' + this.why);
+    const lab = this.def.name + (cost ? ' · ' + cost : '') + (this.ok ? (this.def.boost ? (this.richHere(this.x, this.y) ? ' · double yield' : ' · ordinary ground') : '') : ' · ' + this.why);
     octx.fillStyle = '#000c'; const tw = octx.measureText(lab).width + 12 * DPR; octx.fillRect(tx * S - tw / 2, (ty - 30) * S - 14 * DPR, tw, 18 * DPR);
     octx.fillStyle = this.ok ? '#bff0c8' : '#ffb0a0'; octx.fillText(lab, tx * S, (ty - 30) * S); octx.restore();
   }
@@ -20337,7 +20431,27 @@ const Net = {
   },
   saveProfile() { if (G.profile) this.send({ t: 'save', profile: G.profile }); },
   canPay(cost) { const p = G.profile; if (!p) return false; if ((p.gold | 0) + (p.bank | 0) < cost) { UI.toast('Not enough mon (need ' + cost + ').', 'shame'); return false; } return true; },
-  buyHorse(id) { const H = { nag: 180, road: 420, fine: 900 }[id || 'nag']; if (H && !this.canPay(H)) return; this.req('buyHorse', { id: id || 'nag' }).then(r => { if (r.ok && r.data) { G.profile.horse = r.data.horse; if (G.horse) Object.assign(G.horse, { coat: r.data.horse.coat, name: r.data.horse.name, spdMul: r.data.horse.spdMul }); UI.toast('A new horse: ' + r.data.horse.name, 'good'); } }); },
+  horses() {
+    const H = this.catalog && this.catalog.HORSES;
+    if (H && H.nag) return H;
+    return {
+      nag: { id: 'nag', name: 'Nag', cost: 180, coat: 1, spdMul: 0.78, need: 1, desc: 'Better than Scrag. Still a farm animal.' },
+      road: { id: 'road', name: 'Road horse', cost: 420, coat: 2, spdMul: 1.0, need: 2, desc: 'A proper riding horse. Keeps pace all day.' },
+      fine: { id: 'fine', name: 'Fine mount', cost: 900, coat: 4, spdMul: 1.18, need: 3, desc: 'Bred for the road and the charge.' }
+    };
+  },
+  buyHorse(id) {
+    const H = this.horses()[id || 'nag']; if (!H) return;
+    if (!this.canPay(H.cost)) return;
+    this.req('buyHorse', { id: H.id }).then(r => {
+      if (r.ok && r.data) {
+        G.profile.horse = r.data.horse;
+        if (G.horse) Object.assign(G.horse, { coat: r.data.horse.coat, name: r.data.horse.name, spdMul: r.data.horse.spdMul });
+        UI.toast('A new horse: ' + r.data.horse.name, 'good');
+        if (UI.panel === 'clanStruct') UI.render();
+      }
+    });
+  },
   questStart(id) { const d = QDEFS[id], at = G.player ? [G.player.x, G.player.y] : null; this.questRet = at; this.send({ t: 'questStart', id, at, title: d ? d.title : id }); },
   questEnd(id) { this.send({ t: 'questEnd', id, ret: this.questRet }); },
   buyDog(name, coat) {
@@ -20422,7 +20536,7 @@ const ClanAI = {
     const S = gv.structs || [], idx = (parseInt(String(n.id).slice(1), 10) || 0) % 7;
     const at = id => S.find(s => s.id === id && s.state === 'done');
     const kinds = ks => S.filter(s => ks.includes(s.kind) && s.state === 'done');
-    const face = s => [s.x + (s.rot % 2 ? s.w + 0.8 : s.w / 2), s.y + (s.rot % 2 ? s.h / 2 : s.h + 0.8)];
+    const face = s => Compound.faceOf(s);
     const tod = G.tod, night = tod < 0.22 || tod > 0.86, evening = tod > 0.74 && !night, job = n.assign ? n.assign.job : 'rest';
     const hearth = kinds(['hearth'])[0], fire = hearth ? [hearth.x + hearth.w / 2, hearth.y + hearth.h / 2] : [gv.hq.x, gv.hq.y];
     if (n.injuredUntil) { const bed = this.bedFor(gv, n); if (bed) return { at: bed.at, act: 'lie' }; const q = kinds(['medic', 'quarters', 'shelter'])[0]; return { at: q ? face(q) : fire, act: 'lie' }; }
@@ -20901,6 +21015,21 @@ const ClanUI = {
   img(e, s = 48) { const u = e ? Emblem.url(e, s) : ''; return u ? `<img class="emb" src="${u}" width="${s}" height="${s}" alt="">` : ''; },
   bar(v, lo = -100, hi = 100) { const k = clamp((v - lo) / (hi - lo), 0, 1) * 100; return `<i class="rbar"><b style="width:${k}%"></b></i>`; },
   res(r, cap) { const R = Clan.cat('RES'); return `<div class="resrow">${Object.keys(R).map(k => `<span title="${esc(R[k].name)}"><b>${R[k].jp}</b> ${Math.floor(r[k] || 0)}${k !== 'mon' && cap ? '<small>/' + cap + '</small>' : ''}</span>`).join('')}</div>`; },
+  horseRows(s) {
+    const list = Object.values((typeof Net !== 'undefined' && Net.horses) ? Net.horses() : {});
+    if (!list.length) return '';
+    const ride = (G.profile && G.profile.horse && G.profile.horse.name) || 'Scrag';
+    const have = (G.profile && G.profile.horse && G.profile.horse.spdMul) || 0;
+    const gold = G.profile ? (G.profile.gold | 0) + (G.profile.bank | 0) : 0;
+    const open = s.state === 'done' && !s.damaged;
+    const rows = list.map(h => {
+      const locked = !open || (s.tier | 0) < (h.need | 0);
+      const owned = have + 0.001 >= h.spdMul;
+      const note = !open ? (s.damaged ? ' · the stalls are wrecked' : ' · still being built') : locked ? ' · improve the stables first' : owned ? ' · you already ride this well' : '';
+      return `<div class="row"><div class="grow"><span class="nm">${esc(h.name)}</span><span class="ds">${esc(h.desc || '')}${note}</span></div><span class="px">${h.cost} mon</span><button class="btn" data-act="horse" data-arg="${esc(h.id)}" ${locked || owned || gold < h.cost ? 'disabled' : ''}>Buy</button></div>`;
+    }).join('');
+    return `<div class="speaker">Horses for sale</div><p class="lede">You ride ${esc(ride)}.</p>${rows}`;
+  },
   req(op, args, then) { Net.lastArgs = Net.lastArgs || {}; return Net.req(op, args).then(r => { if (r.ok && then) then(r); if (UI.panel === 'clan' || UI.panel === 'clanStruct' || UI.panel === 'visitor' || UI.panel === 'clanNpc') UI.render(); return r; }); },
   // the building on the ground takes the new look at once; the world is told in the same breath (debounced so a row of chips is one request)
   paintStyle(sid, style) {
@@ -21184,7 +21313,7 @@ const ClanUI = {
     const B = Clan.cat('BUILD'), cats = Clan.cat('BUILD_CATS'), st = Clan.stage(), S = Clan.cat('STAGES'), W = Clan.cat('WALLS'), q = this.search.toLowerCase();
     const list = Object.values(B).filter(d => q ? (d.name + ' ' + d.desc + ' ' + d.cat).toLowerCase().includes(q) : d.cat === this.cat);
     const fx = t => Object.entries(t || {}).map(([k, v]) => k === 'prod' ? Object.entries(v).map(([r, n]) => '+' + n + ' ' + r + '/day').join(', ') : k === 'unlock' ? 'unlocks ' + v : (v > 0 ? '+' : '') + v + ' ' + k).join(', ');
-    const rows = list.map(d => { const have = (g.structs || []).filter(s => s.kind === d.key).length, lock = (d.stage || 0) > st.n, full = have >= d.max, cost = d.tiers[0].cost; return `<div class="row${lock ? ' dim' : ''}"><div class="grow"><span class="nm">${esc(d.name)} <small>${d.w}×${d.h} · ${d.tiers.length} tier${d.tiers.length > 1 ? 's' : ''}${d.max > 1 ? ' · ' + have + '/' + d.max : have ? ' · built' : ''}</small></span><span class="ds">${esc(d.desc)}</span><span class="ds">${esc(fx(d.fx[0]))}${d.near ? ' · needs ' + d.near + ' nearby' : ''}${lock ? ' · needs a ' + esc(S[d.stage].name) : ''}</span></div><span class="px">${esc(Clan.costText(cost))}</span><button class="btn" data-act="place" data-arg="${d.key}" ${lock || full || !g.hq || !Clan.can('build') ? 'disabled' : ''}>Place</button></div>`; }).join('');
+    const rows = list.map(d => { const have = (g.structs || []).filter(s => s.kind === d.key).length, lock = (d.stage || 0) > st.n, full = have >= d.max, cost = d.tiers[0].cost; return `<div class="row${lock ? ' dim' : ''}"><div class="grow"><span class="nm">${esc(d.name)} <small>${d.w}×${d.h} · ${d.tiers.length} tier${d.tiers.length > 1 ? 's' : ''}${d.max > 1 ? ' · ' + have + '/' + d.max : have ? ' · built' : ''}</small></span><span class="ds">${esc(d.desc)}</span><span class="ds">${esc(fx(d.fx[0]))}${d.near ? ' · needs ' + d.near + ' nearby' : ''}${d.boost ? ' · double yield on ' + (d.boost === 'rock' ? 'rocky ground' : d.boost === 'trees' ? 'wooded ground' : d.boost) : ''}${lock ? ' · needs a ' + esc(S[d.stage].name) : ''}</span></div><span class="px">${esc(Clan.costText(cost))}</span><button class="btn" data-act="place" data-arg="${d.key}" ${lock || full || !g.hq || !Clan.can('build') ? 'disabled' : ''}>Place</button></div>`; }).join('');
     const w = W[g.wall.stage] || W[0], wn = W[g.wall.stage + 1];
     return `<div class="row"><input id="bSearch" placeholder="Search everything that can be built" value="${esc(this.search)}" style="flex:1"><button class="btn alt" data-act="bFind">Search</button>${this.search ? '<button class="btn alt" data-act="bClear">Clear</button>' : ''}</div>
       ${this.search ? '' : `<div class="chips">${Object.entries(cats).map(([k, n]) => `<button class="chip${this.cat === k ? ' on' : ''}" data-act="bCat" data-arg="${k}">${esc(n)}</button>`).join('')}</div>`}
@@ -21342,7 +21471,7 @@ Panels.clan = o => ClanUI.panel(o);
 Panels.clanStruct = o => {
   const gv = (Net.gang && Net.gang.id === o.gid) ? Net.gang : Net.world.gangs.get(o.gid), s = gv && (gv.structs || []).find(x => x.id === o.sid); if (!s) return null;
   const d = Clan.cat('BUILD')[s.kind] || { name: s.kind, tiers: [], fx: [] }, mine = Net.gang && Net.gang.id === o.gid, st = s.style || {}, up = d.tiers[s.tier];
-  const fx = t => Object.entries(t || {}).map(([k, v]) => k === 'prod' ? Object.entries(v).map(([r, n]) => '+' + n + ' ' + r + ' a day').join(', ') : k === 'unlock' ? 'unlocks ' + v : (v > 0 ? '+' : '') + v + ' ' + k).join(' · ');
+  const fx = t => Object.entries(t || {}).map(([k, v]) => k === 'prod' ? Object.entries(v).map(([r, n]) => '+' + ((s.boost && d.boost) ? n * 2 : n) + ' ' + r + ' a day').join(', ') : k === 'unlock' ? 'unlocks ' + v : (v > 0 ? '+' : '') + v + ' ' + k).join(' · ');
   const C = (act, list, cur) => ClanUI.chips(act, list, cur);
   const style = mine && d.vis.b && Clan.can('build') ? `<div class="speaker">Style</div>${C('ps', Object.keys(ARCH_PRESETS), st.preset)}<div class="speaker">Roof</div>${C('rm', ['kawara', 'kawaraD', 'kawaraR', 'thatch', 'thatchO', 'bark', 'copper', 'board'], st.roof)}${C('rt', ['irimoya', 'gable', 'hip'], st.roofType)}<div class="speaker">Walls and windows</div>${C('lw', ['board', 'lattice', 'namako', 'bengara'], st.lower)}${C('wn', ['renji', 'shoji', 'mushiko', 'castle', 'none'], st.win)}${C('rg', ['oni', 'gold', 'thatch', 'chigi', 'plain'], st.ridge)}<div class="grid2">${ClanUI.color('pl', st.plaster || '#e6dcc4', 'Plaster')}${ClanUI.color('po', st.posts || '#3a2416', 'Posts')}${ClanUI.color('no', st.noren || (gv.palette || {}).primary, 'Door curtain')}</div><div class="chips"><button class="chip${st.veranda === false ? '' : ' on'}" data-act="ve">Veranda</button><button class="btn gold" data-act="keep">Keep this style</button></div>` : '';
   const ban = mine && s.kind === 'banner' ? `<div class="speaker">Which banner flies here</div>${C('bn', (gv.banners || []).map(b => b.id), s.banner)}` : '';
@@ -21352,9 +21481,12 @@ Panels.clanStruct = o => {
     title: d.name + (s.tier > 1 ? ' ' + 'ⅠⅡⅢ'[s.tier - 1] : ''), seal: '築',
     html: `<p class="lede">${esc(d.desc || '')}</p><div class="stat"><span>${mine ? 'Gives now' : 'Belongs to'}</span><span>${esc(mine ? fx(d.fx[s.tier - 1]) || '—' : gv.name)}</span></div>${up && mine ? `<div class="stat"><span>Next tier</span><span>${esc(fx(d.fx[s.tier]))} · ${esc(Clan.costText(up.cost))}</span></div>` : ''}
       ${s.damaged ? '<p class="lede bad">Damaged in a raid. Repair it to use it again.</p>' : ''}
+      ${d.boost && s.state === 'done' && !s.damaged ? (s.boost ? '<p class="lede">This ground doubles what it gives.</p>' : '<p class="lede">Ordinary ground · move it to ' + (d.boost === 'rock' ? 'rocky ground' : 'the woods') + ' for twice the yield.</p>') : ''}
+      ${s.kind === 'stables' ? ClanUI.horseRows(s) : ''}
       ${mine ? `<div class="btns">${up && s.state !== 'building' && Clan.can('build') ? '<button class="btn gold" data-act="up">Improve</button>' : ''}${s.damaged ? '<button class="btn" data-act="fix">Repair</button>' : ''}${Clan.can('build') ? '<button class="btn alt" data-act="mv">Move</button>' : ''}${Clan.can('demolish') ? '<button class="btn alt" data-act="del">Tear down</button>' : ''}${s.kind === 'storehouse' || s.kind === 'treasury' ? '<button class="btn alt" data-act="store">Clan stores</button>' : ''}</div>` : ''}${ban}${style}`,
     on(act, arg) {
       const r = (op, a) => ClanUI.req(op, Object.assign({ id: s.id }, a));
+      if (act === 'horse') { Net.buyHorse(arg); return false; }
       if (act === 'up') r('upgrade'); if (act === 'fix') r('repair'); if (act === 'del') { r('demolish'); UI.close(); return false; }
       if (act === 'mv') { BuildMode.start(s.kind, s.id); return false; }
       if (act === 'store') { UI.close(); UI.open('clan', { tab: 'overview' }); return false; }

@@ -91,7 +91,20 @@ function createNet(opt) {
       parked: Object.values(db.players).filter(p => !byId.has(p.id) && p.horse && p.horse.parked && p.horse.x != null).map(p => ({ owner: p.id, name: p.name, horse: p.horse }))
     };
   }
-  function catalog() { return { RES: C.RES, RANKS: C.RANKS, PERMS: C.PERMS, STAGES: C.STAGES, BUILD: C.BUILD, BUILD_CATS: C.BUILD_CATS, WALLS: C.WALLS, GATES: C.GATES, EMBLEM: C.EMBLEM, BANNER: C.BANNER, UNIFORM: C.UNIFORM, PALETTE_KEYS: C.PALETTE_KEYS, ROLES: C.ROLES, TRAITS: C.TRAITS, ASSIGN: C.ASSIGN, ORDERS: C.ORDERS, FORMATIONS: C.FORMATIONS, VISITORS: C.VISITORS, GATE_CHOICES: C.GATE_CHOICES, TEMPERS: C.TEMPERS, TRAITS_HQ: C.TRAITS_HQ, MAX_PLAYERS }; }
+  function catalog() { return { RES: C.RES, RANKS: C.RANKS, PERMS: C.PERMS, STAGES: C.STAGES, BUILD: C.BUILD, BUILD_CATS: C.BUILD_CATS, HORSES: C.HORSES, WALLS: C.WALLS, GATES: C.GATES, EMBLEM: C.EMBLEM, BANNER: C.BANNER, UNIFORM: C.UNIFORM, PALETTE_KEYS: C.PALETTE_KEYS, ROLES: C.ROLES, TRAITS: C.TRAITS, ASSIGN: C.ASSIGN, ORDERS: C.ORDERS, FORMATIONS: C.FORMATIONS, VISITORS: C.VISITORS, GATE_CHOICES: C.GATE_CHOICES, TEMPERS: C.TEMPERS, TRAITS_HQ: C.TRAITS_HQ, MAX_PLAYERS }; }
+  // a finished, undamaged stables whose footprint you are standing on (or just beside). any clan’s stalls will sell.
+  function stablesAt(p) {
+    let at = null;
+    for (const gang of Object.values(db.gangs)) {
+      if (!gang || !Array.isArray(gang.structs)) continue;
+      for (const s of gang.structs) {
+        if (s.kind !== 'stables' || s.state !== 'done' || s.damaged) continue;
+        if (p.x < s.x - 2 || p.y < s.y - 2 || p.x > s.x + s.w + 2 || p.y > s.y + s.h + 2) continue;
+        if (!at || (s.tier | 0) > (at.tier | 0)) at = s;
+      }
+    }
+    return at;
+  }
 
   // ---- the world host: the earliest arrival still here whose game is in front of them. It changes only when the host
   // leaves, or puts the game away (a hidden browser tab stops running, and the island's people would stand still for
@@ -265,8 +278,12 @@ function createNet(opt) {
       }
       case 'renameDog': if (!g.dog) err = 'No dog.'; else if (p.id !== g.leader && p.id !== g.dog.buyer) err = 'Only the one who bought the dog, or the leader, can rename it.'; else { g.dog.name = U.cleanName(m.name, g.dog.name).slice(0, 16); G.bump(g); } break;
       case 'buyHorse': {
-        const H = { nag: { name: 'Nag', cost: 180, coat: 1, spdMul: 0.78 }, road: { name: 'Road horse', cost: 420, coat: 2, spdMul: 1.0 }, fine: { name: 'Fine mount', cost: 900, coat: 4, spdMul: 1.18 } }[m.id];
+        const H = C.HORSES[m.id];
         if (!H) { err = 'No such horse.'; break; }
+        const at = stablesAt(p);
+        if (!at) { err = 'The stables sell horses. Stand at one.'; break; }
+        if ((at.tier | 0) < H.need) { err = 'Improve the stables first.'; break; }
+        if (((p.horse && p.horse.spdMul) || 0) >= H.spdMul) { err = 'You already ride as well as this.'; break; }
         const have = (p.gold | 0) + (p.bank | 0); if (have < H.cost) { err = 'Not enough mon (need ' + H.cost + ').'; break; }
         const fromCarry = Math.min(p.gold | 0, H.cost); p.gold -= fromCarry; p.bank = (p.bank | 0) - (H.cost - fromCarry);
         p.horse = Object.assign(p.horse || {}, { coat: H.coat, name: H.name, spdMul: H.spdMul }); data = { gold: p.gold, bank: p.bank, horse: p.horse }; break;

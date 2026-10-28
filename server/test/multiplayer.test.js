@@ -261,3 +261,96 @@ test('a version 1 world is carried forward: camp, buildings and sworn blade', as
     await a.close();
   } finally { await S.stop(); }
 });
+
+test('stables sell better horses, gated by how far the stalls have grown', async () => {
+  const S = await startServer();
+  try {
+    const a = new Player(S.url, 'Ama'), b = new Player(S.url, 'Bo');
+    const wa = await a.join(); await b.join();
+    assert.equal(wa.catalog.HORSES.nag.cost, 180);
+    let r = await a.req('placeHQ', { site: 'kusamura' }); assert.equal(r.ok, true, r.err);
+    r = await a.req('contribute', { res: 'mon', n: 200 }); assert.equal(r.ok, true, r.err);
+    let placed = null;
+    for (const [x, y] of [[108, 117], [94, 117], [94, 125], [109, 125]]) {
+      r = await a.req('build', { kind: 'stables', x, y, rot: 0 });
+      if (r.ok) { placed = { x, y }; break; }
+    }
+    assert.ok(placed, r.err);
+    r = await b.req('buyHorse', { id: 'nag' });
+    assert.equal(r.ok, false); assert.match(r.err, /stables/);
+    b.send({ t: 'state', x: placed.x + 7, y: placed.y + 2, face: 0, hp: 100, maxHp: 100, wpn: 'katana', pose: 'idle' });
+    await sleep(80);
+    r = await b.req('buyHorse', { id: 'fine' });
+    assert.equal(r.ok, false); assert.match(r.err, /Improve/);
+    r = await b.req('buyHorse', { id: 'road' });
+    assert.equal(r.ok, false); assert.match(r.err, /Improve/);
+    r = await b.req('buyHorse', { id: 'nag' });
+    assert.equal(r.ok, true, r.err);
+    assert.equal(r.data.horse.name, 'Nag');
+    assert.equal(r.data.horse.spdMul, 0.78);
+    assert.equal(r.data.gold, 60);
+    r = await b.req('buyHorse', { id: 'nag' });
+    assert.equal(r.ok, false); assert.match(r.err, /already/);
+    await a.close(); await b.close();
+  } finally { await S.stop(); }
+});
+
+test('stone yards and lumber mills stand on open ground; the right ground doubles what they give', async () => {
+  const S = await startServer();
+  try {
+    const a = new Player(S.url, 'Ama');
+    const w = await a.join();
+    assert.equal(w.catalog.BUILD.quarry.boost, 'rock');
+    assert.equal(w.catalog.BUILD.lumberyard.boost, 'trees');
+    assert.ok(!w.catalog.BUILD.quarry.near);
+    assert.ok(!w.catalog.BUILD.lumberyard.near);
+    let r = await a.req('placeHQ', { site: 'kusamura' }); assert.equal(r.ok, true, r.err);
+    r = await a.req('contribute', { res: 'mon', n: 200 }); assert.equal(r.ok, true, r.err);
+    let quarry = null, mill = null;
+    for (const [x, y] of [[108, 117], [94, 117], [94, 125], [109, 125]]) {
+      if (!quarry) {
+        r = await a.req('build', { kind: 'quarry', x, y, rot: 0 });
+        if (r.ok) quarry = { x, y };
+      } else if (!mill) {
+        r = await a.req('build', { kind: 'lumberyard', x, y, rot: 0 });
+        if (r.ok) mill = { x, y };
+      }
+    }
+    assert.ok(quarry, 'stone yard should stand on open ground');
+    assert.ok(mill, 'lumber mill should stand on open ground');
+    let g = await a.wait(m => m.t === 'gang' && m.gang.structs.some(s => s.kind === 'lumberyard'));
+    assert.equal(g.gang.fx.prod.stone, 5);
+    assert.equal(g.gang.fx.prod.timber, 6);
+    const qid = g.gang.structs.find(s => s.kind === 'quarry').id;
+    const lid = g.gang.structs.find(s => s.kind === 'lumberyard').id;
+    r = await a.req('move', { id: qid, x: quarry.x, y: quarry.y, rot: 0, terrainOk: true, boost: true });
+    assert.equal(r.ok, true, r.err);
+    r = await a.req('move', { id: lid, x: mill.x, y: mill.y, rot: 0, terrainOk: true, boost: true });
+    assert.equal(r.ok, true, r.err);
+    g = await a.wait(m => m.t === 'gang' && m.gang.structs.some(s => s.kind === 'quarry' && s.boost) && m.gang.structs.some(s => s.kind === 'lumberyard' && s.boost));
+    assert.equal(g.gang.fx.prod.stone, 10);
+    assert.equal(g.gang.fx.prod.timber, 12);
+    await a.close();
+  } finally { await S.stop(); }
+});
+
+test('a forest settlement doubles the lumber mill without rocky or wooded tiles', async () => {
+  const S = await startServer();
+  try {
+    const a = new Player(S.url, 'Ama');
+    await a.join();
+    let r = await a.req('placeHQ', { site: 'hanaori' }); assert.equal(r.ok, true, r.err);
+    r = await a.req('contribute', { res: 'mon', n: 80 }); assert.equal(r.ok, true, r.err);
+    let mill = null;
+    for (const [x, y] of [[56, 153], [45, 153], [60, 164], [48, 164]]) {
+      r = await a.req('build', { kind: 'lumberyard', x, y, rot: 0 });
+      if (r.ok) { mill = { x, y }; break; }
+    }
+    assert.ok(mill, r.err);
+    const g = await a.wait(m => m.t === 'gang' && m.gang.structs.some(s => s.kind === 'lumberyard'));
+    const s = g.gang.structs.find(x => x.kind === 'lumberyard');
+    assert.equal(s.boost, true);
+    assert.equal(g.gang.fx.prod.timber, 16);
+    await a.close();
+  } finally { await S.stop(); }
+});

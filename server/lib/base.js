@@ -124,6 +124,7 @@ function createBase(ctx, G) {
     if (!G.pay(g, cost)) return 'Not enough: ' + G.short(g, cost) + ' short.';
     const s = B.put(g, def.key, x, y, rot, 1, true);
     s.by = pid; s.style = B.cleanStyle(m.style);
+    if (def.boost) s.boost = !!(m.boost || B.siteBoost(g, def));
     G.addRenown(g, 2 + (def.stage || 0) * 2, null);
     G.log(g, (ctx.player(pid) || {}).name + ' built ' + def.name + '.');
     G.bump(g);
@@ -167,8 +168,17 @@ function createBase(ctx, G) {
     const fee = { mon: def.vis.b ? Math.round((def.tiers[0].cost.mon || 0) * 0.15) : 0 };
     if (fee.mon && !G.pay(g, fee)) return 'Moving it costs ' + fee.mon + ' mon.';
     Object.assign(s, { x, y, w, h, rot });
+    if (def.boost) s.boost = !!(m.boost || B.siteBoost(g, def));
     G.bump(g);
     return null;
+  };
+  // stone yards and lumber mills stand anywhere; forest / mountain settlements (and client-reported rocky or wooded ground) double what they give
+  B.siteBoost = (g, def) => {
+    if (!def || !def.boost) return false;
+    const t = (g.hq && g.hq.traits) || [];
+    if (def.boost === 'trees') return t.includes('forest') || t.includes('bamboo');
+    if (def.boost === 'rock') return t.includes('mountain');
+    return false;
   };
   B.cleanStyle = (st) => {
     if (!st || typeof st !== 'object') return null;
