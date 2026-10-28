@@ -2140,11 +2140,34 @@ const World = {
     return o;
   },
   removeObj(o) { const k = this.key(Math.floor(o.cx), Math.floor(o.cy)), L = this.grid.get(k); if (!L) return; const i = L.indexOf(o); if (i >= 0) L.splice(i, 1); if (!L.length) this.grid.delete(k); },
-  wildObj(o) { return !!(o && o.solid && !o.keep && (TREES.has(o.t) || o.t === 'rock' || o.t === 'bush' || o.t === 'reeds')); },
+  // bushes and reeds are not solid, but they still have to come up when a house or a camp is put on them
+  wildObj(o) {
+    if (!o || o.keep || o.indoor || o.chestId || o.towerId) return false;
+    if (o.t === 'bush' || o.t === 'reeds' || o.t === 'stump') return true;
+    return !!(o.solid && (TREES.has(o.t) || o.t === 'rock'));
+  },
   manAt(i, j) { for (const o of this.at(i, j)) if (o.solid && !this.wildObj(o)) return true; return false; },
   sweepWild(i, j) {
-    if (!this.in(i, j)) return;
-    for (const o of this.at(i, j).slice()) if (this.wildObj(o)) { this.removeObj(o); this.subRect(o.x, o.y, o.x + o.w, o.y + o.h, 0); if (this.solidAt(i, j) === 1) this.setSolid(i, j, 0); }
+    if (!this.in(i, j)) return 0;
+    let n = 0;
+    for (const o of this.at(i, j).slice()) if (this.wildObj(o)) {
+      this.removeObj(o); n++;
+      if (this.bAt(i, j)) continue;
+      this.subRect(o.x, o.y, o.x + o.w, o.y + o.h, 0);
+      if (this.solidAt(i, j) === 1 && !this.manAt(i, j)) this.setSolid(i, j, 0);
+    }
+    return n;
+  },
+  sweepYard(x0, y0, x1, y1) {
+    for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) if (this.in(i, j)) { this.sweepWild(i, j); this.setClear(i, j); }
+  },
+  inCamp(x, y) {
+    if (typeof Net === 'undefined' || !Net.world || !Net.world.gangs) return false;
+    for (const gv of Net.world.gangs.values()) {
+      const b = gv.bounds; if (!b) continue;
+      if (x >= b.x0 - 2 && x <= b.x1 + 2 && y >= b.y0 - 2 && y <= b.y1 + 2) return true;
+    }
+    return false;
   },
   // a wall post: never on a house, a gate, or anything else already standing. Neighbouring posts of a wall may touch.
   post(t, x, y, dir = 0) {
@@ -2632,7 +2655,8 @@ const World = {
   // what grows on one tile: shared by Ashigawa (placed once) and the streamed provinces
   growth(x, y, R) {
     const s = this.solidAt(x, y), tl = this.tileAt(x, y);
-    if (s === 2) { if (this.clearAt(x, y) || TINFO[tl].water) return null; const b = this.biomeAt(x, y), r = R(); return r < 0.4 ? (b === B.SNOW || tl === TILE.SNOW ? (r < 0.25 ? 'cliff' : 'snowpine') : b === B.ASH ? (r < 0.3 ? 'cliff' : 'deadtree') : r < 0.3 ? 'cliff' : 'pine') : null; }
+    if (this.clearAt(x, y) || this.inCamp(x, y)) return null;
+    if (s === 2) { if (TINFO[tl].water) return null; const b = this.biomeAt(x, y), r = R(); return r < 0.4 ? (b === B.SNOW || tl === TILE.SNOW ? (r < 0.25 ? 'cliff' : 'snowpine') : b === B.ASH ? (r < 0.3 ? 'cliff' : 'deadtree') : r < 0.3 ? 'cliff' : 'pine') : null; }
     if (tl === TILE.PADDY) return null;
     if (!this.free(x, y)) return null;
     const b = this.biomeAt(x, y), n = Noise.fbm(x * 0.09 + 50, y * 0.09, 3);
@@ -2691,6 +2715,7 @@ const World = {
       if (t && d < 14 && R() > (d - 3) / 11) continue;
       if (t) list.push(this.addObj(t, x, y, 1, 1, { solid: !['bush', 'reeds'].includes(t), lazy: true }));
     }
+    if (typeof Compound !== 'undefined') Compound.scrubChunk(x0, y0, CK);
   },
   unloadChunk(k) {
     for (const o of this.chunkObjs.get(k) || NONE) {
@@ -4802,6 +4827,7 @@ const Towns = {
     for (const [dx, dy] of [[-1, -2], [3, -1]]) W.deco('crates', cx + dx, cy + dy);
     W.spots[id] = [cx + 0.5, cy + 1.8];
     W.keepClear(cx, cy, 8.5);
+    W.disc(cx, cy, 8.5, (i, j) => W.sweepWild(i, j));
   },
   misc(R) {
     const W = World;
@@ -19474,14 +19500,26 @@ const Compound = {
     for (const [gid] of this.state) if (!Net.world.gangs.has(gid) || !Net.world.gangs.get(gid).hq) this.remove(gid);
   },
   rect(s) { return [s.x, s.y, s.x + s.w, s.y + s.h]; },
+  scrub(gv) {
+    const b = gv && gv.bounds; if (!b) return;
+    World.sweepYard(b.x0 - 2, b.y0 - 2, b.x1 + 2, b.y1 + 2);
+  },
+  scrubChunk(x0, y0, s) {
+    if (!Net.world || !Net.world.gangs) return;
+    for (const gv of Net.world.gangs.values()) {
+      const b = gv.bounds; if (!b) continue;
+      if (x0 > b.x1 + 2 || x0 + s < b.x0 - 2 || y0 > b.y1 + 2 || y0 + s < b.y0 - 2) continue;
+      this.scrub(gv);
+    }
+  },
   apply(gv) {
     let st = this.state.get(gv.id);
     const b = gv.bounds, bsig = [b.x0, b.y0, b.x1, b.y1].join(',');
     if (!st) { st = { ver: 0, built: new Map(), wall: null, bsig: '' }; this.state.set(gv.id, st); }
+    // every apply: generate the ground, then pull up bushes, reeds and trees so a house or a wall is never in them
+    for (let y = b.y0 - 6; y <= b.y1 + 38; y += 32) for (let x = b.x0 - 6; x <= b.x1 + 38; x += 32) World.completeAt(Math.min(x, b.x1 + 6), Math.min(y, b.y1 + 6));
+    this.scrub(gv);
     if (st.bsig !== bsig) {
-      // the ground is made ready once: chunks generated, wild growth cleared (terrain, rivers and rocks stay)
-      for (let y = b.y0 - 6; y <= b.y1 + 38; y += 32) for (let x = b.x0 - 6; x <= b.x1 + 38; x += 32) World.completeAt(Math.min(x, b.x1 + 6), Math.min(y, b.y1 + 6));
-      for (let j = b.y0 - 2; j <= b.y1 + 2; j++) for (let i = b.x0 - 2; i <= b.x1 + 2; i++) if (World.in(i, j)) { World.sweepWild(i, j); World.setClear(i, j); }
       Ground.invalidateRect(b.x0 - 3, b.y0 - 3, b.x1 + 3, b.y1 + 3);
       // dropping the rec without unbuild left the old ring standing inside the new one until a refresh
       if (st.wall) this.unbuild(st.wall);
@@ -19513,6 +19551,7 @@ const Compound = {
   unbuild(rec) {
     if (rec.b) Buildings.remove(rec.b);
     for (const o of rec.objs) { World.removeObj(o); if (o.solid) { World.subRect(o.x, o.y, o.x + o.w, o.y + o.h, 0); for (let j = Math.floor(o.y); j < Math.ceil(o.y + o.h); j++) for (let i = Math.floor(o.x); i < Math.ceil(o.x + o.w); i++) if (World.solidAt(i, j) === 1 && !World.bAt(i, j)) World.setSolid(i, j, 0); } }
+    if (rec.r) World.subRect(rec.r[0], rec.r[1], rec.r[2], rec.r[3], 0);
     for (const [i, j, t, s] of rec.tiles.reverse()) { World.set(i, j, t); World.setSolid(i, j, s); }
     for (const k of rec.wallKeys || []) this.wallTiles.delete(k);
     if (rec.tiles.length || rec.r) { const r = rec.r || [rec.tiles[0][0], rec.tiles[0][1], rec.tiles[0][0] + 1, rec.tiles[0][1] + 1]; Ground.invalidateRect(r[0] - 2, r[1] - 2, r[2] + 2, r[3] + 2); }
@@ -19533,6 +19572,7 @@ const Compound = {
   },
   build(gv, s) {
     const def = this.catalog()[s.kind] || { vis: { p: 'sign' }, name: s.kind }, vis = def.vis, rec = { gid: gv.id, sid: s.id, objs: [], tiles: [], b: null, r: this.rect(s) };
+    World.sweepYard(s.x, s.y, s.x + s.w - 1, s.y + s.h - 1);
     const T = { gravel: TILE.GRAVEL, paddy: TILE.PADDY, path: TILE.PATH, stone: TILE.STONE, pave: TILE.PAVE, water: TILE.WATER };
     if (vis.t) for (let j = s.y; j < s.y + s.h; j++) for (let i = s.x; i < s.x + s.w; i++) {
       const edge = i === s.x || j === s.y || i === s.x + s.w - 1 || j === s.y + s.h - 1;
@@ -19660,13 +19700,16 @@ const Compound = {
 // a building's slot is kept when it comes down (others are found by their index), it simply stops being anywhere
 Buildings.remove = function (b) {
   if (!b || b.gone) return;
-  for (const it of b.items || []) if (it) World.removeObj(it);
-  for (let j = b.y; j < b.y + b.h; j++) for (let i = b.x; i < b.x + b.w; i++) {
+  const { x, y, w, h } = b;
+  for (const it of b.items || []) if (it) { World.removeObj(it); if (it.solid) World.subRect(it.x, it.y, it.x + it.w, it.y + it.h, 0); }
+  // walls and furniture write the quarter-tile map; leaving it behind is a ghost you still walk into after a move
+  World.subRect(x, y, x + w, y + h, 0);
+  for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) {
     if (World.bAt(i, j) !== b.id + 1) continue;
     World.bmap.delete(World.key(i, j)); if (World.solidAt(i, j) === 1) World.setSolid(i, j, 0);
     const u = b.under && b.under.get(World.key(i, j)); if (u !== undefined) World.set(i, j, u);
   }
-  Ground.invalidateRect(b.x - 2, b.y - 2, b.x + b.w + 2, b.y + b.h + 2);
+  Ground.invalidateRect(x - 2, y - 2, x + w + 2, y + h + 2);
   this.cache.delete(b.id); b.gone = true; b.items = []; b.x = b.y = -99999; b.w = b.h = 0; b.open = 0;
   if (this.visible) this.visible = this.visible.filter(x => x !== b);
 };
