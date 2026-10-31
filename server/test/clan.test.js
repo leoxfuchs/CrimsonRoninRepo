@@ -215,6 +215,38 @@ test('contracts are real work: progress is counted, rewards and land follow', ()
   r = W.req(a, 'duelDone', { id: du.id }); assert.equal(r.ok, false);
 });
 
+test('an escort starts at a real pickup: the host reports the meeting, and scouting counts on arrival', () => {
+  const W = world(); const a = W.join('Escort'); const b = W.join('Other');
+  W.net.R.setInfo(info(), a.id); W.req(a, 'placeHQ', { site: 'kusamura' });
+  const g = W.gang(a);
+  const e = W.net.L.contractFor(g, 'escort'); g.contracts.push(e);
+  assert.ok(e.pickup, 'an escort has somewhere to meet the merchant');
+  assert.ok(e.pickup.id !== e.place.id, 'and it is not the destination');
+  assert.equal(e.met, false);
+  let r = W.req(a, 'acceptContract', { id: e.id }); assert.equal(r.ok, true, r.err);
+  const host = [a, b].find(p => p.id === W.net.hostId) || a, other = host === a ? b : a;
+  W.net.onMsg(other.ws, JSON.stringify({ t: 'contractMet', gang: g.id, id: e.id }));
+  assert.equal(e.met, false, 'only the world host can say the merchant set out');
+  W.net.onMsg(host.ws, JSON.stringify({ t: 'contractMet', gang: g.id, id: e.id }));
+  assert.equal(e.met, true);
+  const s = W.net.L.contractFor(g, 'scoutRival'); g.contracts.push(s); W.req(a, 'acceptContract', { id: s.id });
+  W.db.players[a.id].x = s.place.x + 200; W.db.players[a.id].y = s.place.y;
+  r = W.req(a, 'arrive', { id: s.id }); assert.equal(r.ok, false);
+  W.db.players[a.id].x = s.place.x + 20; W.db.players[a.id].y = s.place.y;
+  r = W.req(a, 'arrive', { id: s.id }); assert.equal(r.ok, true, r.err); assert.equal(s.state, 'done');
+});
+
+test('the board at the gate is stocked on settling, with different kinds of work, and refilled as jobs are done', () => {
+  const W = world(); const a = W.join('Boarder');
+  W.net.R.setInfo(info(), a.id); W.req(a, 'placeHQ', { site: 'kusamura' });
+  const g = W.gang(a), open = () => g.contracts.filter(c => c.state === 'offered');
+  assert.ok(open().length >= 2, 'a new clan finds work pinned to its board');
+  assert.ok(new Set(open().map(c => c.kind)).size >= 2, 'and not all of one kind');
+  const c = open()[0]; let r = W.req(a, 'acceptContract', { id: c.id }); assert.equal(r.ok, true, r.err);
+  W.net.L.progress(g, c.id, c.need);
+  assert.equal(c.state, 'done'); assert.ok(open().length >= 2, 'a finished job makes room for another');
+});
+
 test('what a client sends is cleaned: emblems, uniforms and banners stay inside the editor’s limits', () => {
   const W = world(); const a = W.join('Painter');
   let r = W.req(a, 'emblem', { emblem: { shape: 'pentagram', field: 'red', layers: Array.from({ length: 20 }, () => ({ sym: 'dragon', s: 99, x: 5, color: '#00ff00' })) } });

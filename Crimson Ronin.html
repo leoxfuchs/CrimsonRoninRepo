@@ -7177,7 +7177,7 @@ const G = {
     for (const a of this.actors) {
       if (a === p || a.dead) continue;
       drownTick(a, dt); if (a.drownT > 0) continue;
-      if (hostMp && Net.nearestObs(a.x, a.y) > 60 && !(a.ai && a.ai.mode === 'fight')) continue;
+      if (hostMp && Net.nearestObs(a.x, a.y) > 60 && !(a.ai && a.ai.mode === 'fight') && !a.escortFor) continue;
       if (a.remote) a.updateVisual(dt); else { aiUpdate(a, dt); a.update(dt); }
     }
     this.actors = this.actors.filter(a => !(a.gone && !a.persistent));
@@ -7237,7 +7237,7 @@ const G = {
     this.updatePickups(dt);
     Systems.update(dt);
     if (this.mp && typeof Net !== 'undefined') {
-      Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt); Trial.tick(); ContractDuel.tick(); RenMeet.tick(dt);
+      Net.tick(dt); Compound.tick(dt); ClanAI.tick(dt); Clan.contractAuto(dt); Trial.tick(); ContractDuel.tick(); RenMeet.tick(dt);
       // the ground round every other player is built on the host too, so its people there walk on real terrain
       if (Net.isHost && (this.obsT = (this.obsT || 0) - dt) <= 0) { this.obsT = 0.5; for (const [x, y] of Net.observers().slice(1)) World.stream(x, y, 2); }
       // anyone a game made for itself (a traveller, a stray) has no place in the shared world unless it is the host's
@@ -7929,6 +7929,7 @@ const Systems = {
       case 'shop': UI.open('shop', { shop: it.shop }); break;
       case 'inn': UI.open('inn', { castle: (Buildings.at(G.player.x, G.player.y) || {}).name === 'The Golden Carp' }); break;
       case 'bounty': UI.open('bounty'); break;
+      case 'clanBoard': UI.open('clanBoard', { gid: it.gid }); break;
       case 'pray': UI.open('shrine'); break;
       case 'hideout': UI.open('hideout', it.tab ? { tab: it.tab } : {}); break;
       case 'restHome': UI.open('hideout', { tab: 'rest' }); break;
@@ -16345,7 +16346,7 @@ const Track = {
         return { kind: 'side', head: 'Quest · The Nameless Blade', text: 'Find the ronin in the ruins of Kiyohara', hint: 'He speaks only to those of high honour (50+).', tgt: (typeof RenMeet !== 'undefined' && RenMeet.at()) || [g.ren.x, g.ren.y] };
       }
       const cid = P && P.contract, c = cid && g && (g.contracts || []).find(x => x.id === cid && x.state === 'active');
-      if (c && c.place) return { kind: 'activity', head: 'Contract · ' + c.name, text: c.place.name || c.name, hint: (c.got || 0) + '/' + (c.need || 1), tgt: [c.place.x, c.place.y] };
+      if (c && c.place) { const w = Clan.contractStep(c); return { kind: 'activity', head: 'Contract · ' + c.name, text: w.text, hint: w.hint, tgt: w.at }; }
       const id = P && P.track && Quests.st(P.track) && !Quests.isDone(P.track) ? P.track : null;
       if (!id) return null;
       const d = QDEFS[id]; if (!d || d.kind === 'main') return null;
@@ -19710,6 +19711,8 @@ const Compound = {
       }
       const k = World.key(i, j), wt = this.wallTiles.get(k); if (wt && wt.gid === gv.id) this.wallTiles.delete(k);
     }
+    // every compound keeps a bounty board just inside its gate: the clan's work and the wanted posters, one press of E away
+    { const [gx, gy] = b.gate; for (const [dx, dy] of [[3, -2], [-3, -2], [4, -3], [-4, -3]]) { const x = gx + dx, y = gy + dy; if (!World.in(x, y) || World.bAt(x, y) || World.at(x, y).some(o => o.solid)) continue; this.obj(rec, 'board', x, y, 1, 1, { solid: true, interact: { kind: 'clanBoard', gid: gv.id, label: 'Read the bounty board' } }); break; } }
     if (!W.prop) return rec;
     const [gx, gy] = b.gate, put = (x, y, dir, ring = 0) => {
       x = Math.round(x); y = Math.round(y);
@@ -19961,6 +19964,31 @@ const ClanMap = {
 const NPC_STATES = ['idle', 'walk', 'atk', 'block', 'stagger', 'roll', 'kneel', 'sleep', 'sit', 'work', 'charge', 'bow', 'dead'];
 const WORK_KINDS = ['work', 'haul', 'heave', 'cut', 'hammer', 'dig', 'hoe', 'pry', 'pack'];
 const Clan = {
+  // where a contract's work is right now and what to do there, in plain words (the tracker, the map, the list)
+  contractStep(c) {
+    const P = c.place, at = [P.x, P.y];
+    switch (c.kind) {
+      case 'escort': return c.pickup && !c.met ? { text: 'Meet the merchant at ' + c.pickup.name, hint: 'He waits with his bundle. Walk up to him.', at: [c.pickup.x, c.pickup.y] } : { text: 'Walk the merchant to ' + P.name, hint: 'He is on foot: keep him close, and alive.', at };
+      case 'deliver': return { text: 'Take ' + this.costText(c.res) + ' to ' + P.name, hint: 'From the clan store. Handed over when you arrive.', at };
+      case 'scout': return { text: 'Look over ' + P.name, hint: 'It counts as soon as you get close.', at };
+      case 'kill': return { text: (c.boss ? 'Find the wanted man near ' : 'Defeat the outlaws near ') + P.name, hint: (c.got || 0) + ' of ' + (c.need || 1) + ' down', at };
+      case 'defend': return { text: 'Hold ' + P.name + ' against the raiders', hint: 'Wave ' + (c.got || 0) + ' of ' + (c.need || 1) + '. Stay there.', at };
+      case 'duel': return { text: 'Meet the duelist at ' + P.name, hint: 'Alone. They are waiting.', at };
+      default: return { text: P.name, hint: (c.got || 0) + '/' + (c.need || 1), at };
+    }
+  },
+  // getting there is enough: a look around (scout) or a handover (deliver) counts when you arrive, with no button to press
+  autoT: 0, autoAt: {},
+  contractAuto(dt) {
+    if (!G.mp || (this.autoT -= dt) > 0) return; this.autoT = 1;
+    const g = typeof Net !== 'undefined' && Net.gang, P = G.player; if (!g || !P || P.dead) return;
+    for (const c of g.contracts || []) {
+      if (c.state !== 'active' || !c.place || (this.autoAt[c.id] || 0) > G.time) continue;
+      const d = dist(P.x, P.y, c.place.x, c.place.y);
+      if (c.kind === 'scout' && d < 32) { this.autoAt[c.id] = G.time + 15; Net.req('arrive', { id: c.id }).then(r => { if (r && r.ok) UI.toast('You have seen what you came to see at ' + c.place.name + '.', 'good'); }); }
+      if (c.kind === 'deliver' && d < 22) { this.autoAt[c.id] = G.time + 30; Net.req('deliver', { id: c.id }).then(r => { if (r && !r.ok && r.err && r.err !== 'timeout') UI.toast(r.err, 'shame'); }); }
+    }
+  },
   cat(k) { return (Net.catalog && Net.catalog[k]) || {}; },
   g() { return Net.gang; },
   rank(pid = Net.id) { const g = Net.gang; if (!g) return 99; return g.leader === pid ? 0 : (g.ranks && g.ranks[pid] !== undefined ? g.ranks[pid] : 4); },
@@ -20761,13 +20789,33 @@ const ClanAI = {
           a.contract = c.id; a.cgang = k.gang; a.rival = c.rival; G.actors.push(a); k.foes.push(a);
         }
       }
+      // an escort: the merchant waits with his pack horse at the pickup town until whoever took the job comes for him,
+      // then walks at their side; bandits who heard about the cargo wait halfway down the road
       if (c.kind === 'escort' && !k.spawned) {
-        const by = this.leaderOf(c.by); if (by) { k.spawned = true; const q = World.randomWalkable(by.x, by.y, 1.5, 3, 30) || [by.x + 1, by.y]; const a = makeNPC('merchant', q[0], q[1], { persistent: true, name: 'Merchant ' + pick(NAMES_F), label: 'Escort to ' + P.name }); a.escortFor = c.by; a.contract = c.id; a.cgang = k.gang; a.essential = false; a.coward = true; G.actors.push(a); k.foes.push(a); }
+        const U0 = c.pickup || null, by = this.leaderOf(c.by);
+        const at = U0 ? (c.met && by ? [by.x, by.y] : [U0.x, U0.y]) : by ? [by.x, by.y] : null;
+        if (at && (c.met || !U0 || this.memberNear(k.gang, at[0], at[1], 90))) {
+          k.spawned = true; let q = World.randomWalkable(at[0], at[1], c.met || !U0 ? 1.5 : 0, c.met || !U0 ? 3 : 2.5, 30) || at;
+          const a = makeNPC('merchant', q[0], q[1], { persistent: true, name: 'Merchant ' + pick(NAMES_F), label: c.met || !U0 ? 'Escort to ' + P.name : 'Merchant · bound for ' + P.name, wanderR: 0 });
+          a.contract = c.id; a.cgang = k.gang; a.essential = false; a.coward = true; a.post = q.slice(); a.escortTo = [P.x, P.y];
+          if (c.met || !U0) a.escortFor = c.by;
+          G.actors.push(a); k.foes.push(a); k.met = !!(c.met || !U0);
+        }
       }
       if (c.kind === 'escort' && k.spawned) {
         const m = k.foes[0];
         if (!m || m.dead) { Net.send({ t: 'contractFail', gang: k.gang, id, why: 'the merchant was killed' }); this.contractOff(k.gang, id); continue; }
-        if (dist(m.x, m.y, P.x, P.y) < 10) { Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); this.contractOff(k.gang, id); continue; }
+        // whoever took it reaches him: he picks up his bundle and goes with them
+        if (!k.met) { const by = this.leaderOf(c.by); if (by && !by.dead && dist(by.x, by.y, m.x, m.y) < 4) { k.met = true; m.escortFor = c.by; m.post = null; m.label = 'Escort to ' + P.name; FX.text(m.x, m.y, pick(['At last. To ' + P.name + ', and keep your eyes open.', 'You are my guard? Good. ' + P.name + ', then.', 'The road to ' + P.name + ' is not safe. Stay close.']), '#efe3c8'); Net.send({ t: 'contractMet', gang: k.gang, id }); k.from = [m.x, m.y]; } }
+        if (k.met && !k.ambush) {
+          const from = k.from || (c.pickup ? [c.pickup.x, c.pickup.y] : [m.x, m.y]), all = dist(from[0], from[1], P.x, P.y), left = dist(m.x, m.y, P.x, P.y);
+          if (all > 30 && left < all * 0.62) {
+            k.ambush = true; const ang = Math.atan2(P.y - m.y, P.x - m.x);
+            for (let i = 0; i < 3 + (c.diff >= 3 ? 1 : 0); i++) { const q = (typeof offscreenSpot === 'function' && offscreenSpot({ x: m.x + Math.cos(ang) * 22, y: m.y + Math.sin(ang) * 22 }, 0, 6)) || World.randomWalkable(m.x + Math.cos(ang) * 24, m.y + Math.sin(ang) * 24, 0, 5, 30); if (!q) continue; const a = makeNPC('bandit', q[0], q[1], { persistent: true, aggressive: true, label: 'Road bandit', canYield: true }); a.cgang = k.gang; a.ai.mode = 'fight'; a.ai.target = m; a.aware = 1; G.actors.push(a); k.foes.push(a); }
+            FX.text(m.x, m.y, pick(['Bandits! On the road ahead!', 'They knew about the cargo!']), '#ff8a7a');
+          }
+        }
+        if (k.met && dist(m.x, m.y, P.x, P.y) < 10) { FX.text(m.x, m.y, 'We made it. The clan will be paid.', '#9ad0a0'); Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); this.contractOff(k.gang, id); continue; }
       }
       if (c.kind === 'defend' && near) {
         const alive = k.foes.filter(a => !a.dead && !a.yielded && !a.gone);
@@ -20783,6 +20831,8 @@ const ClanAI = {
   escortAI(a, dt) {
     const L = this.leaderOf(a.escortFor); if (!L) { a.move(0, 0, dt); return true; }
     const d = dist(a.x, a.y, L.x, L.y);
+    // left far behind (a rider who forgot him) and out of sight: he catches up the way a person does, off-screen
+    if (d > 26 && GangRide.offscreen(a.x, a.y)) { const q = GangRide.behind(18) || World.randomWalkable(L.x, L.y, 6, 12, 30); if (q && GangRide.offscreen(q[0], q[1])) { a.x = q[0]; a.y = q[1]; a.nav = null; } }
     if (d > 2.4) Nav.step(a, L.x, L.y, dt, d > 6 ? 1.3 : 0.85, { slack: 2.5 }); else { a.move(0, 0, dt); a.faceTo(L.x, L.y); }
     return true;
   },
@@ -21030,7 +21080,7 @@ const ClanUI = {
     }).join('');
     return `<div class="speaker">Horses for sale</div><p class="lede">You ride ${esc(ride)}.</p>${rows}`;
   },
-  req(op, args, then) { Net.lastArgs = Net.lastArgs || {}; return Net.req(op, args).then(r => { if (r.ok && then) then(r); if (UI.panel === 'clan' || UI.panel === 'clanStruct' || UI.panel === 'visitor' || UI.panel === 'clanNpc') UI.render(); return r; }); },
+  req(op, args, then) { Net.lastArgs = Net.lastArgs || {}; return Net.req(op, args).then(r => { if (r.ok && then) then(r); if (UI.panel === 'clan' || UI.panel === 'clanStruct' || UI.panel === 'visitor' || UI.panel === 'clanNpc' || UI.panel === 'clanBoard') UI.render(); return r; }); },
   // the building on the ground takes the new look at once; the world is told in the same breath (debounced so a row of chips is one request)
   paintStyle(sid, style) {
     const g = Net.gang; if (!g) return;
@@ -21381,8 +21431,8 @@ const ClanUI = {
   a_dip(arg) { const [rival, action] = arg.split(':'); this.req('diplomacy', { rival, action }); return false; },
   // ---- contracts
   t_work(g) {
-    const P = G.player, cs = g.contracts || [], row = c => `<div class="row${c.state === 'active' ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(c.name)} <small>${'◆'.repeat(c.diff || 1)} · ${c.reward.mon} mon · ${c.place ? Math.round(dist(c.place.x, c.place.y, P.x, P.y)) + ' tiles' : ''}${c.from ? ' · from ' + esc(c.from) : ''}</small></span><span class="ds">${c.state === 'active' ? 'Under way · ' + (c.got || 0) + '/' + c.need + (c.kind === 'deliver' ? ' · bring ' + Clan.costText(c.res) + ' from the clan store' : c.kind === 'escort' ? ' · the merchant walks with whoever took it' : c.kind === 'scout' ? ' · go and look' : '') : c.state}${c.expires ? ' · until day ' + c.expires : ''}</span></div>
-      ${c.state === 'offered' ? `<button class="btn" data-act="cTake" data-arg="${c.id}">Take it on</button>` : ''}${c.state === 'active' ? `<button class="btn alt" data-act="cTrack" data-arg="${c.id}">Track</button>${c.kind === 'deliver' ? `<button class="btn" data-act="cDeliver" data-arg="${c.id}">Deliver</button>` : ''}${c.kind === 'scout' ? `<button class="btn" data-act="cArrive" data-arg="${c.id}">I am here</button>` : ''}<button class="btn alt" data-act="cDrop" data-arg="${c.id}">Give up</button>` : ''}</div>`;
+    const P = G.player, cs = g.contracts || [], row = c => `<div class="row${c.state === 'active' ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(c.name)} <small>${'◆'.repeat(c.diff || 1)} · ${c.reward.mon} mon · ${c.place ? Math.round(dist(c.place.x, c.place.y, P.x, P.y)) + ' tiles' : ''}${c.from ? ' · from ' + esc(c.from) : ''}</small></span><span class="ds">${c.state === 'active' ? 'Under way · ' + (c.got || 0) + '/' + c.need + ' · ' + Clan.contractStep(c).text : c.state}${c.expires ? ' · until day ' + c.expires : ''}</span></div>
+      ${c.state === 'offered' ? `<button class="btn" data-act="cTake" data-arg="${c.id}">Take it on</button>` : ''}${c.state === 'active' ? `<button class="btn alt" data-act="cTrack" data-arg="${c.id}">Track</button><button class="btn alt" data-act="cDrop" data-arg="${c.id}">Give up</button>` : ''}</div>`;
     return `<p class="lede">Work brought to the gate by visitors and messengers. Doing it pays the clan, builds its name, and wins influence in the district where it happens.</p>${cs.filter(c => c.state === 'active').map(row).join('')}${cs.filter(c => c.state === 'offered').map(row).join('')}${cs.filter(c => c.state !== 'active' && c.state !== 'offered').map(row).join('') || (cs.length ? '' : '<p class="lede">No work yet. It comes as the clan becomes known.</p>')}`;
   },
   a_cTake(id) { this.req('acceptContract', { id }, () => { G.profile.contract = id; }); return false; },
@@ -21463,10 +21513,24 @@ const ClanUI = {
     const info = Net.world.info, T = Net.world.territory, me = Net.gang;
     if (info) for (const c of info.cells) { const st = T[c.k]; if (!st || !st.owner) continue; const x = c.cx * 256, y = c.cy * 256, P = [toS(x, y), toS(x + 256, y), toS(x + 256, y + 256), toS(x, y + 256)]; g.globalAlpha = 0.22; g.fillStyle = st.owner === (me && me.id) ? me.palette.primary : Net.world.gangs.has(st.owner) ? '#7a8aa0' : '#c84a3a'; g.beginPath(); P.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); g.globalAlpha = 0.6; g.strokeStyle = g.fillStyle; g.lineWidth = 1; g.stroke(); g.globalAlpha = 1; }
     for (const gv of Net.world.gangs.values()) if (gv.hq) { const [sx, sy] = toS(gv.hq.x, gv.hq.y), s = Math.max(14, Math.min(40, sc * 2)), c = Emblem.canvas(gv.emblem, 48); if (c) g.drawImage(c, sx - s / 2, sy - s / 2, s, s); g.font = '12px "Shippori Mincho B1", serif'; g.textAlign = 'center'; g.fillStyle = '#000'; g.fillText(gv.name, sx + 1, sy + s / 2 + 11); g.fillStyle = gv.id === (me && me.id) ? '#ffe08a' : '#efe3c8'; g.fillText(gv.name, sx, sy + s / 2 + 10); }
-    const c = me && (me.contracts || []).find(x => x.id === G.profile.contract && x.state === 'active'); if (c && c.place) { const [sx, sy] = toS(c.place.x, c.place.y); g.save(); g.translate(sx, sy); g.rotate(PI / 4); g.fillStyle = '#000'; g.fillRect(-5, -5, 10, 10); g.fillStyle = '#ff9a4a'; g.fillRect(-4, -4, 8, 8); g.restore(); }
+    const c = me && (me.contracts || []).find(x => x.id === G.profile.contract && x.state === 'active'); if (c && c.place) { const w = Clan.contractStep(c), [sx, sy] = toS(w.at[0], w.at[1]); g.save(); g.translate(sx, sy); g.rotate(PI / 4); g.fillStyle = '#000'; g.fillRect(-5, -5, 10, 10); g.fillStyle = '#ff9a4a'; g.fillRect(-4, -4, 8, 8); g.restore(); }
   }
 };
 Panels.clan = o => ClanUI.panel(o);
+// the board inside a clan's own gate: work brought to the clan, wanted posters, and what the clan has lately done
+Panels.clanBoard = o => {
+  const g = Net.gang, mine = g && g.id === o.gid, P = G.player;
+  if (!mine) { const gv = (Net.world.gangs || []).find(x => x.id === o.gid); return { title: 'Bounty board', seal: '賞', html: `<p class="lede">The notices on ${esc(gv ? gv.name : 'this clan')}'s board are written for its own people.</p>` }; }
+  const cs = g.contracts || [], live = cs.filter(c => c.state === 'active'), open = cs.filter(c => c.state === 'offered');
+  const job = c => { const w = Clan.contractStep(c), d = Math.round(dist(w.at[0], w.at[1], P.x, P.y)); return `<div class="row${c.state === 'active' ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(c.name)} <small>${'◆'.repeat(c.diff || 1)} · ${c.reward.mon} mon · ${d} tiles</small></span><span class="ds">${c.state === 'active' ? 'Under way' + (c.by && c.by !== Net.id ? ' (' + esc(((Net.remotes.get(c.by) || {}).actor || {}).name || 'a clanmate') + ')' : '') + ' · ' + esc(w.text) + ' · ' + esc(w.hint) : esc(w.text) + (c.expires ? ' · until day ' + c.expires : '')}</span></div>${c.state === 'offered' ? `<button class="btn" data-act="cTake" data-arg="${c.id}">Take it on</button>` : `<button class="btn alt" data-act="cTrack" data-arg="${c.id}">Track</button>`}</div>`; };
+  const p = G.profile, wanted = (p.bounties || []).filter(b => !b.done).map(b => `<div class="row"><div class="grow"><span class="nm">Wanted: ${esc(b.target)}</span><span class="ds">Last seen: ${esc(b.where)}. Shows as a red mark on your map once you are near.</span></div><span class="px">${b.reward} mon · +${b.honor} honour</span></div>`).join('');
+  const done = (g.log || []).map(l => l.msg || '').filter(t => /^Done: | took on: |Too late: |Failed: /.test(t)).slice(-5).reverse().map(t => `<div class="ds">· ${esc(t)}</div>`).join('');
+  return { title: 'Bounty board', seal: '賞', html: `<p class="lede">Work for the clan, wanted men, and who has been doing what. Take a job and it is tracked on your map; it finishes by itself when you have done it.</p>
+    <h3>Work under way</h3>${live.map(job).join('') || '<p class="ds">Nobody is out on a job.</p>'}
+    <h3>Open work</h3>${open.map(job).join('') || '<p class="ds">No open requests. More come as the clan becomes known (a Messenger station or Contract office brings more).</p>'}
+    <h3>Wanted</h3>${wanted || '<p class="ds">No wanted posters today. New ones go up each morning.</p>'}
+    ${done ? '<h3>Lately</h3>' + done : ''}`, on: (act, arg) => { const h = ClanUI['a_' + act]; if (h) { const r = h.call(ClanUI, arg); setTimeout(() => { if (UI.panel === 'clanBoard') UI.render(); }, 400); return r; } } };
+};
 // a structure: what it is, what it gives, and (for the clan) improving, styling, moving or tearing it down
 Panels.clanStruct = o => {
   const gv = (Net.gang && Net.gang.id === o.gid) ? Net.gang : Net.world.gangs.get(o.gid), s = gv && (gv.structs || []).find(x => x.id === o.sid); if (!s) return null;

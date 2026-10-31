@@ -300,7 +300,7 @@ function createLife(ctx, G) {
     return { id: p.id, name: p.name, x: p.x, y: p.y, cell: p.cell || null };
   };
   L.contractFor = (g, key, R = R0) => {
-    const keys = Object.keys(C.CONTRACTS).filter(k => C.CONTRACTS[k].diff <= 1 + G.stage(g).n);
+    const keys = Object.keys(C.CONTRACTS).filter(k => C.CONTRACTS[k].diff <= 2 + G.stage(g).n);
     const k = key || keys[Math.floor(R() * keys.length)], T = C.CONTRACTS[k]; if (!T) return null;
     let place = L.placeFor(g, R, { coast: T.coast }), rival = null;
     if (T.camp || k === 'scoutRival') {
@@ -310,10 +310,16 @@ function createLife(ctx, G) {
       if (c) { place = { id: c[0].id, name: c[0].name || 'the camp', x: c[0].x, y: c[0].y, cell: c[0].cell || null, camp: c[0].id }; rival = c[0].rival; }
     }
     const rv = rival && db.world.rivals[rival];
+    // an escort starts somewhere real: the merchant waits at another town, and you walk him from there to the place
+    let pickup = null;
+    if (T.kind === 'escort') {
+      for (let i = 0; i < 8 && !pickup; i++) { const q = L.placeFor(g, R); if (q.id !== place.id && U.dist(q.x, q.y, place.x, place.y) > 70 && U.dist(q.x, q.y, place.x, place.y) < 700) pickup = q; }
+      if (!pickup) pickup = { id: 'road', name: 'the road out of ' + place.name, x: place.x - 90, y: place.y + 40 };
+    }
     const n = T.n ? T.n[0] + Math.floor(R() * (T.n[1] - T.n[0] + 1)) : 1;
     const reward = Math.round(T.reward[0] + R() * (T.reward[1] - T.reward[0]) * (1 + G.stage(g).n * 0.1));
     return {
-      id: 'c' + (++db.seq.contract), tpl: k, kind: T.kind, name: T.name.replace('{place}', place.name).replace('{rival}', rv ? rv.name : 'rival gang'), place, rival,
+      id: 'c' + (++db.seq.contract), tpl: k, kind: T.kind, name: T.name.replace('{place}', place.name).replace('{rival}', rv ? rv.name : 'rival gang'), place, rival, pickup, met: false,
       n, need: T.kind === 'kill' ? n : T.kind === 'defend' ? T.waves : 1, got: 0, foes: T.foes || null, boss: !!T.boss, res: T.res || null,
       reward: { mon: reward }, rep: T.rep, renown: T.renown, diff: T.diff, territory: !!T.territory, state: 'offered', day: ctx.clock().day, expires: ctx.clock().day + 4, by: null, chain: k === 'raiders' ? 'outpost' : null
     };
@@ -326,6 +332,7 @@ function createLife(ctx, G) {
     c.state = 'active'; c.by = pid; c.expires = ctx.clock().day + 3;
     G.log(g, (ctx.player(pid) || {}).name + ' took on: ' + c.name + '.'); G.bump(g);
     ctx.contractStarted(g, c);
+    L.stockBoard(g);
     return null;
   };
   L.abandon = (g, pid, cid) => {
@@ -352,6 +359,7 @@ function createLife(ctx, G) {
     G.log(g, 'Done: ' + c.name + ' (+' + c.reward.mon + ' mon).');
     if (c.chain) { const nx = L.contractFor(g, c.chain); if (nx) { g.contracts.push(nx); G.log(g, 'A new request follows: ' + nx.name + '.'); } }
     ctx.contractEnded(g, c);
+    L.stockBoard(g);
     G.bump(g);
   };
   L.deliver = (g, pid, cid) => {
@@ -365,7 +373,18 @@ function createLife(ctx, G) {
     const d = ctx.clock().day;
     for (const c of g.contracts) if ((c.state === 'offered' || c.state === 'active') && c.expires < d) { c.state = c.state === 'active' ? 'failed' : 'expired'; if (c.state === 'failed') { G.addRep(g, { reliability: -1.5 }); G.log(g, 'Too late: ' + c.name + '.'); ctx.contractEnded(g, c); } }
     g.contracts = g.contracts.filter(c => (c.state !== 'done' && c.state !== 'expired' && c.state !== 'failed') || d - (c.doneDay || c.day) < 3);
-    if (g.hq && g.contracts.filter(c => c.state === 'offered').length < 1 + G.fx(g).contracts && Math.random() < 0.5) { const c = L.contractFor(g); if (c) { g.contracts.push(c); G.log(g, 'A request came by messenger: ' + c.name + '.'); } }
+    L.stockBoard(g);
+  };
+  // the board at the gate is never bare: a couple of jobs are always pinned to it, more as the clan grows, and of different kinds
+  L.stockBoard = (g, R = R0) => {
+    if (!g.hq) return 0; let added = 0;
+    const want = 2 + G.fx(g).contracts;
+    for (let tries = 0; tries < 12 && g.contracts.filter(c => c.state === 'offered').length < want; tries++) {
+      const c = L.contractFor(g, null, R); if (!c) break;
+      if (g.contracts.some(x => x.state === 'offered' && x.kind === c.kind) && tries < 8) { db.seq.contract--; continue; }
+      g.contracts.push(c); added++; G.log(g, 'Pinned to the board: ' + c.name + '.');
+    }
+    return added;
   };
 
   return L;

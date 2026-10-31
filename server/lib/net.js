@@ -222,7 +222,7 @@ function createNet(opt) {
       case 'card': { const x = db.gangs[m.id]; data = x ? G.publicCard(x) : null; break; }
       case 'contribute': err = G.contribute(g, p, m.res, m.n); if (!err) data = { gold: p.gold, bank: p.bank }; break;
       case 'withdraw': err = G.withdraw(g, p.id, m.n); if (!err) data = { gold: p.gold, bank: p.bank }; break;
-      case 'placeHQ': err = B.placeHQ(g, p.id, m.site, m); break;
+      case 'placeHQ': err = B.placeHQ(g, p.id, m.site, m); if (!err) L.stockBoard(g); break;
       case 'build': err = B.build(g, p.id, m); break;
       case 'upgrade': err = B.upgrade(g, p.id, m.id); break;
       case 'demolish': err = B.demolish(g, p.id, m.id, !!m.confirm); break;
@@ -369,6 +369,8 @@ function createNet(opt) {
         if (m.what === 'down') L.down(g, m.id); else if (m.what === 'kill') L.kill(g, m.id);
         break;
       }
+      // the host saw the escort's merchant meet whoever took the job: from here the tracker points at the destination
+      case 'contractMet': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; const ct = g && g.contracts.find(x => x.id === m.id && x.state === 'active'); if (ct && !ct.met) { ct.met = true; G.log(g, 'The merchant set out for ' + ct.place.name + '.'); G.bump(g); sendGang(g); } break; }
       case 'contractHit': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; if (g) { L.progress(g, m.id, U.int(m.n, 1, 10, 1), m.by); sendGang(g); } break; }
       case 'contractFail': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; const ct = g && g.contracts.find(x => x.id === m.id && x.state === 'active'); if (ct) { ct.state = 'failed'; G.addRep(g, { reliability: -1 }); G.log(g, 'Failed: ' + ct.name + (m.why ? ' (' + U.cleanText(m.why, 80) + ')' : '') + '.'); G.bump(g); sendGang(g); } break; }
       case 'raidEnd': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; const raid = g && g.raids.find(r => r.id === m.id); if (raid) { R.resolveRaid(g, raid, m.outcome === 'repelled' ? 'repelled' : 'breached', U.int(m.kills, 0, 99, 0)); sendGang(g); } break; }
