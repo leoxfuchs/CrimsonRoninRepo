@@ -247,6 +247,56 @@ test('the board at the gate is stocked on settling, with different kinds of work
   assert.equal(c.state, 'done'); assert.ok(open().length >= 2, 'a finished job makes room for another');
 });
 
+test('co-op jobs: a crew signs on, everyone on it is paid a share, and a wanted man brought in alive pays double', () => {
+  const W = world(); const a = W.join('Lead'); const b = W.join('Second');
+  W.net.R.setInfo(info(), a.id); W.req(a, 'placeHQ', { site: 'kusamura' });
+  W.req(a, 'invite', { to: b.id }); const inv = W.db.invites.find(i => i.to === b.id); W.req(b, 'acceptInvite', { id: inv.id });
+  const g = W.gang(a);
+  W.net.L.stockBoard(g); assert.ok(g.contracts.some(c => c.state === 'offered' && c.coop), 'a clan of two finds a crew job on the board');
+  const w = W.net.L.contractFor(g, 'wanted'); g.contracts.push(w);
+  assert.ok(w.wanted && w.name.includes(w.wanted), 'the wanted man has a name');
+  let r = W.req(a, 'acceptContract', { id: w.id }); assert.equal(r.ok, true, r.err);
+  r = W.req(b, 'joinContract', { id: w.id }); assert.equal(r.ok, true, r.err);
+  assert.deepEqual(w.crew, [a.id, b.id]);
+  r = W.req(b, 'joinContract', { id: w.id }); assert.equal(r.ok, false);
+  const base = w.reward.mon, mon0 = g.res.mon; b.ws.out.length = 0; a.ws.out.length = 0;
+  const host = [a, b].find(x => x.id === W.net.hostId) || a;
+  W.net.onMsg(host.ws, JSON.stringify({ t: 'contractHit', gang: g.id, id: w.id, n: 1, alive: true }));
+  assert.equal(w.state, 'done'); assert.equal(w.reward.mon, base * 2); assert.equal(g.res.mon, mon0 + base * 2);
+  for (const pl of [a, b]) assert.ok(pl.ws.out.some(m => m.t === 'pay' && m.mon === Math.round(base * 2 * C.CARAVAN.share)), 'each of the crew is paid a share');
+  // a solo job cannot take a crew
+  const d = W.net.L.contractFor(g, 'deliver'); g.contracts.push(d); W.req(a, 'acceptContract', { id: d.id });
+  r = W.req(b, 'joinContract', { id: d.id }); assert.equal(r.ok, false);
+});
+
+test('caravans: a load from the store, priced by the town, paid for what arrives', () => {
+  const W = world(); const a = W.join('Trader');
+  W.net.R.setInfo(info(), a.id); W.req(a, 'placeHQ', { site: 'kusamura' });
+  const g = W.gang(a);
+  let r = W.req(a, 'caravanQuotes'); assert.equal(r.ok, true, r.err); assert.ok(r.data.length >= 1, 'there is a town to sell in');
+  const q = r.data[0]; assert.ok(q.price.food > 0 && q.price.herbs > q.price.timber);
+  g.res.food = 5; r = W.req(a, 'startCaravan', { to: q.id, cargo: { food: 30 } }); assert.equal(r.ok, false, 'not without the goods');
+  g.res.food = 100; r = W.req(a, 'startCaravan', { to: q.id, cargo: { food: 200 } }); assert.equal(r.ok, false, 'not more than a wagon holds');
+  r = W.req(a, 'startCaravan', { to: q.id, cargo: { food: 40 } }); assert.equal(r.ok, true, r.err);
+  assert.equal(g.res.food, 60);
+  const c = g.contracts.find(x => x.kind === 'caravan'); assert.ok(c && c.state === 'active' && c.value > 0);
+  r = W.req(a, 'startCaravan', { to: q.id, cargo: { food: 20 } }); assert.equal(r.ok, false, 'one caravan at a time');
+  const mon0 = g.res.mon, host = W.net.hostId === a.id ? a : a;
+  W.net.onMsg(host.ws, JSON.stringify({ t: 'contractHit', gang: g.id, id: c.id, n: 1, kept: 0.5 }));
+  assert.equal(c.state, 'done'); assert.equal(g.res.mon, mon0 + Math.round(c.value * 0.5));
+});
+
+test('marks on the map go to the clan, and only to the clan', () => {
+  const W = world(); const a = W.join('Pinger'); const b = W.join('Mate'); const x = W.join('Outsider');
+  W.req(a, 'invite', { to: b.id }); const inv = W.db.invites.find(i => i.to === b.id); W.req(b, 'acceptInvite', { id: inv.id });
+  b.ws.out.length = 0; x.ws.out.length = 0;
+  W.net.onMsg(a.ws, JSON.stringify({ t: 'mark', x: 120.44, y: 80, kind: 'danger' }));
+  const got = b.ws.out.find(m => m.t === 'mark'); assert.ok(got && got.kind === 'danger' && got.x === 120.4 && got.from === a.id);
+  assert.ok(!x.ws.out.some(m => m.t === 'mark'));
+  W.net.onMsg(a.ws, JSON.stringify({ t: 'mark', x: 1, y: 1, kind: '<script>' }));
+  assert.equal(b.ws.out.filter(m => m.t === 'mark').pop().kind, 'meet');
+});
+
 test('what a client sends is cleaned: emblems, uniforms and banners stay inside the editor’s limits', () => {
   const W = world(); const a = W.join('Painter');
   let r = W.req(a, 'emblem', { emblem: { shape: 'pentagram', field: 'red', layers: Array.from({ length: 20 }, () => ({ sym: 'dragon', s: 99, x: 5, color: '#00ff00' })) } });

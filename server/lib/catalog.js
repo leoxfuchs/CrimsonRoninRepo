@@ -257,8 +257,16 @@ const CONTRACTS = {
   duel: { name: 'Answer a duel at {place}', kind: 'duel', reward: [100, 260], rep: { might: 2, honor: 1 }, renown: 30, diff: 3 },
   hunt: { name: 'Hunt a wanted man near {place}', kind: 'kill', foes: 'ronin', n: [1, 1], boss: true, reward: [200, 420], rep: { honor: 2, fear: 1 }, renown: 35, diff: 3 },
   rebuild: { name: 'Help {place} rebuild', kind: 'deliver', res: { timber: 30, stone: 10 }, reward: [100, 200], rep: { generosity: 3, honor: 1 }, renown: 25, diff: 1 },
-  outpost: { name: 'Take the {rival} outpost near {place}', kind: 'kill', foes: 'bandit', n: [5, 8], camp: true, reward: [300, 600], rep: { might: 3, fear: 1 }, renown: 60, diff: 4, territory: true }
+  outpost: { name: 'Take the {rival} outpost near {place}', kind: 'kill', foes: 'bandit', n: [5, 8], camp: true, reward: [300, 600], rep: { might: 3, fear: 1 }, renown: 60, diff: 4, territory: true },
+  // ---- work for more than one: the clan sends a crew, everyone on it is paid a share as well as the clan
+  convoy: { name: 'Guard the rice convoy to {place}', kind: 'convoy', coop: 2, wagons: 3, reward: [520, 900], rep: { reliability: 2, honor: 1, wealth: 1 }, renown: 45, diff: 2 },
+  fortress: { name: 'Storm the bandit fort near {place}', kind: 'fortress', coop: 2, camp: true, reward: [600, 1100], rep: { might: 3, honor: 1 }, renown: 55, diff: 2 },
+  wanted: { name: 'Bring in {wanted}, alive if you can', kind: 'wanted', coop: 2, reward: [420, 800], rep: { honor: 2, fear: 1 }, renown: 45, diff: 2 }
 };
+// what a town pays for a caravan's load, per unit, before that town's want of it (which changes by the day) and the road
+const CARGO = { food: 4, timber: 3.5, stone: 4, iron: 7, cloth: 6, herbs: 8 };
+const CARAVAN = { min: 10, max: 60, share: 0.25 };
+const WANTED_NAMES = ['Kurogane the Butcher', 'Oni-Saburo', 'Red-Hand Tomoe', 'Gonza the Viper', 'Hachiro of the Nine Scars', 'Mad Ikkyu', 'Shiro the Crow', 'Iron-Tooth Benkei'];
 
 // ---- rivals: the outlaw gangs already holding camps on the island become factions with a will of their own
 const TEMPERS = {
@@ -290,5 +298,5 @@ const TRAITS_HQ = {
 module.exports = {
   RES, RES_KEYS, RANKS, RANK_LEADER, RANK_COMMANDER, RANK_RECRUIT, RANK_MEMBER, PERMS, DEFAULT_PERMS, SUCCESSION_DAYS, STAGES, REP_KEYS,
   BUILD, BUILD_CATS, HORSES, WALLS, GATES, EMBLEM, BANNER, UNIFORM, PALETTE_KEYS, ROLES, TRAITS, ASSIGN, ORDERS, FORMATIONS,
-  VISITORS, GATE_CHOICES, CONTRACTS, TEMPERS, STANCES, TRAITS_HQ
+  VISITORS, GATE_CHOICES, CONTRACTS, CARGO, CARAVAN, WANTED_NAMES, TEMPERS, STANCES, TRAITS_HQ
 };

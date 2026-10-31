@@ -6762,7 +6762,7 @@ function drownTick(a, dt) {
 function aiUpdate(a, dt) {
   if (a.dead || a === G.player || a.dummy || a.drownT > 0) return;
   // Ren's riders, and anyone the road put in a saddle: everyone else gets down
-  if (a.mount && !G.gang.includes(a) && !a.roadRide) GangRide.getDown(a);
+  if (a.mount && !G.gang.includes(a) && !a.roadRide && !a.jobRide) GangRide.getDown(a);
   if (a.sparring) return Spar.ai(a, dt);
   if (a.sleeping) { if (Math.random() < dt * 0.45) FX.addPart({ t: 'dust', x: a.x + 0.3, y: a.y, z: 8, vx: 0.15, vy: -0.08, vz: 5, life: 1.2, max: 1.2, col: 'rgba(230,230,240,' }); if (Math.random() < dt * 0.08) FX.text(a.x + 0.5, a.y - 0.2, 'z', '#c8d0dc'); return; }
   if (a.sitting || a.lying) { a.move(0, 0, dt); return; }
@@ -6775,6 +6775,8 @@ function aiUpdate(a, dt) {
   }
   if (G.mp && a.clanNpc) return ClanAI.ai(a, dt);
   if (G.mp && a.escortFor) { ClanAI.escortAI(a, dt); return; }
+  if (G.mp && a.convoyOf && ClanAI.convoyAI(a, dt)) return;
+  if (G.mp && a.wantedRun && ClanAI.runAI(a, dt)) return;
   if (G.mp && a.raidId) return ClanAI.raiderAI(a, dt);
   // (raiders who outlived their raid make off, and are gone once well away)
   if (G.mp && a.raidLeft) { fleeAI(a, Object.assign({ dead: false, state: 'idle' }, a.raidLeft), dt); if (dist(a.x, a.y, a.raidLeft.x, a.raidLeft.y) > 45) a.gone = true; return; }
@@ -7177,7 +7179,7 @@ const G = {
     for (const a of this.actors) {
       if (a === p || a.dead) continue;
       drownTick(a, dt); if (a.drownT > 0) continue;
-      if (hostMp && Net.nearestObs(a.x, a.y) > 60 && !(a.ai && a.ai.mode === 'fight') && !a.escortFor) continue;
+      if (hostMp && Net.nearestObs(a.x, a.y) > 60 && !(a.ai && a.ai.mode === 'fight') && !a.escortFor && !a.convoyOf && !a.wantedRun) continue;
       if (a.remote) a.updateVisual(dt); else { aiUpdate(a, dt); a.update(dt); }
     }
     this.actors = this.actors.filter(a => !(a.gone && !a.persistent));
@@ -7392,6 +7394,7 @@ const G = {
     if (this.sakeHeal > 0) { const r = Math.min(this.sakeHeal, dt * (this.hasPerk('medic') ? 20 : 10)); this.sakeHeal -= r; p.hp = Math.min(p.maxHp, p.hp + r); }
     if (Input.hit('KeyH')) { Snd.init(); Horse.whistle(); }
     if (this.mp && !this.uiAte && Input.hit('KeyB')) UI.open('clan');
+    if (this.mp && !this.uiAte && Input.hit('KeyV') && this.mouseWorld) Clan.markHere(+this.mouseWorld[0].toFixed(1), +this.mouseWorld[1].toFixed(1));
     if (this.mp && !this.uiAte && Input.hit('KeyG')) { if (!Wheel.open()) UI.toast('No clan to command.', 'shame'); }
     else if (Input.hit('KeyG') && this.gang.length) { this.gangHold = !this.gangHold; for (const m of this.gang) m.holdPos = [m.x, m.y]; UI.toast(this.gangHold ? 'Gang: hold position' : 'Gang: follow me', 'good'); }
     if (Input.hit('KeyE') && p.state !== 'work') Systems.doInteract();
@@ -8392,6 +8395,7 @@ const UI = {
       const [sx, sy] = toS(h.x, h.y); g.fillStyle = '#000'; g.fillRect(sx - 2, sy - 2, 5, 4); g.fillStyle = '#c8955a'; g.fillRect(sx - 1, sy - 1, 3, 2);
     }
     Missions.drawMapMarker(g, toS, full);
+    if (G.mp && typeof Clan !== 'undefined') Clan.drawMap(g, toS, full);
     const tgt = Track.target();
     if (tgt && Missions.cur) { const [sx, sy] = toS(tgt[0], tgt[1]); g.save(); g.translate(sx, sy); g.rotate(PI / 4); g.fillStyle = '#000'; g.fillRect(-4, -4, 8, 8); g.fillStyle = '#ffcf4a'; g.fillRect(-3, -3, 6, 6); g.restore(); }
     else if (tgt && G.profile.track) { const [sx, sy] = toS(tgt[0], tgt[1]); g.save(); g.translate(sx, sy); g.rotate(PI / 4); g.fillStyle = '#000'; g.fillRect(-4, -4, 8, 8); g.fillStyle = '#e8c890'; g.fillRect(-3, -3, 6, 6); g.restore(); }
@@ -8730,11 +8734,20 @@ const Panels = {
       let drag = null; const k = () => CW / cv.getBoundingClientRect().width, sc = () => V.z * CW / (MAP / 4);
       cv.onpointerdown = e => { drag = [e.clientX, e.clientY, V.cx, V.cy]; cv.setPointerCapture(e.pointerId); };
       cv.onpointermove = e => { if (!drag) return; V.cx = drag[2] - (e.clientX - drag[0]) * k() / sc(); V.cy = drag[3] - (e.clientY - drag[1]) * k() / sc(); draw(); };
-      cv.onpointerup = () => { drag = null; };
+      cv.onpointerup = e => {
+        // a click that did not drag puts a mark there for the clan
+        if (drag && G.mp && Net.gang && Math.hypot(e.clientX - drag[0], e.clientY - drag[1]) < 5) {
+          const r = cv.getBoundingClientRect(), mx = V.cx + ((e.clientX - r.left) * k() - CW / 2) / sc(), my = V.cy + ((e.clientY - r.top) * k() - CH / 2) / sc();
+          const a = 8 * (mx - MAP / 8), b = 16 * my - 2 * W0; Clan.markHere(+((a + b) / 2).toFixed(1), +((b - a) / 2).toFixed(1)); setTimeout(draw, 250);
+        }
+        drag = null;
+      };
+      cv.oncontextmenu = e => { e.preventDefault(); if (G.mp && Net.gang) { Net.send({ t: 'mark', x: 0, y: 0, kind: 'clear' }); setTimeout(draw, 250); } };
+      if (G.mp) { const iv = setInterval(() => { if (!$('bigMap') || UI.panel !== 'map') { clearInterval(iv); return; } draw(); }, 1000); }
       cv.onwheel = e => { e.preventDefault(); V.z = clamp(V.z * (e.deltaY < 0 ? 2 : 0.5), 1, 64); draw(); };
     }, 0);
     const legend = '<span style="color:#ffcf4a">◆ objective</span> · <span style="color:#ffd24a">! quest</span> · <span style="color:#ffd24a">■ Blade</span> · <span style="color:#d8342a">✚ camp</span> · <span style="color:#ffd24a">▮ watchtower</span> · <span style="color:#b8762a">▬ chest</span> · <span style="color:#c8955a">▬ horse</span>';
-    const travelNote = G.mp ? 'The island is known to you. Ride to a town (or climb a tower) once, then fast travel back from here. The clan’s home is always open.' : 'Climb watchtowers to reveal the map. Fast travel to any town you have visited or tower you have climbed:';
+    const travelNote = G.mp ? 'Click the map to mark a spot for your clan (click it again: danger, loot, clear; right-click clears). In the world, V marks the spot under your mouse. Clanmates show as big coloured badges. The island is known to you: ride to a town once, then fast travel back from here.' : 'Climb watchtowers to reveal the map. Fast travel to any town you have visited or tower you have climbed:';
     return { title: 'Kurenai-jima', seal: '図', html: `<div class="btns" style="margin:0 0 6px"><button class="btn alt" data-act="zin">Zoom in</button><button class="btn alt" data-act="zout">Zoom out</button><button class="btn alt" data-act="me">Find me</button><span class="lede" style="font-size:11px;align-self:center">Drag to pan, wheel to zoom</span></div><canvas id="bigMap" width="${CW}" height="${CH}" style="width:100%;image-rendering:pixelated;background:#0b080b;border:1px solid #000;touch-action:none;cursor:grab"></canvas><p class="lede" style="font-size:11px">${legend}</p><p class="lede">${travelNote}</p><div class="btns">${travel || '<span class="lede">Nowhere yet. Explore!</span>'}</div>`, on(act, arg) { if (act === 'go') { UI.close(); Systems.fastTravel(spots[+arg]); return false; } if (act === 'zin') V.z = Math.min(64, V.z * 2); if (act === 'zout') V.z = Math.max(1, V.z / 2); if (act === 'me') V.follow = true; } };
   },
   char(opt = {}) {
@@ -19048,6 +19061,7 @@ Render.markers = function (toS, S, dt) {
   if (v) { const [x, y] = toS(v.x, v.y, 14), s = 14 * DPR + Math.sin(t * 10) * 2 * DPR; octx.strokeStyle = '#ff4a3a'; octx.lineWidth = 2 * DPR; for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { octx.beginPath(); octx.moveTo(x + sx * s, y + sy * s * 1.6 - sy * 6 * DPR); octx.lineTo(x + sx * s, y + sy * s * 1.6); octx.lineTo(x + sx * s - sx * 6 * DPR, y + sy * s * 1.6); octx.stroke(); } }
   // tracked objective: a diamond in the world, or an arrow on the screen edge
   Missions.drawMarkers(toS, label, t);
+  if (G.mp && typeof Clan !== 'undefined') Clan.drawWorld(toS, label, t, W, H);
   const tgt = Track.target();
   if (tgt) {
     const dd = dist(tgt[0], tgt[1], P.x, P.y);
@@ -20051,7 +20065,72 @@ const Clan = {
       case 'kill': return { text: (c.boss ? 'Find the wanted man near ' : 'Defeat the outlaws near ') + P.name, hint: (c.got || 0) + ' of ' + (c.need || 1) + ' down', at };
       case 'defend': return { text: 'Hold ' + P.name + ' against the raiders', hint: 'Wave ' + (c.got || 0) + ' of ' + (c.need || 1) + '. Stay there.', at };
       case 'duel': return { text: 'Meet the duelist at ' + P.name, hint: 'Alone. They are waiting.', at };
+      case 'convoy': return c.pickup && !c.met ? { text: 'Meet the rice convoy at ' + c.pickup.name, hint: 'It sets off when ' + (c.coop || 2) + ' of the crew are with the carts.', at: [c.pickup.x, c.pickup.y] } : { text: 'Guard the convoy to ' + P.name, hint: 'The carts stop when they are attacked or left alone. Bandits hit the road twice.', at };
+      case 'fortress': return { text: 'Storm the bandit fort near ' + P.name, hint: 'Too strong for one: it starts when ' + (c.coop || 2) + ' of the crew are in sight of it. Sentries, the whole camp, then the captain.', at };
+      case 'wanted': return { text: 'Find ' + (c.wanted || 'the wanted man') + ' near ' + P.name, hint: 'Bodyguards, and a horse to run on. Beat him, then stand over him to bind him: alive pays double.', at };
+      case 'caravan': return { text: 'Take the caravan to ' + P.name, hint: this.costText(c.cargo) + ' · about ' + c.value + ' mon there. The cart follows you; bandits, a toll and a bad road on the way.', at };
       default: return { text: P.name, hint: (c.got || 0) + '/' + (c.need || 1), at };
+    }
+  },
+  // ---- marks a clanmate puts on the world (V, or a click on the M map) and where everyone in the clan is
+  marks: [],
+  MARKS: { meet: { col: '#ffd24a', icon: '◎', say: 'meet here' }, danger: { col: '#ff5a4a', icon: '!', say: 'danger here' }, loot: { col: '#7ad87a', icon: '◆', say: 'loot here' } },
+  memberCol(id) { const ids = (Net.gang && Net.gang.members) || []; const i = Math.max(0, ids.indexOf(id)); return ['#5ab0ff', '#ff9a3a', '#c86aff', '#5ae0b0', '#ff6ab0', '#e8e05a', '#9ad05a', '#ff7a5a'][i % 8]; },
+  addMark(m) {
+    this.marks = this.marks.filter(k => k.from !== m.from);
+    if (m.kind === 'clear' || !this.MARKS[m.kind]) return;
+    this.marks.push({ from: m.from, name: m.name || 'A clanmate', x: m.x, y: m.y, kind: m.kind, t: G.time });
+    Snd.play('ui', 0.7); if (m.from !== Net.id) UI.toast((m.name || 'A clanmate') + ': ' + this.MARKS[m.kind].say + ' (' + Math.round(dist(m.x, m.y, G.player.x, G.player.y) * 2) + 'm)', '');
+  },
+  liveMarks() { return (this.marks = this.marks.filter(k => G.time - k.t < 120)); },
+  // pressing again on your own fresh mark changes it: meet, danger, loot, gone
+  markHere(x, y) {
+    if (!G.mp || !Net.gang) return;
+    const mine = this.marks.find(k => k.from === Net.id), order = ['meet', 'danger', 'loot', 'clear'];
+    const kind = mine && dist(mine.x, mine.y, x, y) < 5 && G.time - mine.t < 6 ? order[(order.indexOf(mine.kind) + 1) % order.length] : 'meet';
+    if (!this._markTold) { this._markTold = true; UI.toast('Marked for the clan. Press V again on it to change it: meet, danger, loot, clear.', 'good'); }
+    Net.send({ t: 'mark', x, y, kind });
+  },
+  clanmates() { const out = []; if (!G.mp || !Net.gang) return out; for (const [id, r] of Net.remotes) { const a = r.actor; if (a && !a.dead && Net.gang.members.includes(id)) out.push([id, a]); } return out; },
+  // on the M map and the minimap: a big round badge per clanmate, and the marks
+  drawMap(g, toS, full) {
+    if (!G.mp || !Net.gang) return;
+    const T = G.time;
+    for (const k of this.liveMarks()) {
+      const M = this.MARKS[k.kind], [sx, sy] = toS(k.x, k.y), r = (full ? 9 : 5) + Math.sin(T * 5) * (full ? 2 : 1);
+      g.strokeStyle = M.col; g.lineWidth = full ? 2 : 1.5; g.beginPath(); g.arc(sx, sy, r + (full ? 6 : 3), 0, TAU); g.stroke();
+      g.fillStyle = '#000'; g.beginPath(); g.arc(sx, sy, r, 0, TAU); g.fill(); g.fillStyle = M.col; g.beginPath(); g.arc(sx, sy, r - 1.5, 0, TAU); g.fill();
+      g.fillStyle = '#000'; g.font = `bold ${full ? 12 : 8}px serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(M.icon, sx, sy + 0.5);
+      if (full) { g.font = '12px "DotGothic16", monospace'; g.fillStyle = '#000'; g.fillText(k.name, sx + 1, sy + r + 12); g.fillStyle = M.col; g.fillText(k.name, sx, sy + r + 11); }
+    }
+    for (const [id, a] of this.clanmates()) {
+      const [sx, sy] = toS(a.x, a.y), r = full ? 8 : 4.5, col = this.memberCol(id);
+      g.fillStyle = '#000'; g.beginPath(); g.arc(sx, sy, r + 2, 0, TAU); g.fill(); g.fillStyle = col; g.beginPath(); g.arc(sx, sy, r, 0, TAU); g.fill();
+      g.fillStyle = '#fff'; g.beginPath(); g.arc(sx, sy, r * 0.38, 0, TAU); g.fill();
+      if (full) { g.font = 'bold 13px "DotGothic16", monospace'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = '#000'; g.fillText(a.name || 'Clanmate', sx + 1, sy - r - 5); g.fillStyle = col; g.fillText(a.name || 'Clanmate', sx, sy - r - 6); }
+    }
+  },
+  // in the world: a column of light at each mark, a badge over each clanmate, and arrows on the screen edge to those out of sight
+  drawWorld(toS, label, t, W, H) {
+    if (!G.mp || !Net.gang) return;
+    const P = G.player, m = 46 * DPR;
+    const edge = (x, y, col, txt, sub) => {
+      const cx = W / 2, cy = H / 2, ang = Math.atan2(y - cy, x - cx), k = Math.min((W / 2 - m) / Math.abs(Math.cos(ang) || 1e-3), (H / 2 - m) / Math.abs(Math.sin(ang) || 1e-3)), ex = cx + Math.cos(ang) * k, ey = cy + Math.sin(ang) * k;
+      octx.save(); octx.translate(ex, ey); octx.rotate(ang); octx.fillStyle = '#000'; octx.beginPath(); octx.moveTo(17 * DPR, 0); octx.lineTo(-6 * DPR, -12 * DPR); octx.lineTo(-6 * DPR, 12 * DPR); octx.fill(); octx.fillStyle = col; octx.beginPath(); octx.moveTo(13 * DPR, 0); octx.lineTo(-3 * DPR, -8 * DPR); octx.lineTo(-3 * DPR, 8 * DPR); octx.fill(); octx.restore();
+      label(txt, ex - Math.cos(ang) * 34 * DPR, ey - Math.sin(ang) * 22 * DPR - 7 * DPR, col, 12); if (sub) label(sub, ex - Math.cos(ang) * 34 * DPR, ey - Math.sin(ang) * 22 * DPR + 8 * DPR, '#efe3c8', 10);
+    };
+    const onScreen = (x, y) => x > m && y > m && x < W - m && y < H - m;
+    for (const k of this.liveMarks()) {
+      const M = this.MARKS[k.kind], d = Math.round(dist(k.x, k.y, P.x, P.y) * 2), [x, y] = toS(k.x, k.y, 0), [, y1] = toS(k.x, k.y, 110);
+      if (onScreen(x, y)) {
+        const gr = octx.createLinearGradient(0, y1, 0, y); gr.addColorStop(0, M.col + '00'); gr.addColorStop(1, M.col + 'aa'); octx.fillStyle = gr; octx.fillRect(x - 5 * DPR, y1, 10 * DPR, y - y1);
+        label(M.icon, x, y1 - 6 * DPR + Math.sin(t * 4) * 2 * DPR, M.col, 24, 'Shippori Mincho B1'); label(k.name + ' · ' + d + 'm', x, y1 + 14 * DPR, M.col, 11);
+      } else edge(x, y, M.col, M.icon + ' ' + d + 'm', k.name);
+    }
+    for (const [id, a] of this.clanmates()) {
+      const col = this.memberCol(id), d = Math.round(dist(a.x, a.y, P.x, P.y) * 2), [x, y] = toS(a.x, a.y, 52 + Math.sin(t * 3) * 2);
+      if (onScreen(x, y)) { if (d > 6) { label('▼', x, y, col, 18, 'Shippori Mincho B1'); if (d > 56) label(d + 'm', x, y - 16 * DPR, col, 10); } }
+      else edge(x, y, col, (a.name || 'Clanmate'), d + 'm');
     }
   },
   // getting there is enough: a look around (scout) or a handover (deliver) counts when you arrive, with no button to press
@@ -20184,6 +20263,9 @@ const Net = {
     clanStage(m) { UI.bigBanner('家', 'The clan is now a ' + m.name); Snd.play('gong', 0.8); },
     clanAnnounce(m) { UI.toast('Clan: ' + m.text, 'good'); },
     visitor(m) { UI.toast('At the gate: ' + m.v.title.toLowerCase() + ' (' + m.v.name + ')', 'good'); },
+    pay(m) { if (G.addGold) G.addGold(m.mon | 0); else if (G.profile) G.profile.gold += m.mon | 0; UI.toast('Your share for ' + m.why + ': +' + (m.mon | 0) + ' mon', 'good'); },
+    mark(m) { Clan.addMark(m); },
+    jobNews(m) { UI.toast(m.text, m.tone === 'bad' ? 'shame' : 'good'); if (m.tone === 'bad') Snd.play('gong', 0.35); },
     contractDone(m) { UI.questBanner('Contract complete', m.c.name + ' · +' + m.c.reward.mon + ' mon to the clan'); Snd.play('level', 0.7); },
     raidWarn(m) { UI.toast('Scouts warn: ' + m.raid.rivalName + ' are coming to raid the compound', 'shame'); },
     raidAlert(m) { UI.bigBanner('襲', m.raid.rivalName + ' attack the compound!'); Snd.play('gong', 1); },
@@ -20386,7 +20468,7 @@ const Net = {
   },
   npcFull(a) {
     const t = a.talk ? { kind: a.talk.kind, label: a.talk.label, shop: a.talk.shop, game: a.talk.game, site: a.talk.site, vid: a.talk.vid, gang: a.talk.gang } : null;
-    return { id: a.syncId, name: a.name, label: a.label, look: a.look, wpn: a.wpn, armor: a.armor, maxHp: a.maxHp, faction: a.faction, role: a.role, type: a.type, rosterKey: a.rosterKey, campId: a.campId, tag: a.tag, talk: t, essential: !!a.essential, clanGang: a.clanGang, nid: a.nid, realm: a.realm, bountyId: a.bountyId, rival: a.rival, speed: a.speed, r: a.r, mount: a.mount ? { coat: a.mount.coat || 0 } : null, blade: a.blade ? { id: a.blade.id, rank: a.blade.rank } : null, gun: !!a.gun, canYield: !!a.canYield, contract: a.contract, raidId: a.raidId, raidGang: a.raidGang, cgang: a.cgang, escortFor: a.escortFor, persistent: !!a.persistent, renMeet: !!a.renMeet };
+    return { id: a.syncId, name: a.name, label: a.label, look: a.look, wpn: a.wpn, armor: a.armor, maxHp: a.maxHp, faction: a.faction, role: a.role, type: a.type, rosterKey: a.rosterKey, campId: a.campId, tag: a.tag, talk: t, essential: !!a.essential, clanGang: a.clanGang, nid: a.nid, realm: a.realm, bountyId: a.bountyId, rival: a.rival, speed: a.speed, r: a.r, mount: a.mount ? { coat: a.mount.coat || 0, pack: a.mount.pack || null } : null, blade: a.blade ? { id: a.blade.id, rank: a.blade.rank } : null, gun: !!a.gun, canYield: !!a.canYield, contract: a.contract, raidId: a.raidId, raidGang: a.raidGang, cgang: a.cgang, escortFor: a.escortFor, persistent: !!a.persistent, renMeet: !!a.renMeet };
   },
   npcSig(a) { return [a.name, a.label, a.wpn, a.faction, a.armor, a.talk ? a.talk.kind + (a.talk.label || '') + (a.talk.vid || '') : '', a.mount ? 1 : 0, a.look ? (a.look.top + ',' + a.look.cTop + ',' + a.look.hat + ',' + a.look.coat + ',' + a.look.mon) : '', a.renMeet ? 1 : 0].join('|'); },
   hostSync(dt) {
@@ -20418,7 +20500,7 @@ const Net = {
     if (!a) { a = new Actor({ x: 0, y: 0, remote: true }); a.syncId = f.id; a.npcProxy = true; a.remote = true; a.fresh = true; this.proxies.set(f.id, a); G.actors.push(a); }
     Object.assign(a, { name: f.name || '', label: f.label, look: f.look || a.look, wpn: f.wpn || 'fists', armor: f.armor | 0, maxHp: f.maxHp || 60, faction: f.faction || 'civ', role: f.role || '', type: f.type, rosterKey: f.rosterKey, campId: f.campId, tag: f.tag, talk: f.talk, essential: !!f.essential, clanGang: f.clanGang, nid: f.nid, realm: f.realm, bountyId: f.bountyId, rival: f.rival, speed: f.speed || 3, r: f.r || 0.27, canYield: !!f.canYield, contract: f.contract, raidId: f.raidId, raidGang: f.raidGang, cgang: f.cgang, escortFor: f.escortFor, persistent: true, gun: f.gun ? { proxy: true } : null, renMeet: !!f.renMeet });
     a.blade = f.blade || null;
-    a.mount = f.mount ? Object.assign(a.mount || Horse.make(a.x, a.y, f.mount.coat), { coat: f.mount.coat }) : null;
+    a.mount = f.mount ? Object.assign(a.mount || Horse.make(a.x, a.y, f.mount.coat), { coat: f.mount.coat, pack: f.mount.pack || undefined }) : null;
     if (a.clanGang) a.clanNpc = true;
     if (a.renMeet && typeof RenMeet !== 'undefined') RenMeet.a = a;
     if (f.rosterKey) Systems.byKey[f.rosterKey] = a;
@@ -20850,8 +20932,8 @@ const ClanAI = {
     }
   },
   // ---- contracts: the people a job needs, put where the job is when a clan member comes near
-  contractOn(gang, c) { if (!c || c.state !== 'active') return; if (!this.contracts.has(c.id)) this.contracts.set(c.id, { gang, c, foes: [], spawned: false, waves: 0, waveT: 0 }); },
-  contractOff(gang, id) { const k = this.contracts.get(id); if (!k) return; for (const a of k.foes) if (!a.dead) { a.persistent = false; a.contract = null; if (a.escortFor) { a.escortFor = null; a.ai.mode = 'flee'; a.ai.from = { x: a.x + 3, y: a.y + 3, dead: false, state: 'idle' }; } } this.contracts.delete(id); },
+  contractOn(gang, c) { if (!c || c.state !== 'active') return; const k = this.contracts.get(c.id); if (k) { k.c = c; return; } this.contracts.set(c.id, { gang, c, foes: [], spawned: false, waves: 0, waveT: 0 }); },
+  contractOff(gang, id) { const k = this.contracts.get(id); if (!k) return; for (const a of k.foes) if (!a.dead) { a.persistent = false; a.contract = null; if (a.escortFor) { a.escortFor = null; a.holdUp = false; if (!a.mount) { a.ai.mode = 'flee'; a.ai.from = { x: a.x + 3, y: a.y + 3, dead: false, state: 'idle' }; } } if (a.convoyOf) { a.convoyOf = null; a.post = null; } if (a.wantedRun) a.wantedRun = null; a.wantedBoss = null; } this.contracts.delete(id); },
   contractTick() {
     for (const [id, k] of this.contracts) {
       const c = k.c, P = c.place; if (!P) continue;
@@ -20894,6 +20976,10 @@ const ClanAI = {
         }
         if (k.met && dist(m.x, m.y, P.x, P.y) < 10) { FX.text(m.x, m.y, 'We made it. The clan will be paid.', '#9ad0a0'); Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); this.contractOff(k.gang, id); continue; }
       }
+      if (c.kind === 'convoy') { this.convoyTick(id, k); continue; }
+      if (c.kind === 'fortress') { this.fortTick(id, k); continue; }
+      if (c.kind === 'wanted') { this.wantedTick(id, k); continue; }
+      if (c.kind === 'caravan') { this.caravanTick(id, k); continue; }
       if (c.kind === 'defend' && near) {
         const alive = k.foes.filter(a => !a.dead && !a.yielded && !a.gone);
         if (!alive.length && k.waves > (k.held || 0)) { k.held = k.waves; Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); }
@@ -20904,12 +20990,201 @@ const ClanAI = {
       }
     }
   },
+
+  // ---- jobs for a crew: everyone on it is somewhere in the world, and the host plays the other side
+  crewOf(c) { return (c.crew && c.crew.length ? c.crew : [c.by]).map(id => this.leaderOf(id)).filter(a => a && !a.dead); },
+  crewNear(c, x, y, R) { return this.crewOf(c).filter(a => dist(a.x, a.y, x, y) < R).length; },
+  closest(c, x, y) { let best = null, bd = 1e9; for (const a of this.crewOf(c)) { const d = dist(a.x, a.y, x, y); if (d < bd) { bd = d; best = a; } } return best; },
+  news(k, text, tone) { Net.send({ t: 'jobNews', gang: k.gang, id: k.c.id, text, tone }); },
+  fail(k, id, why) { Net.send({ t: 'contractFail', gang: k.gang, id, why }); this.news(k, 'Failed: ' + why + '.', 'bad'); this.contractOff(k.gang, id); },
+  foe(k, type, x, y, o = {}) {
+    const q = World.randomWalkable(x, y, 0, o.spread ?? 3, 40); if (!q) return null;
+    const a = makeNPC(type, q[0], q[1], Object.assign({ persistent: true, aggressive: true, label: o.label || 'Outlaw', canYield: o.canYield ?? true, wanderR: o.wander ?? 3 }, o.over || {}));
+    a.cgang = k.gang; if (o.post) a.post = o.post.slice();
+    if (o.target) { a.ai.mode = 'fight'; a.ai.target = o.target; a.aware = 1; }
+    G.actors.push(a); k.foes.push(a); return a;
+  },
+  // somebody coming at a point from out of sight, along a bearing
+  foeFrom(k, at, ang, r, type, o) { const x = at.x + Math.cos(ang) * r, y = at.y + Math.sin(ang) * r; const q = (typeof offscreenSpot === 'function' && offscreenSpot({ x, y }, 0, 6)) || [x, y]; return this.foe(k, type, q[0], q[1], o); },
+  fighting(k) { return k.foes.filter(a => !a.dead && !a.gone && !a.yielded && !a.downed && a.hostileToP && !a.convoyOf && a !== k.cart && a.ai && a.ai.mode === 'fight').length; },
+  // a cart (a carter on a pack horse) stands still
+  halt(a, dt) { if (a.mount) { a.mount.spd = 0; a.x = a.mount.x; a.y = a.mount.y; a.moving = false; } else a.move(0, 0, dt); },
+  cart(k, i, x, y, label) {
+    const q = World.randomWalkable(x, y, 0, 2.5, 30) || [x, y];
+    const a = makeNPC('merchant', q[0], q[1], { persistent: true, name: 'Carter ' + pick(NAMES_F), label, wanderR: 0 });
+    a.hp = a.maxHp = 170; a.coward = true; a.essential = false; a.cgang = k.gang; a.post = q.slice();
+    GangRide.getUp(a); a.jobRide = true; a.mount.coat = (i + 2) % COATS.length; a.mount.pack = ['crates'];
+    G.actors.push(a); k.foes.push(a); return a;
+  },
+
+  // a rice convoy: three carts that set off when the crew is with them, stop when attacked or left, and are ambushed twice
+  convoyTick(id, k) {
+    const c = k.c, P = c.place, U0 = c.pickup || { x: P.x - 90, y: P.y + 40, name: 'the road' };
+    if (!k.spawned) {
+      if (!this.memberNear(k.gang, U0.x, U0.y, 90)) return;
+      k.spawned = true; k.wagons = [];
+      for (let i = 0; i < (c.wagons || 3); i++) { const a = this.cart(k, i, U0.x - i * 3.2, U0.y + i * 1.6, 'Rice convoy · cart ' + (i + 1)); a.convoyOf = id; a.convoyI = i; k.wagons.push(a); }
+    }
+    const alive = k.wagons.filter(a => !a.dead && !a.gone);
+    if (!alive.length) { this.fail(k, id, 'every cart of the convoy was lost'); return; }
+    const lead = alive[0], need = Math.max(1, c.coop || 2);
+    if (!k.met) {
+      const here = this.crewNear(c, lead.x, lead.y, 12);
+      for (const a of alive) a.label = here >= need ? 'Rice convoy' : 'Rice convoy · waiting for ' + need + ' guards (' + here + ' here)';
+      if (here < need) { if (here && !k.told) { k.told = true; this.news(k, 'The convoy will not leave with fewer than ' + need + ' guards. Bring the crew to ' + U0.name + '.'); } return; }
+      k.met = true; k.from = [lead.x, lead.y]; k.total = Math.max(40, dist(lead.x, lead.y, P.x, P.y)); k.amb = 0; k.n0 = alive.length;
+      for (const a of alive) a.label = 'Rice convoy';
+      Net.send({ t: 'contractMet', gang: k.gang, id }); this.news(k, 'The convoy sets out for ' + P.name + '. The carts stop if they are attacked or left alone.');
+    }
+    const prog = 1 - dist(lead.x, lead.y, P.x, P.y) / k.total;
+    // two ambushes on the road, bigger for a bigger crew, from both sides at once
+    if (k.amb < 2 && prog > (k.amb ? 0.66 : 0.3)) {
+      k.amb++; const crew = Math.max(1, this.crewNear(c, lead.x, lead.y, 40)), n = 2 + crew * 2 + (k.amb === 2 ? 1 : 0), ang = Math.atan2(P.y - lead.y, P.x - lead.x);
+      for (let i = 0; i < n; i++) this.foeFrom(k, lead, ang + (i % 2 ? 1.1 : -1.1), 20, i % 4 === 3 ? 'ronin' : 'bandit', { label: 'Road bandit', target: alive[i % alive.length] });
+      this.news(k, k.amb === 1 ? 'Ambush! Bandits on both sides of the road!' : 'A second band comes for the carts. Hold them!', 'bad');
+    }
+    if (dist(lead.x, lead.y, P.x, P.y) < 10) {
+      const kept = alive.length / (k.n0 || alive.length);
+      Net.send({ t: 'contractHit', gang: k.gang, id, n: 1, kept }); this.news(k, 'The convoy reached ' + P.name + ' with ' + alive.length + ' of ' + (k.n0 || alive.length) + ' carts.');
+      this.contractOff(k.gang, id);
+    }
+  },
+  convoyAI(a, dt) {
+    const k = this.contracts.get(a.convoyOf); if (!k) { a.convoyOf = null; return false; }
+    const c = k.c, P = c.place;
+    if (!k.met || this.fighting(k) || !this.crewNear(c, a.x, a.y, 18)) { this.halt(a, dt); return true; }
+    const alive = (k.wagons || []).filter(w => !w.dead && !w.gone), i = alive.indexOf(a), prev = i > 0 ? alive[i - 1] : null;
+    if (!prev) { if (a.mount) GangRide.go(a, P.x, P.y, dt, 3.2); else Nav.step(a, P.x, P.y, dt, 0.8); return true; }
+    if (dist(a.x, a.y, prev.x, prev.y) > 3.4) { if (a.mount) GangRide.go(a, prev.x, prev.y, dt, 3.8); else Nav.step(a, prev.x, prev.y, dt, 0.9); } else this.halt(a, dt);
+    return true;
+  },
+
+  // a bandit fort: too strong for one, so it waits for the crew; the walls, then the whole camp, then the captain
+  fortTick(id, k) {
+    const c = k.c, P = c.place, need = Math.max(1, c.coop || 2);
+    if (!k.stage) {
+      const here = this.crewNear(c, P.x, P.y, 45); if (!here) return;
+      if (here < need) { if (!k.told) { k.told = true; this.news(k, 'The fort near ' + P.name + ' is too strong for one blade. Bring ' + need + ' of the crew within sight of it.'); } return; }
+      k.stage = 1; k.n = here;
+      for (let i = 0; i < 3 + 2 * here; i++) { const q = [P.x + rnd(-8, 8), P.y + rnd(-8, 8)]; this.foe(k, i % 3 === 2 ? 'ronin' : 'bandit', q[0], q[1], { label: 'Fort sentry', post: q, wander: 2 }); }
+      this.news(k, 'The crew is at the fort. Clear the sentries.');
+      return;
+    }
+    const up = k.foes.filter(a => !a.dead && !a.gone && !a.yielded && !a.downed).length;
+    if (up) return;
+    const tgt = this.closest(c, P.x, P.y) || G.player;
+    if (k.stage === 1) {
+      k.stage = 2;
+      for (let i = 0; i < 2 + 2 * k.n; i++) this.foeFrom(k, P, (i % 2 ? 0.6 : -2.5) + rnd(-0.3, 0.3), 22, i % 3 === 0 ? 'ronin' : 'bandit', { label: 'Camp fighter', target: tgt });
+      this.news(k, 'A horn inside the fort: the whole camp is coming out!', 'bad');
+    } else if (k.stage === 2) {
+      k.stage = 3;
+      const b = this.foe(k, 'boss', P.x, P.y, { label: 'Fort captain', canYield: false, target: tgt }); if (b) { b.name = randName() + ', the fort captain'; b.hp = b.maxHp = 220 + 60 * k.n; b.armor = 2; }
+      for (let i = 0; i < 2; i++) this.foe(k, 'ronin', P.x + rnd(-2, 2), P.y + rnd(-2, 2), { label: 'Captain’s guard', canYield: false, target: tgt });
+      this.news(k, 'The fort captain comes out with his guard.', 'bad');
+    } else if (k.stage === 3) {
+      k.stage = 4; Net.send({ t: 'contractHit', gang: k.gang, id, n: 1 }); this.news(k, 'The fort near ' + P.name + ' has fallen. The crew is paid.');
+      this.contractOff(k.gang, id);
+    }
+  },
+
+  // a wanted man with a hideout and bodyguards; when it turns against him he rides for it. Beaten and bound: double pay
+  wantedTick(id, k) {
+    const c = k.c, P = c.place;
+    if (!k.spawned) {
+      if (!this.memberNear(k.gang, P.x, P.y, 90)) return;
+      k.spawned = true; const q = World.randomWalkable(P.x + rnd(-10, 10), P.y + rnd(-10, 10), 4, 14, 40) || [P.x, P.y], crew = Math.max(1, this.crewOf(c).length);
+      const b = this.foe(k, 'boss', q[0], q[1], { label: 'Wanted · ' + (c.wanted || 'outlaw'), canYield: true, spread: 1, post: q, wander: 1 });
+      if (!b) { k.spawned = false; return; }
+      b.name = c.wanted || 'The wanted man'; b.hp = b.maxHp = 180 + 50 * crew; b.armor = 2; b.wantedBoss = id; k.boss = b;
+      for (let i = 0; i < 2 + crew; i++) { const g = [q[0] + rnd(-4, 4), q[1] + rnd(-4, 4)]; const a = this.foe(k, i % 2 ? 'ronin' : 'bandit', g[0], g[1], { label: 'Bodyguard', post: g, wander: 2 }); if (a) a.guard = true; }
+    }
+    const b = k.boss; if (!b) return;
+    if (b.dead) { Net.send({ t: 'contractHit', gang: k.gang, id, n: 1, alive: false }); this.news(k, (c.wanted || 'He') + ' is dead. The bounty is paid, but only half of what he was worth alive.'); this.contractOff(k.gang, id); return; }
+    // beaten and on his knees: whoever stands over him binds him
+    if (b.yielded || b.downed || b.state === 'kneel') {
+      if (b.mount) GangRide.getDown(b); b.wantedRun = null;
+      const by = this.closest(c, b.x, b.y);
+      if (by && dist(by.x, by.y, b.x, b.y) < 2.6) { if ((k.bindT = (k.bindT || 0) + 0.5) === 0.5) FX.text(b.x, b.y, 'Binding him…', '#efe3c8'); }
+      else k.bindT = 0;
+      if (k.bindT >= 2) { FX.text(b.x, b.y, 'Bound. He comes in alive.', '#9ad0a0'); Net.send({ t: 'contractHit', gang: k.gang, id, n: 1, alive: true }); this.news(k, (c.wanted || 'He') + ' is bound and brought in alive: double pay.'); b.persistent = false; this.contractOff(k.gang, id); }
+      return;
+    }
+    const guards = k.foes.filter(a => a.guard && !a.dead && !a.yielded && !a.downed).length, near = this.closest(c, b.x, b.y);
+    // it turns: he takes to his horse and rides off, away from whoever is closest
+    if (!k.ran && near && (b.hp < b.maxHp * 0.6 || (!guards && dist(near.x, near.y, b.x, b.y) < 7))) {
+      k.ran = true; k.legs = 0; this.runFrom(b, near);
+      FX.text(b.x, b.y, pick(['You will never take me!', 'Not today!', 'Catch me if you can!']), '#ff8a7a');
+      this.news(k, (c.wanted || 'He') + ' is getting away on horseback! Ride him down.', 'bad');
+    }
+    if (b.wantedRun) {
+      // caught up with: dragged from the saddle, or thrown when the horse is cut; he fights on foot
+      if (near && dist(near.x, near.y, b.x, b.y) < 2.4) k.closeT = (k.closeT || 0) + 0.5; else k.closeT = 0;
+      if (k.closeT >= 1.5 || b.hp < b.maxHp * 0.3) { GangRide.getDown(b); b.wantedRun = null; b.ai.mode = 'fight'; b.ai.target = near || G.player; b.aware = 1; FX.text(b.x, b.y, 'Dragged from the saddle!', '#efe3c8'); this.news(k, (c.wanted || 'He') + ' is off his horse. Beat him and bind him.'); return; }
+      if (dist(b.x, b.y, b.wantedRun[0], b.wantedRun[1]) < 6) {
+        if (!near || dist(near.x, near.y, b.x, b.y) > 45) { this.fail(k, id, (c.wanted || 'the wanted man') + ' got away'); if (b.mount) GangRide.getDown(b); b.persistent = false; return; }
+        if (++k.legs >= 3) { GangRide.getDown(b); b.wantedRun = null; b.ai.mode = 'fight'; b.ai.target = near; b.aware = 1; this.news(k, 'His horse is blown. ' + (c.wanted || 'He') + ' turns to fight.'); }
+        else this.runFrom(b, near);
+      }
+    }
+  },
+  runFrom(b, from) {
+    const ang = Math.atan2(b.y - from.y, b.x - from.x) + rnd(-0.6, 0.6);
+    b.wantedRun = World.randomWalkable(b.x + Math.cos(ang) * 70, b.y + Math.sin(ang) * 70, 0, 18, 60) || [b.x + Math.cos(ang) * 60, b.y + Math.sin(ang) * 60];
+    if (!b.mount) GangRide.getUp(b); b.jobRide = true;
+  },
+  runAI(a, dt) { const r = a.wantedRun; if (!r || !a.mount) { a.wantedRun = null; return false; } GangRide.go(a, r[0], r[1], dt, 6.2); return true; },
+
+  // a caravan of the clan's goods: it follows whoever drives it, and the road has things to say about that
+  caravanTick(id, k) {
+    const c = k.c, P = c.place, by = this.leaderOf(c.by);
+    if (!k.spawned) {
+      if (!by) return; k.spawned = true;
+      const a = this.cart(k, 0, by.x + 2, by.y + 1, 'Clan caravan → ' + P.name); a.hp = a.maxHp = 220; a.escortFor = c.by; a.post = null;
+      k.cart = a; k.from = [a.x, a.y]; k.total = Math.max(40, dist(a.x, a.y, P.x, P.y)); k.kept = 1; k.ev = 0;
+      this.news(k, 'The caravan rolls out for ' + P.name + '. It follows ' + (by === G.player ? 'you' : by.name || 'its driver') + '.');
+    }
+    const a = k.cart;
+    if (!a || a.dead) { this.fail(k, id, 'the caravan was plundered'); return; }
+    const prog = 1 - dist(a.x, a.y, P.x, P.y) / k.total, long = k.total > 60, crew = Math.max(1, this.crewNear(c, a.x, a.y, 40)), ang = Math.atan2(P.y - a.y, P.x - a.x);
+    if (k.ev === 0 && long && prog > 0.3) {
+      k.ev = 1; for (let i = 0; i < 2 + crew; i++) this.foeFrom(k, a, ang + (i % 2 ? 1.3 : -1.3), 20, 'bandit', { label: 'Cargo thief', target: a });
+      this.news(k, 'Bandits are after the cargo!', 'bad');
+    }
+    // a toll barrier: stand by the officer to pay a tenth, or cut through his men
+    if (k.ev === 1 && long && prog > 0.55) {
+      k.ev = 2; a.holdUp = true; k.tollT = 0; k.toll = [];
+      const at = { x: a.x + Math.cos(ang) * 9, y: a.y + Math.sin(ang) * 9 };
+      for (let i = 0; i < 3; i++) { const q = World.randomWalkable(at.x + rnd(-2, 2), at.y + rnd(-2, 2), 0, 2, 30); if (!q) continue; const t = makeNPC('guard', q[0], q[1], { persistent: true, label: i ? 'Toll guard' : 'Toll officer', wanderR: 0 }); t.post = q.slice(); t.cgang = k.gang; G.actors.push(t); k.foes.push(t); k.toll.push(t); }
+      if (k.toll[0]) FX.text(k.toll[0].x, k.toll[0].y, 'Halt! A tenth of the load, by order of the magistrate.', '#efe3c8');
+      this.news(k, 'A toll barrier. Stand by the officer to pay a tenth of the load, or fight your way through.');
+    }
+    if (k.ev === 2) {
+      const live = (k.toll || []).filter(t => !t.dead && !t.yielded && !t.downed);
+      if (!live.length) { k.ev = 3; a.holdUp = false; this.news(k, 'The toll men are down. Through the barrier.'); }
+      else if (!live.some(t => t.ai && t.ai.mode === 'fight') && this.crewNear(c, live[0].x, live[0].y, 3)) {
+        if ((k.tollT += 0.5) >= 3) { k.kept = Math.max(0, k.kept - 0.1); k.ev = 3; a.holdUp = false; FX.text(live[0].x, live[0].y, 'Paid. Move along.', '#efe3c8'); for (const t of live) { t.persistent = false; t.post = null; } this.news(k, 'Toll paid: a tenth of the load.'); }
+      }
+    }
+    // a cracked wheel at the last stretch: someone has to stand at the cart and heave it free
+    if (k.ev === 3 && long && prog > 0.8) { k.ev = 4; a.holdUp = true; k.wheelT = 0; FX.text(a.x, a.y, 'A wheel has cracked!', '#ff8a7a'); this.news(k, 'A wheel cracked. Stand by the cart to heave it free.', 'bad'); }
+    if (k.ev === 4) {
+      if (this.crewNear(c, a.x, a.y, 2.6)) { k.wheelT += 0.5; FX.dust(a.x, a.y, 4); if (k.wheelT >= 3) { k.ev = 5; a.holdUp = false; FX.text(a.x, a.y, 'Free! On we go.', '#9ad0a0'); this.news(k, 'The wheel is mended. On to ' + P.name + '.'); } }
+    }
+    if (dist(a.x, a.y, P.x, P.y) < 12) {
+      const kept = Math.round(k.kept * (0.5 + 0.5 * Math.max(0, a.hp) / a.maxHp) * 100) / 100;
+      Net.send({ t: 'contractHit', gang: k.gang, id, n: 1, kept }); this.news(k, 'The caravan reached ' + P.name + ': ' + Math.round(kept * 100) + '% of the load sold.');
+      this.contractOff(k.gang, id);
+    }
+  },
   // the merchant on an escort keeps pace with the one escorting them
   escortAI(a, dt) {
     const L = this.leaderOf(a.escortFor); if (!L) { a.move(0, 0, dt); return true; }
     const d = dist(a.x, a.y, L.x, L.y);
     // left far behind (a rider who forgot him) and out of sight: he catches up the way a person does, off-screen
     if (d > 26 && GangRide.offscreen(a.x, a.y)) { const q = GangRide.behind(18) || World.randomWalkable(L.x, L.y, 6, 12, 30); if (q && GangRide.offscreen(q[0], q[1])) { a.x = q[0]; a.y = q[1]; a.nav = null; } }
+    if (a.holdUp) { this.halt(a, dt); return true; }
+    if (a.mount) { if (d > 3.4) GangRide.go(a, L.x, L.y, dt, d > 8 ? 6 : 3.4); else this.halt(a, dt); return true; }
     if (d > 2.4) Nav.step(a, L.x, L.y, dt, d > 6 ? 1.3 : 0.85, { slack: 2.5 }); else { a.move(0, 0, dt); a.faceTo(L.x, L.y); }
     return true;
   },
@@ -21508,9 +21783,36 @@ const ClanUI = {
   a_dip(arg) { const [rival, action] = arg.split(':'); this.req('diplomacy', { rival, action }); return false; },
   // ---- contracts
   t_work(g) {
-    const P = G.player, cs = g.contracts || [], row = c => `<div class="row${c.state === 'active' ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(c.name)} <small>${'◆'.repeat(c.diff || 1)} · ${c.reward.mon} mon · ${c.place ? Math.round(dist(c.place.x, c.place.y, P.x, P.y)) + ' tiles' : ''}${c.from ? ' · from ' + esc(c.from) : ''}</small></span><span class="ds">${c.state === 'active' ? 'Under way · ' + (c.got || 0) + '/' + c.need + ' · ' + Clan.contractStep(c).text : c.state}${c.expires ? ' · until day ' + c.expires : ''}</span></div>
-      ${c.state === 'offered' ? `<button class="btn" data-act="cTake" data-arg="${c.id}">Take it on</button>` : ''}${c.state === 'active' ? `<button class="btn alt" data-act="cTrack" data-arg="${c.id}">Track</button><button class="btn alt" data-act="cDrop" data-arg="${c.id}">Give up</button>` : ''}</div>`;
+    const P = G.player, cs = g.contracts || [], row = c => `<div class="row${c.state === 'active' ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(c.name)} <small>${'◆'.repeat(c.diff || 1)} · ${c.reward.mon} mon · ${c.place ? Math.round(dist(c.place.x, c.place.y, P.x, P.y)) + ' tiles' : ''}${c.from ? ' · from ' + esc(c.from) : ''}</small></span><span class="ds">${c.state === 'active' ? 'Under way · ' + (c.got || 0) + '/' + c.need + ' · ' + Clan.contractStep(c).text : c.state}${esc(this.crewText(c))}${c.expires ? ' · until day ' + c.expires : ''}</span></div>
+      ${this.jobButtons(c, true)}</div>`;
     return `<p class="lede">Work brought to the gate by visitors and messengers. Doing it pays the clan, builds its name, and wins influence in the district where it happens.</p>${cs.filter(c => c.state === 'active').map(row).join('')}${cs.filter(c => c.state === 'offered').map(row).join('')}${cs.filter(c => c.state !== 'active' && c.state !== 'offered').map(row).join('') || (cs.length ? '' : '<p class="lede">No work yet. It comes as the clan becomes known.</p>')}`;
+  },
+  crewText(c) {
+    if (!c.coop && c.kind !== 'caravan') return '';
+    const names = (c.crew || []).map(id => id === Net.id ? 'you' : (Net.gang && Net.gang.memberNames && Net.gang.memberNames[id]) || 'a clanmate');
+    return c.coop ? ' · needs a crew of ' + c.coop + (names.length ? ' · on it: ' + names.join(', ') : '') : names.length > 1 ? ' · with ' + names.slice(1).join(', ') : '';
+  },
+  jobButtons(c, drop) {
+    const on = (c.crew || [c.by]).includes(Net.id);
+    if (c.state === 'offered') return `<button class="btn" data-act="cTake" data-arg="${c.id}">${c.coop ? 'Lead the crew' : 'Take it on'}</button>`;
+    if (c.state !== 'active') return '';
+    if ((c.coop || c.kind === 'caravan') && !on) return `<button class="btn" data-act="cJoin" data-arg="${c.id}">Join the crew</button>`;
+    return `<button class="btn alt" data-act="cTrack" data-arg="${c.id}">Track</button>` + (drop ? `<button class="btn alt" data-act="cDrop" data-arg="${c.id}">${c.by === Net.id ? 'Give up' : 'Leave the crew'}</button>` : '');
+  },
+  a_cJoin(id) { this.req('joinContract', { id }, () => { G.profile.contract = id; G.profile.track = null; UI.toast('You are on the crew. The job is on your map.', 'good'); }); return false; },
+  // a caravan: the clan's goods, loaded at the board and sold in a town that wants them
+  cv: { to: null, cargo: {} },
+  a_cvOpen() { Net.req('caravanQuotes').then(r => { if (!r.ok) { UI.toast(r.err || 'No caravan roads yet.', 'shame'); return; } this.quotes = r.data || []; if (!this.cv.to && this.quotes[0]) this.cv.to = this.quotes[0].id; UI.open('caravan'); }); return false; },
+  a_cvTo(id) { this.cv.to = id; return false; },
+  a_cvAdd(arg) { const [r, n] = String(arg).split(':'), have = Math.floor((Net.gang.res || {})[r] || 0), load = this.cv.cargo, tot = Object.values(load).reduce((a, b) => a + b, 0) - (load[r] || 0); load[r] = clamp((load[r] || 0) + (+n), 0, Math.min(have, 60 - tot)); return false; },
+  a_cvGo() {
+    const cargo = Object.fromEntries(Object.entries(this.cv.cargo).filter(([, v]) => v > 0));
+    Net.req('startCaravan', { to: this.cv.to, cargo }).then(r => {
+      if (!r.ok) { UI.toast(r.err, 'shame'); return; }
+      this.cv.cargo = {}; UI.close(); UI.toast('The caravan is loaded. Lead it out: the cart follows you.', 'good');
+      setTimeout(() => { const c = (Net.gang.contracts || []).find(x => x.kind === 'caravan' && x.state === 'active' && x.by === Net.id); if (c) { G.profile.contract = c.id; G.profile.track = null; } }, 800);
+    });
+    return false;
   },
   a_cTake(id) { this.req('acceptContract', { id }, () => { G.profile.contract = id; }); return false; },
   a_cTrack(id) { G.profile.contract = id; G.profile.track = null; UI.toast('Tracking the contract.', 'good'); return false; },
@@ -21597,17 +21899,31 @@ Panels.clan = o => ClanUI.panel(o);
 // the board inside a clan's own gate: work brought to the clan, wanted posters, and what the clan has lately done
 Panels.clanBoard = o => {
   const g = Net.gang, mine = g && g.id === o.gid, P = G.player;
-  if (!mine) { const gv = (Net.world.gangs || []).find(x => x.id === o.gid); return { title: 'Bounty board', seal: '賞', html: `<p class="lede">The notices on ${esc(gv ? gv.name : 'this clan')}'s board are written for its own people.</p>` }; }
+  if (!mine) { const gv = Net.world.gangs && Net.world.gangs.get && Net.world.gangs.get(o.gid); return { title: 'Bounty board', seal: '賞', html: `<p class="lede">The notices on ${esc(gv ? gv.name : 'this clan')}'s board are written for its own people.</p>` }; }
   const cs = g.contracts || [], live = cs.filter(c => c.state === 'active'), open = cs.filter(c => c.state === 'offered');
-  const job = c => { const w = Clan.contractStep(c), d = Math.round(dist(w.at[0], w.at[1], P.x, P.y)); return `<div class="row${c.state === 'active' ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(c.name)} <small>${'◆'.repeat(c.diff || 1)} · ${c.reward.mon} mon · ${d} tiles</small></span><span class="ds">${c.state === 'active' ? 'Under way' + (c.by && c.by !== Net.id ? ' (' + esc(((Net.remotes.get(c.by) || {}).actor || {}).name || 'a clanmate') + ')' : '') + ' · ' + esc(w.text) + ' · ' + esc(w.hint) : esc(w.text) + (c.expires ? ' · until day ' + c.expires : '')}</span></div>${c.state === 'offered' ? `<button class="btn" data-act="cTake" data-arg="${c.id}">Take it on</button>` : `<button class="btn alt" data-act="cTrack" data-arg="${c.id}">Track</button>`}</div>`; };
+  const job = c => {
+    const w = Clan.contractStep(c), d = Math.round(dist(w.at[0], w.at[1], P.x, P.y)), who = c.by && c.by !== Net.id ? ' (' + esc((g.memberNames && g.memberNames[c.by]) || 'a clanmate') + ')' : '';
+    const tag = c.coop ? ' <small style="color:#ffcf4a">· crew of ' + c.coop + '+</small>' : c.kind === 'caravan' ? ' <small style="color:#9ad0a0">· caravan</small>' : '';
+    return `<div class="row${c.state === 'active' ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(c.name)}${tag} <small>${'◆'.repeat(c.diff || 1)} · ${c.reward.mon} mon${c.coop ? ' + a share each' : ''} · ${d} tiles</small></span><span class="ds">${c.state === 'active' ? 'Under way' + who + ' · ' + esc(w.text) + ' · ' + esc(w.hint) : esc(w.text) + (c.expires ? ' · until day ' + c.expires : '')}${esc(ClanUI.crewText(c))}</span></div>${ClanUI.jobButtons(c, false)}</div>`;
+  };
   const p = G.profile, wanted = (p.bounties || []).filter(b => !b.done).map(b => `<div class="row"><div class="grow"><span class="nm">Wanted: ${esc(b.target)}</span><span class="ds">Last seen: ${esc(b.where)}. Shows as a red mark on your map once you are near.</span></div><span class="px">${b.reward} mon · +${b.honor} honour</span></div>`).join('');
-  const done = (g.log || []).map(l => l.msg || '').filter(t => /^Done: | took on: |Too late: |Failed: /.test(t)).slice(-5).reverse().map(t => `<div class="ds">· ${esc(t)}</div>`).join('');
-  return { title: 'Bounty board', seal: '賞', html: `<p class="lede">Work for the clan, wanted men, and who has been doing what. Take a job and it is tracked on your map; it finishes by itself when you have done it.</p>
+  const done = (g.log || []).map(l => l.msg || '').filter(t => /^Done: | took on: |Too late: |Failed: | joined the crew | set out with a caravan/.test(t)).slice(-6).reverse().map(t => `<div class="ds">· ${esc(t)}</div>`).join('');
+  return { title: 'Bounty board', seal: '賞', html: `<p class="lede">Work for the clan, wanted men, and who has been doing what. Take a job and it is tracked on your map; it finishes by itself when you have done it. Jobs marked <b>crew</b> need several of you: one leads, the others join, and everyone on the crew is paid a share.</p>
     <h3>Work under way</h3>${live.map(job).join('') || '<p class="ds">Nobody is out on a job.</p>'}
     <h3>Open work</h3>${open.map(job).join('') || '<p class="ds">No open requests. More come as the clan becomes known (a Messenger station or Contract office brings more).</p>'}
+    <h3>Caravans</h3><div class="row"><div class="grow"><span class="nm">Sell the clan's goods in a town</span><span class="ds">Load up to 60 from the store; each town pays its own price, more for a longer road. Bandits, a toll and a bad road are on the way: what arrives is what is paid.</span></div><button class="btn" data-act="cvOpen">Load a caravan</button></div>
     <h3>Wanted</h3>${wanted || '<p class="ds">No wanted posters today. New ones go up each morning.</p>'}
     ${done ? '<h3>Lately</h3>' + done : ''}`, on: (act, arg) => { const h = ClanUI['a_' + act]; if (h) { const r = h.call(ClanUI, arg); setTimeout(() => { if (UI.panel === 'clanBoard') UI.render(); }, 400); return r; } } };
 };
+Panels.caravan = () => {
+  const g = Net.gang, Q = ClanUI.quotes || [], cv = ClanUI.cv, to = Q.find(q => q.id === cv.to) || Q[0], res = g.res || {};
+  const tot = Object.values(cv.cargo).reduce((a, b) => a + b, 0), value = to ? Math.round(Object.entries(cv.cargo).reduce((s, [r, n]) => s + n * (to.price[r] || 0), 0)) : 0;
+  const towns = Q.map(q => `<div class="row${q === to ? ' sel' : ''}"><div class="grow"><span class="nm">${esc(q.name)} <small>${q.dist} tiles</small></span><span class="ds">${Object.entries(q.price).map(([r, v]) => r + ' ' + v).join(' · ')}</span></div>${q === to ? '<span class="px">chosen</span>' : `<button class="btn alt" data-act="cvTo" data-arg="${q.id}">Sell here</button>`}</div>`).join('');
+  const goods = Object.keys(to ? to.price : {}).map(r => `<div class="row"><div class="grow"><span class="nm">${esc(r)} <small>${Math.floor(res[r] || 0)} in store · ${to.price[r]} mon each in ${esc(to.name)}</small></span><span class="ds">On the cart: <b>${cv.cargo[r] || 0}</b></span></div><button class="btn alt" data-act="cvAdd" data-arg="${r}:-5">−5</button><button class="btn alt" data-act="cvAdd" data-arg="${r}:5">+5</button><button class="btn alt" data-act="cvAdd" data-arg="${r}:20">+20</button></div>`).join('');
+  return { title: 'Load a caravan', seal: '荷', html: Q.length ? `<p class="lede">Choose a town and load the cart. It follows whoever drives it. Clanmates can join the crew from the board.</p><h3>Where</h3>${towns}<h3>The load · ${tot} / 60</h3>${goods}<div class="btns"><button class="btn gold" data-act="cvGo" ${tot < 10 ? 'disabled' : ''}>Send it · about ${value} mon in ${esc(to ? to.name : '')}</button></div>` : '<p class="lede">There is no town on a caravan road from the compound yet.</p>',
+    on: (act, arg) => { const h = ClanUI['a_' + act]; if (h) { h.call(ClanUI, arg); if (UI.panel === 'caravan') UI.render(); } return false; } };
+};
+
 // a structure: what it is, what it gives, and (for the clan) improving, styling, moving or tearing it down
 Panels.clanStruct = o => {
   const gv = (Net.gang && Net.gang.id === o.gid) ? Net.gang : Net.world.gangs.get(o.gid), s = gv && (gv.structs || []).find(x => x.id === o.sid); if (!s) return null;

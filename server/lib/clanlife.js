@@ -300,7 +300,7 @@ function createLife(ctx, G) {
     return { id: p.id, name: p.name, x: p.x, y: p.y, cell: p.cell || null };
   };
   L.contractFor = (g, key, R = R0) => {
-    const keys = Object.keys(C.CONTRACTS).filter(k => C.CONTRACTS[k].diff <= 2 + G.stage(g).n);
+    const keys = Object.keys(C.CONTRACTS).filter(k => C.CONTRACTS[k].diff <= 2 + G.stage(g).n && (!C.CONTRACTS[k].coop || g.members.length >= 2));
     const k = key || keys[Math.floor(R() * keys.length)], T = C.CONTRACTS[k]; if (!T) return null;
     let place = L.placeFor(g, R, { coast: T.coast }), rival = null;
     if (T.camp || k === 'scoutRival') {
@@ -312,14 +312,16 @@ function createLife(ctx, G) {
     const rv = rival && db.world.rivals[rival];
     // an escort starts somewhere real: the merchant waits at another town, and you walk him from there to the place
     let pickup = null;
-    if (T.kind === 'escort') {
+    if (T.kind === 'escort' || T.kind === 'convoy') {
       for (let i = 0; i < 8 && !pickup; i++) { const q = L.placeFor(g, R); if (q.id !== place.id && U.dist(q.x, q.y, place.x, place.y) > 70 && U.dist(q.x, q.y, place.x, place.y) < 700) pickup = q; }
       if (!pickup) pickup = { id: 'road', name: 'the road out of ' + place.name, x: place.x - 90, y: place.y + 40 };
     }
+    const wanted = T.kind === 'wanted' ? C.WANTED_NAMES[Math.floor(R() * C.WANTED_NAMES.length)] : null;
     const n = T.n ? T.n[0] + Math.floor(R() * (T.n[1] - T.n[0] + 1)) : 1;
     const reward = Math.round(T.reward[0] + R() * (T.reward[1] - T.reward[0]) * (1 + G.stage(g).n * 0.1));
     return {
-      id: 'c' + (++db.seq.contract), tpl: k, kind: T.kind, name: T.name.replace('{place}', place.name).replace('{rival}', rv ? rv.name : 'rival gang'), place, rival, pickup, met: false,
+      id: 'c' + (++db.seq.contract), tpl: k, kind: T.kind, name: T.name.replace('{place}', place.name).replace('{rival}', rv ? rv.name : 'rival gang').replace('{wanted}', wanted || 'a wanted man'), place, rival, pickup, met: false,
+      coop: T.coop || 0, crew: [], wanted: wanted || null, wagons: T.wagons || 0,
       n, need: T.kind === 'kill' ? n : T.kind === 'defend' ? T.waves : 1, got: 0, foes: T.foes || null, boss: !!T.boss, res: T.res || null,
       reward: { mon: reward }, rep: T.rep, renown: T.renown, diff: T.diff, territory: !!T.territory, state: 'offered', day: ctx.clock().day, expires: ctx.clock().day + 4, by: null, chain: k === 'raiders' ? 'outpost' : null
     };
@@ -329,34 +331,55 @@ function createLife(ctx, G) {
     if (c.state !== 'offered') return 'That contract is already ' + c.state + '.';
     if (c.territory && !G.can(g, pid, 'war')) return 'Taking a rival’s outpost starts a fight over land. Your rank may not start one.';
     if (g.contracts.filter(x => x.state === 'active').length >= 3 + Math.floor(G.stage(g).n / 2)) return 'The clan already has as much work under way as it can handle.';
-    c.state = 'active'; c.by = pid; c.expires = ctx.clock().day + 3;
+    c.state = 'active'; c.by = pid; c.crew = [pid]; c.expires = ctx.clock().day + 3;
     G.log(g, (ctx.player(pid) || {}).name + ' took on: ' + c.name + '.'); G.bump(g);
     ctx.contractStarted(g, c);
     L.stockBoard(g);
     return null;
   };
+  // a job for more than one: anyone in the clan can sign on to the crew while it is under way
+  L.join = (g, pid, cid) => {
+    const c = g.contracts.find(x => x.id === cid && x.state === 'active'); if (!c) return 'That job is not under way.';
+    if (!c.coop && c.kind !== 'caravan') return 'That job is one person\u2019s work.';
+    c.crew = Array.isArray(c.crew) ? c.crew : [c.by];
+    if (c.crew.includes(pid)) return 'You are already on that crew.';
+    if (c.crew.length >= 5) return 'The crew is full.';
+    c.crew.push(pid); G.log(g, (ctx.player(pid) || {}).name + ' joined the crew on: ' + c.name + '.'); G.bump(g);
+    ctx.contractStarted(g, c);
+    return null;
+  };
   L.abandon = (g, pid, cid) => {
     const c = g.contracts.find(x => x.id === cid && x.state === 'active'); if (!c) return 'No such job under way.';
+    if (c.by !== pid && Array.isArray(c.crew) && c.crew.includes(pid)) { c.crew = c.crew.filter(x => x !== pid); G.log(g, (ctx.player(pid) || {}).name + ' left the crew on: ' + c.name + '.'); G.bump(g); ctx.contractStarted(g, c); return null; }
     if (c.by !== pid && !G.can(g, pid, 'war')) return 'Only whoever took it (or an officer) can give it up.';
     c.state = 'failed'; G.addRep(g, { reliability: -1 }); G.log(g, 'Gave up on: ' + c.name + '.'); G.bump(g);
     ctx.contractEnded(g, c);
     return null;
   };
   // progress is reported by the host (kills of the contract's own tagged foes, an arrival, a wave held) or checked here
-  L.progress = (g, cid, n = 1, by) => {
+  L.progress = (g, cid, n = 1, by, o = {}) => {
     const c = g.contracts.find(x => x.id === cid && x.state === 'active'); if (!c) return false;
     c.got = Math.min(c.need, c.got + n);
+    if (o.alive && c.kind === 'wanted') c.alive = true;
+    if (c.kind === 'caravan' && o.kept !== undefined) c.kept = Math.max(0, Math.min(1, +o.kept || 0));
     if (c.got >= c.need) L.complete(g, c, by);
     else G.bump(g);
     return true;
   };
   L.complete = (g, c, by) => {
     c.state = 'done'; c.doneDay = ctx.clock().day;
-    G.gain(g, c.reward); G.addRep(g, c.rep); G.addRep(g, { reliability: 1 }); G.addRenown(g, c.renown, c.name);
+    // brought in alive pays double; a caravan is paid for what reached the market
+    if (c.kind === 'wanted' && c.alive) c.reward = { mon: c.reward.mon * 2 };
+    if (c.kind === 'caravan') c.reward = { mon: Math.round((c.value || 0) * (c.kept ?? 1)) };
+    G.gain(g, c.reward);
+    if (Array.isArray(c.crew) && (c.coop || c.kind === 'caravan')) {
+      const share = Math.round(c.reward.mon * C.CARAVAN.share);
+      for (const pid of c.crew) ctx.send(pid, { t: 'pay', mon: share, why: c.name });
+    } G.addRep(g, c.rep); G.addRep(g, { reliability: 1 }); G.addRenown(g, c.renown, c.name);
     if (c.place && c.place.cell) ctx.influence(g.id, c.place.cell, c.territory ? 45 : 12);
     if (c.place && c.place.camp) ctx.campTaken(g, c.place.camp);
     ctx.toGang(g, { t: 'contractDone', c: { id: c.id, name: c.name, reward: c.reward } });
-    G.log(g, 'Done: ' + c.name + ' (+' + c.reward.mon + ' mon).');
+    G.log(g, 'Done: ' + c.name + ' (+' + c.reward.mon + ' mon' + (c.kind === 'wanted' ? c.alive ? ', brought in alive' : ', dead' : '') + (c.kind === 'caravan' ? ', ' + Math.round((c.kept ?? 1) * 100) + '% of the load sold' : '') + ').');
     if (c.chain) { const nx = L.contractFor(g, c.chain); if (nx) { g.contracts.push(nx); G.log(g, 'A new request follows: ' + nx.name + '.'); } }
     ctx.contractEnded(g, c);
     L.stockBoard(g);
@@ -368,6 +391,31 @@ function createLife(ctx, G) {
     const p = ctx.player(pid); if (!p || U.dist(p.x, p.y, c.place.x, c.place.y) > 30) return 'Bring it there first (' + c.place.name + ').';
     if (!G.pay(g, c.res)) return 'The clan’s store does not have ' + G.costText(c.res) + '.';
     L.complete(g, c, pid); return null;
+  };
+  // ---- caravans: a load from the clan's store, driven to a town that wants it
+  L.towns = (g) => {
+    const info = db.world.info, from = g.hq ? [g.hq.x, g.hq.y] : null; if (!from || !info || !Array.isArray(info.places)) return [];
+    return info.places.filter(p => p.kind === 'town').map(p => [p, U.dist(p.x, p.y, from[0], from[1])]).filter(([, d]) => d > 60 && d < 1100).sort((a, b) => a[1] - b[1]).slice(0, 6);
+  };
+  // a town's want of each good changes by the day; a longer road pays more
+  L.price = (p, res, d, day) => { let h = 2166136261; for (const ch of p.id + '|' + res + '|' + day) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); const want = 0.8 + ((h >>> 0) % 1000) / 1000; return Math.round(C.CARGO[res] * want * (1 + d / 500) * 10) / 10; };
+  L.caravanQuotes = (g) => { const day = ctx.clock().day; return L.towns(g).map(([p, d]) => ({ id: p.id, name: p.name, dist: Math.round(d), price: Object.fromEntries(Object.keys(C.CARGO).map(r => [r, L.price(p, r, d, day)])) })); };
+  L.startCaravan = (g, pid, to, cargo) => {
+    if (!g.hq) return 'The clan needs a compound to send a caravan from.';
+    if (g.contracts.some(c => c.kind === 'caravan' && c.state === 'active' && c.by === pid)) return 'You already have a caravan on the road.';
+    const hit = L.towns(g).find(([p]) => p.id === to); if (!hit) return 'No caravan road to that town.';
+    const [p, d] = hit, load = {}; let n = 0;
+    for (const [r, v] of Object.entries(cargo || {})) { if (!C.CARGO[r]) continue; const k = Math.floor(+v || 0); if (k > 0) { load[r] = k; n += k; } }
+    if (n < C.CARAVAN.min) return 'A caravan carries at least ' + C.CARAVAN.min + '.';
+    if (n > C.CARAVAN.max) return 'One wagon carries at most ' + C.CARAVAN.max + '.';
+    if (!G.pay(g, load)) return 'The clan\u2019s store does not have ' + G.costText(load) + '.';
+    const day = ctx.clock().day, value = Math.round(Object.entries(load).reduce((s, [r, k]) => s + k * L.price(p, r, d, day), 0));
+    const c = { id: 'c' + (++db.seq.contract), tpl: 'caravan', kind: 'caravan', name: 'Caravan to ' + p.name, place: { id: p.id, name: p.name, x: p.x, y: p.y, cell: p.cell || null },
+      pickup: { id: 'hq', name: g.hq.name, x: g.hq.x, y: g.hq.y }, met: true, cargo: load, value, kept: 1, coop: 0, crew: [pid], n: 1, need: 1, got: 0,
+      reward: { mon: value }, rep: { wealth: 2, reliability: 1 }, renown: 20, diff: 2, state: 'active', by: pid, day, expires: day + 3 };
+    g.contracts.push(c); G.log(g, (ctx.player(pid) || {}).name + ' set out with a caravan to ' + p.name + ' (' + G.costText(load) + ', worth about ' + value + ' mon there).'); G.bump(g);
+    ctx.contractStarted(g, c);
+    return null;
   };
   L.dayContracts = (g) => {
     const d = ctx.clock().day;
@@ -383,6 +431,11 @@ function createLife(ctx, G) {
       const c = L.contractFor(g, null, R); if (!c) break;
       if (g.contracts.some(x => x.state === 'offered' && x.kind === c.kind) && tries < 8) { db.seq.contract--; continue; }
       g.contracts.push(c); added++; G.log(g, 'Pinned to the board: ' + c.name + '.');
+    }
+    // a clan of two or more always has one job on the board that wants a crew
+    if (g.members.length >= 2 && !g.contracts.some(c => c.state === 'offered' && c.coop)) {
+      const keys = Object.keys(C.CONTRACTS).filter(k => C.CONTRACTS[k].coop && C.CONTRACTS[k].diff <= 2 + G.stage(g).n);
+      const c = keys.length && L.contractFor(g, keys[Math.floor(R() * keys.length)], R); if (c) { g.contracts.push(c); added++; G.log(g, 'Pinned to the board: ' + c.name + ' (needs a crew).'); }
     }
     return added;
   };

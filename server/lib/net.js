@@ -202,10 +202,10 @@ function createNet(opt) {
       case 'ranks': err = G.setRanks(g, p.id, m); break;
       case 'recruit': err = G.setRecruit(g, p.id, m); break;
       case 'invite': err = G.invite(g, p.id, target()); break;
-      case 'acceptInvite': { const inv = db.invites.find(i => i.id === m.id && i.to === p.id); other = inv && db.gangs[inv.gang]; err = G.acceptInvite(p, m.id); break; }
+      case 'acceptInvite': { const inv = db.invites.find(i => i.id === m.id && i.to === p.id); other = inv && db.gangs[inv.gang]; err = G.acceptInvite(p, m.id); if (!err && other) L.stockBoard(other); break; }
       case 'declineInvite': err = G.declineInvite(p, m.id); break;
       case 'apply': { other = db.gangs[m.gang]; err = other ? G.apply(other, p, m) : 'No such clan.'; break; }
-      case 'decideApp': err = G.decideApp(g, p.id, m.id, !!m.yes); break;
+      case 'decideApp': err = G.decideApp(g, p.id, m.id, !!m.yes); if (!err && m.yes) L.stockBoard(g); break;
       case 'kick': err = G.kick(g, p.id, m.id); if (!err) { const k = db.players[m.id]; if (k) { const ng = ensureGang(k); ctx.send(k.id, { t: 'clanKicked', from: g.name }); sendGang(ng); } } break;
       case 'setRank': err = G.setRank(g, p.id, m.id, m.rank); break;
       case 'transfer': err = G.transfer(g, p.id, m.id, m.confirm); break;
@@ -255,6 +255,9 @@ function createNet(opt) {
       case 'trial': err = L.trial(g, p.id, m.id, !!m.won); break;
       case 'acceptContract': err = L.accept(g, p.id, m.id); break;
       case 'abandonContract': err = L.abandon(g, p.id, m.id); break;
+      case 'joinContract': err = L.join(g, p.id, m.id); break;
+      case 'caravanQuotes': data = L.caravanQuotes(g); break;
+      case 'startCaravan': err = L.startCaravan(g, p.id, String(m.to || ''), m.cargo); break;
       case 'deliver': err = L.deliver(g, p.id, m.id); break;
       case 'arrive': err = arrive(g, p, m.id); break;
       case 'duelDone': {
@@ -370,8 +373,9 @@ function createNet(opt) {
         break;
       }
       // the host saw the escort's merchant meet whoever took the job: from here the tracker points at the destination
-      case 'contractMet': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; const ct = g && g.contracts.find(x => x.id === m.id && x.state === 'active'); if (ct && !ct.met) { ct.met = true; G.log(g, 'The merchant set out for ' + ct.place.name + '.'); G.bump(g); sendGang(g); } break; }
-      case 'contractHit': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; if (g) { L.progress(g, m.id, U.int(m.n, 1, 10, 1), m.by); sendGang(g); } break; }
+      case 'contractMet': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; const ct = g && g.contracts.find(x => x.id === m.id && x.state === 'active'); if (ct && !ct.met) { ct.met = true; G.log(g, (ct.kind === 'convoy' ? 'The convoy' : 'The merchant') + ' set out for ' + ct.place.name + '.'); G.bump(g); sendGang(g); } break; }
+      case 'contractHit': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; if (g) { L.progress(g, m.id, U.int(m.n, 1, 10, 1), m.by, { alive: !!m.alive, kept: m.kept }); sendGang(g); } break; }
+      case 'jobNews': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; if (g) ctx.toGang(g, { t: 'jobNews', id: String(m.id || ''), text: U.cleanText(m.text, 120), tone: m.tone === 'bad' ? 'bad' : 'good' }); break; }
       case 'contractFail': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; const ct = g && g.contracts.find(x => x.id === m.id && x.state === 'active'); if (ct) { ct.state = 'failed'; G.addRep(g, { reliability: -1 }); G.log(g, 'Failed: ' + ct.name + (m.why ? ' (' + U.cleanText(m.why, 80) + ')' : '') + '.'); G.bump(g); sendGang(g); } break; }
       case 'raidEnd': { if (c.id !== hostId) return; const g = db.gangs[m.gang]; const raid = g && g.raids.find(r => r.id === m.id); if (raid) { R.resolveRaid(g, raid, m.outcome === 'repelled' ? 'repelled' : 'breached', U.int(m.kills, 0, 99, 0)); sendGang(g); } break; }
       case 'kill': {
@@ -389,13 +393,14 @@ function createNet(opt) {
       case 'questStart': { const g = db.gangs[p.gangId]; ctx.toGang(g, { t: 'questGo', id: m.id, at: Array.isArray(m.at) ? m.at : [p.x, p.y], ret: [p.x, p.y], by: p.id, title: U.cleanText(m.title, 60) }); break; }
       case 'questEnd': { const g = db.gangs[p.gangId]; ctx.toGang(g, { t: 'questEnd', id: m.id, ret: m.ret }); break; }
       case 'track': { const g = db.gangs[p.gangId]; if (!g) return; g.world = g.world || {}; g.world.track = m.id || null; ctx.toGang(g, { t: 'track', id: g.world.track }, ws); break; }
+      case 'mark': { const g = db.gangs[p.gangId]; if (!g || !c.markRate.ok()) return; const kinds = ['meet', 'danger', 'loot', 'clear']; const kind = kinds.includes(m.kind) ? m.kind : 'meet'; ctx.toGang(g, { t: 'mark', from: p.id, name: p.name, x: Math.round(+m.x * 10) / 10 || 0, y: Math.round(+m.y * 10) / 10 || 0, kind }); break; }
       case 'ping': send(ws, { t: 'pong', at: m.at, server: U.now() }); break;
       case 'away': { c.away = !!m.away; electHost(); break; }
     }
   }
 
   function onConnect(ws) {
-    clients.set(ws, { ws, id: null, joinedAt: 0, known: new Set(), seen: new U.Seen(400), reqRate: new U.Rate(24, 2000), stateRate: new U.Rate(40, 1000), hitRate: new U.Rate(30, 1000), spawnRate: new U.Rate(10, 5000) });
+    clients.set(ws, { ws, id: null, joinedAt: 0, known: new Set(), seen: new U.Seen(400), reqRate: new U.Rate(24, 2000), stateRate: new U.Rate(40, 1000), hitRate: new U.Rate(30, 1000), spawnRate: new U.Rate(10, 5000), markRate: new U.Rate(6, 4000) });
   }
   function onClose(ws) {
     const c = clients.get(ws); if (!c) return;
