@@ -12834,6 +12834,11 @@ Props.draw.chestlock = (g, x, y) => { shadowEllipse(g, x + 1, y + 1, 8, 3); isoB
 Props.draw.haystack = (g, x, y) => { shadowEllipse(g, x + 2, y + 1, 11, 5); for (let j = 0; j < 12; j++) { const w = 10 - Math.abs(j - 5) * 1.2; g.fillStyle = j % 3 ? '#c8a860' : '#b8944e'; g.fillRect(Math.round(x - w), y - j, Math.round(w * 2), 1); } g.fillStyle = '#e0c47a'; g.fillRect(x - 4, y - 9, 4, 1); };
 Props.draw.grate = (g, x, y) => { const P = isoPts(x, y, 1, 1, 0); poly(g, [P.top, P.right, P.bottom, P.left], '#1a1a1e'); g.strokeStyle = '#6a6a72'; for (let i = 1; i < 5; i++) { const t = i / 5; g.beginPath(); g.moveTo(lerp(P.left[0], P.top[0], t), lerp(P.left[1], P.top[1], t)); g.lineTo(lerp(P.bottom[0], P.right[0], t), lerp(P.bottom[1], P.right[1], t)); g.stroke(); } };
 // Nao's satchel: worn leather, a flap, a paper charm on a cord
+// things a mission step is done with, so pressing E is done to something you can see
+Props.draw.ladder = (g, x, y, o) => { shadowEllipse(g, x + 2, y + 1, 7, 2); const H = o && o.tall ? 40 : 30, lean = 6; g.fillStyle = '#5a3e26'; for (const dx of [-4, 3]) { g.beginPath(); g.moveTo(x + dx, y); g.lineTo(x + dx + 2, y); g.lineTo(x + dx + 2 + lean, y - H); g.lineTo(x + dx + lean, y - H); g.fill(); } g.fillStyle = '#8a6a42'; for (let k = 1; k < H / 5; k++) { const t = k * 5 / H; g.fillRect(Math.round(x - 3 + lean * t), Math.round(y - k * 5), 7, 1); } };
+Props.draw.herbs = (g, x, y, o) => { shadowEllipse(g, x, y + 1, 6, 2); const sw = Math.sin((G.time || 0) * 1.6 + x) * 0.8; for (let k = 0; k < 7; k++) { const a = -1.3 + k * 0.43, L = 5 + (k % 3) * 2; g.strokeStyle = k % 2 ? '#5f8a3a' : '#4a7a32'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + Math.cos(a) * L * 0.5 + sw, y - L * 0.6, x + Math.cos(a) * L + sw, y - L); g.stroke(); } g.fillStyle = '#e8e0a0'; g.fillRect(x - 3 + sw, y - 8, 1, 1); g.fillRect(x + 2 + sw, y - 9, 1, 1); g.fillStyle = '#c8a8e8'; g.fillRect(x + sw, y - 10, 1, 1); };
+Props.draw.pot = (g, x, y) => { shadowEllipse(g, x, y + 1, 9, 3); g.fillStyle = '#6a6a6a'; for (const [dx, dy] of [[-6, 0], [5, -1], [0, 2]]) g.fillRect(x + dx - 2, y + dy - 2, 4, 3); const t = G.time || 0; g.fillStyle = Math.sin(t * 9) > 0 ? '#e8902a' : '#c8501e'; g.fillRect(x - 2, y - 3, 4, 2); g.fillStyle = '#2a2a2e'; g.beginPath(); g.ellipse(x, y - 7, 6, 4.5, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#3a3a40'; g.fillRect(x - 6, y - 11, 12, 2); g.fillStyle = '#4a6a5a'; g.fillRect(x - 5, y - 11, 10, 1); g.fillStyle = 'rgba(230,230,230,0.35)'; for (let k = 0; k < 3; k++) { const ph = (t * 0.7 + k / 3) % 1; g.fillRect(Math.round(x - 2 + Math.sin(ph * 6 + k) * 2), Math.round(y - 13 - ph * 10), 2, 2); } };
+Props.draw.rope = (g, x, y) => { shadowEllipse(g, x, y + 1, 7, 2); g.strokeStyle = '#b89a62'; g.lineWidth = 1.5; for (let k = 0; k < 3; k++) { g.beginPath(); g.ellipse(x, y - 2 - k * 1.6, 5 - k, 2.4 - k * 0.4, 0, 0, Math.PI * 2); g.stroke(); } g.strokeStyle = '#8a7246'; g.beginPath(); g.moveTo(x + 4, y - 2); g.lineTo(x + 8, y + 1); g.stroke(); };
 Props.draw.satchel = (g, x, y) => { shadowEllipse(g, x + 1, y + 1, 6, 2); g.fillStyle = '#5a4a3a'; g.fillRect(x - 4, y - 6, 8, 6); g.fillStyle = '#6a5848'; g.fillRect(x - 4, y - 7, 8, 3); g.fillStyle = '#3a2e24'; g.fillRect(x - 4, y - 4, 8, 1); g.fillStyle = '#c89a2a'; g.fillRect(x - 1, y - 5, 2, 2); g.fillStyle = '#efe6d2'; g.fillRect(x + 3, y - 3, 2, 3); g.fillStyle = '#c8372d'; g.fillRect(x + 3, y - 2, 2, 1); };
 // a bamboo cage for a prisoner. The object sits a little in front of the cage's middle (o.lift) so it is drawn over
 // whoever kneels inside: they show between the front bars. Opened, the front-left side hangs aside.
@@ -14225,13 +14230,13 @@ const Card = {
   },
   // other cards in the middle of the screen (a name, a new creature) wait until this one has gone
   wait(fn) { const t = (this.until || 0) - performance.now(); if (t > 0) setTimeout(fn, t + 400); else fn(); },
-  black(on, slow) {
+  black(on, slow, now) {
     const f = $('mFade'); if (!f) return;
-    // a line that needs the world cannot sit through a long fade-out
-    if (!on) f.style.transition = 'none';
+    // a line that needs the world cannot sit through a long fade-out (and a cut in the middle of play is instant)
+    if (!on || now) f.style.transition = 'none';
     f.classList.toggle('slow', !!on && !!slow);
     f.classList.toggle('on', !!on);
-    if (!on) { void f.offsetWidth; f.style.transition = ''; }
+    if (!on || now) { void f.offsetWidth; f.style.transition = ''; }
   },
   isBlack() { const f = $('mFade'); return !!f && f.classList.contains('on'); },
   // a line is on screen: the world has to be there too, unless a title card or a teleport is still using the black
@@ -14743,6 +14748,14 @@ class MCtx {
   // (local: a hop over a wall or through a roof; Kumo and the others stay where they were)
   put(w, mounted, o = {}) {
     const p = this.at(w); if (!p) return; const P = G.player;
+    // in the middle of play Ren is never moved in plain sight: a step or two off is close enough to stand where he is,
+    // and anywhere further is a cut through black (a mission's start, a cut already under way, a black card need none)
+    if (!this.cut && !this.fast && !o.local && !o.now && !Card.isBlack() && !Missions.cuts.length && P && !P.dead) {
+      const d = dist(P.x, P.y, p[0], p[1]);
+      if (d < 3.2 && !!mounted === !!P.mounted) { P.vx = P.vy = 0; return; }
+      // black at once, so whoever the scene moves next to him is moved in the dark too; it lifts like any cut
+      Card.black(true, false, true); Missions.cuts.push({ m: this, fn: () => {}, t: 0.35 });
+    }
     const room = typeof Buildings !== 'undefined' && Buildings.at(p[0], p[1]);
     const q0 = room ? p : this.near(p, 0.6), q = room ? (blockedCircle(p[0], p[1], 0.27) ? (Buildings.randomInside(room) || p) : p.slice()) : (blockedCircle(q0[0], q0[1], 0.3) ? World.randomWalkable(p[0], p[1], 0.6, 5, 120) || q0 : q0);
     if (P.mounted && !mounted) Horse.dismount();
@@ -14808,6 +14821,14 @@ class MCtx {
     Camera.look = { x: p[0], y: p[1], t: this.fast ? Math.max(0.05, dur) : dur, pin: !this.fast && !!far };
     if (this.fast) return;
     World.streamAll(p[0], p[1]);
+    // the camera cutting away to a place is the cover for whoever was still walking on to it out of sight: they are
+    // already there when the shot opens, instead of the shot opening on an empty road
+    if (far) for (const a of this.actors) {
+      if (!a.mArrive || !a.mPath || a.mDone || a.dead || a.gone || this.vis(a.x, a.y)) continue;
+      const q = a.mPath[a.mPath.length - 1]; if (!q || dist(q[0], q[1], p[0], p[1]) > 18) continue;
+      a.x = q[0]; a.y = q[1]; a.mPath = null; a.mArrive = false; a.post = q.slice(); a.nav = null;
+      if (a.postFace !== undefined) a.face = a.postFace;
+    }
     if (far || Card.isBlack()) { Camera.snap = true; Camera.update(0, p[0], p[1]); }
     if (typeof Buildings !== 'undefined') Buildings.watchCut(p[0], p[1]);
   }
@@ -14963,7 +14984,7 @@ const STEPS = {
   horse: { tick: m => m.st.ok },
   use: {
     // thing: what is used, set down at each point (a pile of firewood, a lost page); take: it goes once used
-    begin(m, s) { m.placeStep(s); const pts = s.ats || [s.at]; m.st.need = s.n || pts.length; m.st.got = 0; m.st.pts = pts.map((w, k) => m.usePoint(w, s.label || s.text || 'Use', k, s)); if (!s.thing) Missions.promised(m, s); if (s.thing) m.st.marks = m.st.pts.map((o, k) => o && m.prop(typeof s.thing === 'function' ? s.thing(k) : s.thing, [o.cx, o.cy], { solid: false })); },
+    begin(m, s) { m.placeStep(s); const pts = s.ats || [s.at]; m.st.need = s.n || pts.length; m.st.got = 0; m.st.pts = pts.map((w, k) => m.usePoint(w, s.label || s.text || 'Use', k, s)); if (!s.thing) { Missions.promised(m, s); Missions.fit(m, s); } if (s.thing) m.st.marks = m.st.pts.map((o, k) => o && m.prop(typeof s.thing === 'function' ? s.thing(k) : s.thing, [o.cx, o.cy], { solid: false })); },
     tick: m => m.st.got >= m.st.need
   },
   kill: {
@@ -15572,6 +15593,52 @@ const Missions = {
       return null;
     });
     m.st.marks = m.st.pts.map((o, k) => o && (!m.st.hosts[k] || (m.st.takeIt && m.st.hosts[k].t !== prop)) ? m.prop(prop, [o.cx, o.cy], { solid: false }) : null);
+  },
+  // a step whose words promise nothing in particular still happens to something: the ladder Ren climbs, the lock he
+  // picks, the herbs he gathers. If nothing of the kind stands at the point, one is set down there before he arrives
+  FITS: [
+    [/\bladder\b|climb (onto|to|up|the wall|out)|climb the|lookout|drop in through the roof/, 'ladder', ['ladder', 'watchtower', 'tower']],
+    [/drain|grate|sewer/, 'grate', ['grate']],
+    [/\block\b|padlock|chains/, 'chestlock', ['chestlock', 'cage', 'gatewood', 'strongbox']],
+    [/drawer|desk|operations|\btable\b/, 'desk', ['desk', 'table', 'mapTable', 'counter', 'tansu']],
+    [/\bmap\b/, 'pages', ['pages', 'mapTable', 'desk', 'table', 'flatstone']],
+    [/herb/, 'herbs', ['herbs']],
+    [/boil|\bpot\b|tea\b|meal/, 'pot', ['pot', 'irori', 'kamado', 'campfire', 'brazier']],
+    [/cage/, 'cage', ['cage']],
+    [/wheel|axle|wagon|carriage|harness/, 'cart', ['wagon', 'cart', 'cabbagecart']],
+    [/rope/, 'rope', ['rope', 'wagon', 'cart', 'winch']],
+    [/\bbar\b|door|passage/, 'gatewood', ['gatewood', 'gatehouse', 'debris']],
+    [/planks|footbridge/, 'lumber', ['footbridge', 'lumber']],
+    [/tent/, 'tent', ['tent']],
+    [/signal|mechanism|lever|assembly|cannon/, 'winch', ['winch', 'cannon']],
+    [/make camp|\bcamp\b/, 'campfire', ['campfire', 'bedroll', 'tent']],
+    [/\bsit\b|\brock\b|flat stone/, 'flatstone', ['flatstone', 'rock']],
+    [/marker|\bsign\b/, 'sign', ['sign', 'kanban', 'jizo']],
+    [/banner|standard/, 'sunbanner', ['sunbanner', 'banner', 'flag', 'clanbanner']],
+    [/\btool\b|mend/, 'crates', ['furnace', 'smith', 'crates', 'forge']],
+    [/ammunition|defences|defenses/, 'crates', ['crates', 'barrels', 'barrier']],
+    [/carve|names|bell|charm|daichi's tools/, 'memorial', ['memorial', 'grave', 'jizo']],
+    [/grave|dig/, 'grave', ['grave', 'rubble', 'debris']],
+    [/look inside/, 'ricesacks', ['ricesacks', 'crates', 'chest']],
+    [/satchel/, 'satchel', ['satchel']],
+    [/lamp/, 'lantern', ['lantern', 'lanternpost', 'andon', 'stonelantern']],
+    [/horses/, 'fence', ['fence', 'stable']],
+    [/wound|bind|help (them|him|haru)|wake|lift him|blanket/, 'bedroll', ['bedroll', 'tent']]
+  ],
+  fit(m, s) {
+    const t = ((s.label || '') + ' ' + (s.text || '')).toLowerCase(), F = this.FITS.find(([re]) => re.test(t)); if (!F) return;
+    const [, prop, hosts] = F, pts = m.st.pts || [];
+    m.st.marks = m.st.marks || pts.map(() => null);
+    pts.forEach((o, k) => {
+      if (!o || m.st.marks[k]) return;
+      // a person to help, or a horse, is already the thing: so is anything of the kind already standing there
+      for (const a of G.actors) if (a !== G.player && !a.dead && dist(a.x, a.y, o.cx, o.cy) < 1.6 && /wound|bind|help|wake|lift him|blanket|tea|sit beside/.test(t)) return;
+      for (let j = Math.floor(o.cy) - 2; j <= Math.floor(o.cy) + 2; j++) for (let i = Math.floor(o.cx) - 2; i <= Math.floor(o.cx) + 2; i++) for (const q of World.at(i, j) || []) if (hosts.includes(q.t) && dist(q.cx, q.cy, o.cx, o.cy) < 2.2) return;
+      if (prop === 'cart' && m.wagons && m.wagons.some(w => dist(w.cx, w.cy, o.cx, o.cy) < 3)) return;
+      // set a step off the point, so Ren stands beside it rather than inside it
+      m.st.marks[k] = m.prop(prop, [o.cx + 0.2, o.cy - 0.7], { solid: false, fit: true });
+    });
+    if (/gather|^take\b|pick up/.test(t)) m.st.takeIt = true;
   },
   dry(m, w) {
     const p = m && m.at(w);
@@ -16420,11 +16487,13 @@ function kiyoVillage(m, o = {}) {
 // the column of the Crusade on the northern road (a tableau the camera finds from the workshop roof)
 function armyColumn(m, w, n = 10) {
   const p = m.at(w);
-  m.cast('kuroda', p, { face: 0, key: 'kuroda' });
-  for (let i = 0; i < n; i++) { const q = World.randomWalkable(p[0] - 4 - (i % 5) * 1.6, p[1] - 3 + Math.floor(i / 5) * 2.4, 0, 1, 20) || p; m.spawn(i % 3 ? 'imperial' : 'rifleman', q, 1, { calm: true, tag: 'column', face: 0, spread: 0.2 }); }
+  // (an army seen from the roof is already on the road: nobody walks on, and the camera is pointed at its middle)
+  m.cast('kuroda', p, { face: 0, key: 'kuroda', appear: true });
+  for (let i = 0; i < n; i++) { const q = World.randomWalkable(p[0] - 4 - (i % 5) * 1.6, p[1] - 3 + Math.floor(i / 5) * 2.4, 0, 1, 20) || p; m.spawn(i % 3 ? 'imperial' : 'rifleman', q, 1, { calm: true, tag: 'column', face: 0, spread: 0.2, appear: true }); }
   for (const [dx, dy] of [[-3, -4], [-8, 3], [-12, -4]]) m.prop('sunbanner', [p[0] + dx, p[1] + dy], { solid: true });
   for (const [dx, dy] of [[-6, 0], [-15, 1]]) m.prop('cannon', [p[0] + dx, p[1] + dy], { dir: 0, solid: true });
   m.prop('wagon', [p[0] - 18, p[1] - 1], { sun: true, solid: true });
+  return [p[0] - 7, p[1] - 0.5];
 }
 const armyPt = m => { const g = m.at('kiyo.gateW'); return World.randomWalkable(g[0] - 13, g[1], 0, 5, 80) || m.at('kiyo.roadW'); };
 
@@ -16482,7 +16551,7 @@ M({
     { t: 'scene', on(m) { m.place('headman', ['kiyo.threshing', 1.6, 1.0]); m.look('kiyo.threshing', 6); }, parts: [['narr', 'Under the threshing floor, in the dark: rice sacks, and a family Ren has never seen, staring up at him.'], ['Stranger', '(whispering) Please. Don\'t tell anyone we\'re here.'], ['headman', 'They came over the mountains from Ishimura. If anyone asks, Ren, they do not exist.']] },
     { t: 'wait', dur: 1.6, text: 'A horn sounds beyond Kiyohara\'s fields', on(m) { if (!m.fast) { Snd.play('gong', 0.8); G.shake = 2; } } },
     { t: 'use', at: 'kiyo.ladder', label: 'Climb onto the workshop roof', text: 'Climb onto the workshop roof to see', hint: 'The ladder leans against the saddlery wall.' },
-    { t: 'scene', on(m) { const p = armyPt(m); armyColumn(m, p, 12); m.look(p, 9); const roof = m.at('kiyo.ladder') || [G.player.x, G.player.y]; const h = m.get('hana'); if (h) { h.x = roof[0] + 0.7; h.y = roof[1] + 0.5; h.mPath = null; } if (G.player && dist(G.player.x, G.player.y, roof[0], roof[1]) > 6) { G.player.x = roof[0]; G.player.y = roof[1]; World.streamAll(roof[0], roof[1]); } },
+    { t: 'scene', on(m) { const p = armyPt(m), mid = armyColumn(m, p, 12); m.look(mid, 9); const roof = m.at('kiyo.ladder') || [G.player.x, G.player.y]; const h = m.get('hana'); if (h) { h.x = roof[0] + 0.7; h.y = roof[1] + 0.5; h.mPath = null; } if (G.player && dist(G.player.x, G.player.y, roof[0], roof[1]) > 6) { G.player.x = roof[0]; G.player.y = roof[1]; World.streamAll(roof[0], roof[1]); } },
       parts: [['hana', 'Ren? Why are the trees moving?'], ['headman', '(from the square, far below) Children indoors! All of you, now! Everyone else, to the square!']] },
     { t: 'go', at: 'kiyo.home', r: 2.4, text: 'Go home to your mother', on(m) { m.goTo('emi', 'kiyo.home'); } },
     { t: 'scene', on(m) { const p = m.at('kiyo.home') || m.at('kiyo.homeIn') || [G.player.x, G.player.y]; const snap = (id, dx, dy) => { const a = m.get(id); if (!a) return; a.x = p[0] + dx; a.y = p[1] + dy; a.mPath = null; }; snap('emi', 0.6, 0.4); snap('hana', 1.2, 1.0); m.put(p); m.look(p, 8); }, parts: [['ren', 'Mother, are the soldiers going to stay?'], ['emi', 'Bring in the washing, Ren.'], ['ren', 'Mother?'], ['emi', 'The washing. Then find Hana\'s good sandals. Both pairs.']] },
@@ -19108,9 +19177,16 @@ function frameBody(now) {
     else { G.player && G.player.move(0, 0, dt); Snd.update(dt, 'calm', G.wind); if (UI.panel === 'dialog') Talk.update(dt); else if (Input.hit('Escape')) UI.close(); if (typeof Missions !== 'undefined' && Missions.pump) Missions.pump(dt); }
     const p = G.player, du = G.duel;
     if (Camera.look && Camera.look.t > 0) {
-      const talking = UI.panel === 'dialog' || Subs.cur || (Missions.cur && Missions.cur._say);
+      // (a scene holds the shot; chatter while walking does not, or the camera never comes back to Ren)
+      const talking = UI.panel === 'dialog' || (Missions.cur && Missions.cur._say) || (Subs.cur && Missions.cur && Missions.cur.step && /^(wait|scene|narr)$/.test(Missions.cur.step.t));
       Camera.look.t -= dt;
       if (Camera.look.pin && talking && Camera.look.t < 1.2) Camera.look.t = 1.2;
+      // the scene is over and the game is Ren's again: the camera comes back to him as soon as he moves, and within a
+      // second and a half regardless, unless the step is one he is meant to stand and watch
+      const m = Missions.cur, s = m && m.step;
+      const free = !talking && !UI.isOpen() && !Missions.cuts.length && !Missions.pending && !(s && /^(wait|card|rest|scene|narr)$/.test(s.t));
+      if (free) { Camera.look.freeT = (Camera.look.freeT || 0) + dt; if ((p && p.moving && Camera.look.freeT > 0.25) || Camera.look.freeT > 1.5) Camera.look.t = Math.min(Camera.look.t, 0.01); }
+      else Camera.look.freeT = 0;
       Camera.update(dt * 0.6, Camera.look.x, Camera.look.y);
       if (Camera.look.t <= 0) { Camera.look = null; if (typeof Buildings !== 'undefined') Buildings.unwatch(); }
     }
